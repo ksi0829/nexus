@@ -52,6 +52,17 @@ type PresenceRow = {
   visible: boolean;
   last_seen_at: string;
 };
+type ApprovalMemberRoleRow = {
+  requester_id: string | null;
+  approval_lines?: {
+    approver_id: string | null;
+    role_label: string | null;
+    step_order: number | null;
+  }[];
+  approval_references?: {
+    user_id: string | null;
+  }[];
+};
 const workTalkSupabase = createSupabaseBrowser();
 const NEXUS_DOCUMENT_BUCKET = "nexus-documents";
 const ORG_GROUP_ORDER = [
@@ -137,8 +148,14 @@ function getRoomSubtitle(room: WorkTalkRoom, currentUserId?: string) {
   return `${room.members.length}명 참여`;
 }
 
-function getRoomMemberRole(room: WorkTalkRoom, member: WorkTalkRoom["members"][number]) {
+function getRoomMemberRole(
+  room: WorkTalkRoom,
+  member: WorkTalkRoom["members"][number],
+  approvalRoleByUser?: Record<string, string>
+) {
   if (room.room_type === "approval") {
+    const approvalRole = approvalRoleByUser?.[member.user_id];
+    if (approvalRole) return approvalRole;
     if (member.user_id === room.created_by) return "작성자";
     if (member.member_role === "viewer") return "참조";
     return "결재자";
@@ -359,6 +376,10 @@ export function WorkTalkApp() {
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [memberManagerOpen, setMemberManagerOpen] = useState(false);
   const [memberListOpen, setMemberListOpen] = useState(false);
+  const [selectedRoomApprovalRoles, setSelectedRoomApprovalRoles] = useState<{
+    roomId: number | null;
+    roles: Record<string, string>;
+  }>({ roomId: null, roles: {} });
   const [inviteMemberIds, setInviteMemberIds] = useState<string[]>([]);
   const [invitingMembers, setInvitingMembers] = useState(false);
   const [transferOwnerOpen, setTransferOwnerOpen] = useState(false);
@@ -564,6 +585,56 @@ export function WorkTalkApp() {
         : [],
     [selectedRoom]
   );
+
+  useEffect(() => {
+    if (!memberListOpen || selectedRoom?.room_type !== "approval") {
+      return;
+    }
+
+    let cancelled = false;
+    void workTalkSupabase
+      .from("approval_documents")
+      .select(
+        "requester_id,approval_lines(step_order,role_label,approver_id),approval_references(user_id)"
+      )
+      .eq("worktalk_room_id", selectedRoom.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+
+        const document = data as ApprovalMemberRoleRow | null;
+        const roleByUser: Record<string, string> = {};
+        if (document?.requester_id) {
+          roleByUser[document.requester_id] = "작성자";
+        }
+        [...(document?.approval_lines || [])]
+          .sort((left, right) => (left.step_order || 0) - (right.step_order || 0))
+          .forEach((line, index, lines) => {
+            if (!line.approver_id) return;
+            roleByUser[line.approver_id] =
+              line.role_label?.trim() ||
+              (lines.length === 1
+                ? "1차 최종 결재"
+                : index === lines.length - 1
+                  ? `${index + 1}차 최종 결재`
+                  : `${index + 1}차 결재`);
+          });
+        (document?.approval_references || []).forEach((reference) => {
+          if (reference.user_id && !roleByUser[reference.user_id]) {
+            roleByUser[reference.user_id] = "참조";
+          }
+        });
+        setSelectedRoomApprovalRoles({
+          roomId: selectedRoom.id,
+          roles: roleByUser,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [memberListOpen, selectedRoom?.id, selectedRoom?.room_type]);
+
   const activeMemberIds = useMemo(
     () => new Set(selectedRoom?.members.map((member) => member.user_id) || []),
     [selectedRoom?.members]
@@ -2628,7 +2699,15 @@ export function WorkTalkApp() {
                     <strong>{member.profile?.name || "사용자"}</strong>
                     <small>{member.profile?.team || "소속 미지정"}</small>
                   </div>
-                  <em>{getRoomMemberRole(selectedRoom, member)}</em>
+                  <em>
+                    {getRoomMemberRole(
+                      selectedRoom,
+                      member,
+                      selectedRoomApprovalRoles.roomId === selectedRoom.id
+                        ? selectedRoomApprovalRoles.roles
+                        : undefined
+                    )}
+                  </em>
                 </article>
               ))}
             </div>

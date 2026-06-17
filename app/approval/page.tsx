@@ -177,6 +177,17 @@ const NEXUS_PURCHASE_APPROVERS = ["한차현", "장동철", "신영호"];
 const NEXUS_PURCHASE_TEAM_REFERENCES = ["한재영", "권영일", "김학", "박상현"];
 const NEXUS_PURCHASE_FIXED_REFERENCES = ["신훈식", "최하영"];
 const NEXUS_PURCHASE_RESOLUTION_REFERENCES = ["최하영", "신상민"];
+const NEXUS_WORK_ORDER_TECH_MEMBERS = [
+  "한차현",
+  "한재영",
+  "권영일",
+  "김학",
+  "박상현",
+  "이승준",
+  "김종혁",
+];
+const NEXUS_WORK_ORDER_DOMESTIC_SALES = ["김선일"];
+const NEXUS_WORK_ORDER_OVERSEAS_SALES = ["이양로", "반준영"];
 const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
   "xlsx",
   "xls",
@@ -1446,6 +1457,33 @@ export default function ApprovalPage() {
   }, [nexusPurchaseResolutionMode, profiles]);
 
   useEffect(() => {
+    if (!nexusWorkOrderMode || profiles.length === 0) return;
+
+    const profileByName = new Map(
+      profiles.map((profile) => [profile.name || "", profile])
+    );
+    const marketType = String(formData.marketType || "국내");
+    const salesNames =
+      marketType === "해외"
+        ? NEXUS_WORK_ORDER_OVERSEAS_SALES
+        : NEXUS_WORK_ORDER_DOMESTIC_SALES;
+    const participantNames = [
+      ...NEXUS_WORK_ORDER_TECH_MEMBERS,
+      ...salesNames,
+    ].filter((name) => name !== currentName);
+
+    const timeoutId = window.setTimeout(() => {
+      setApproverSlots([]);
+      setReferenceIds(
+        participantNames
+          .map((name) => profileByName.get(name)?.id || "")
+          .filter(Boolean)
+      );
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [currentName, formData.marketType, nexusWorkOrderMode, profiles]);
+
+  useEffect(() => {
     if (!shouldSelectEquipmentOrder || !selectedEquipmentOrderId) return;
 
     const selectedOrder = linkableEquipmentOrders.find(
@@ -1801,7 +1839,7 @@ export default function ApprovalPage() {
       .map((profileId) => getProfile(profileId))
       .filter((profile): profile is ProfileRow => Boolean(profile));
 
-    if (selectedApprovers.length === 0) {
+    if (!nexusWorkOrderMode && selectedApprovers.length === 0) {
       setMessage("결재라인에서 최소 1명 이상 선택해 주세요.");
       return;
     }
@@ -1834,11 +1872,11 @@ export default function ApprovalPage() {
       template_key: selectedTemplate.key,
       template_title: selectedTemplate.title,
       title,
-      status: "pending",
+      status: nexusWorkOrderMode ? "approved" : "pending",
       requester_id: requesterId,
       requester_name: currentName || "작성자",
       requester_team: currentTeam || null,
-      current_step: 1,
+      current_step: nexusWorkOrderMode ? 0 : 1,
       form_data: finalFormData,
     };
 
@@ -1951,7 +1989,6 @@ export default function ApprovalPage() {
             documentNo: nexusDocumentNo,
             requesterName: currentName || "작성자",
             formData: finalFormData,
-            approvals: submittedApprovalRows,
           });
           const fileName = `${nexusDocumentNo}_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
@@ -3357,7 +3394,7 @@ export default function ApprovalPage() {
             </section>
           )}
 
-          {!nexusSubmissionLocked && <section
+          {!nexusSubmissionLocked && !nexusWorkOrderMode && <section
             style={{
               ...styles.approvalLineBoxTop,
               ...(nexusDocument ? styles.nexusApprovalLineBox : {}),

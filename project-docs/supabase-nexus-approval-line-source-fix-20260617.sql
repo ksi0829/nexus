@@ -192,7 +192,7 @@ declare
   new_message_id bigint;
   existing_message_id bigint;
   market_type text;
-  line_count integer;
+  required_profile_count integer;
 begin
   select * into document_row
   from public.approval_documents
@@ -221,39 +221,12 @@ begin
     );
   end if;
 
-  select count(*) into line_count
-  from public.approval_lines
-  where document_id = target_document_id
-    and approver_id is not null;
+  market_type := coalesce(nullif(document_row.form_data->>'marketType', ''), '국내');
 
-  if line_count < 1 then
-    raise exception 'At least one approval line is required.';
+  if market_type not in ('국내', '해외') then
+    raise exception 'Work order marketType must be 국내 or 해외.';
   end if;
 
-  with ordered as (
-    select
-      line.id,
-      row_number() over (order by line.step_order, line.id) as next_order,
-      count(*) over () as total_count
-    from public.approval_lines line
-    where line.document_id = target_document_id
-      and line.approver_id is not null
-  )
-  update public.approval_lines line
-  set
-    step_order = ordered.next_order,
-    role_label = case
-      when ordered.total_count = 1 then '1차 최종 결재'
-      when ordered.next_order = ordered.total_count then ordered.next_order::text || '차 최종 결재'
-      else ordered.next_order::text || '차 결재'
-    end,
-    status = 'pending',
-    acted_at = null,
-    memo = null
-  from ordered
-  where line.id = ordered.id;
-
-  market_type := coalesce(nullif(document_row.form_data->>'marketType', ''), '국내');
   generated_room_no := public.nexus_next_room_number('production-work-order');
   generated_document_no := '작업 생산 ' || generated_room_no;
 
@@ -261,8 +234,83 @@ begin
   from public.profiles
   where id = auth.uid();
 
+  select count(distinct profile.name) into required_profile_count
+  from public.profiles profile
+  where profile.name in (
+    '한차현',
+    '한재영',
+    '권영일',
+    '김학',
+    '박상현',
+    '이승준',
+    '김종혁'
+  )
+  or (
+    market_type = '국내'
+    and profile.name in ('김선일')
+  )
+  or (
+    market_type = '해외'
+    and profile.name in ('이양로', '반준영')
+  );
+
+  if (
+    market_type = '국내'
+    and required_profile_count < 8
+  ) or (
+    market_type = '해외'
+    and required_profile_count < 9
+  ) then
+    raise exception 'NEXUS work order participant profiles are incomplete.';
+  end if;
+
+  delete from public.approval_lines
+  where document_id = target_document_id;
+
+  delete from public.approval_references
+  where document_id = target_document_id;
+
+  insert into public.approval_references (
+    document_id, user_id, reference_name, reference_team
+  )
+  select target_document_id, profile.id, profile.name, profile.team
+  from public.profiles profile
+  where profile.id <> auth.uid()
+    and (
+      profile.name in (
+        '한차현',
+        '한재영',
+        '권영일',
+        '김학',
+        '박상현',
+        '이승준',
+        '김종혁'
+      )
+      or (
+        market_type = '국내'
+        and profile.name in ('김선일')
+      )
+      or (
+        market_type = '해외'
+        and profile.name in ('이양로', '반준영')
+      )
+    )
+  order by case profile.name
+    when '한차현' then 10
+    when '한재영' then 20
+    when '권영일' then 30
+    when '김학' then 40
+    when '박상현' then 50
+    when '이승준' then 60
+    when '김종혁' then 70
+    when '김선일' then 80
+    when '이양로' then 80
+    when '반준영' then 90
+    else 999
+  end;
+
   insert into public.worktalk_rooms (room_type, title, created_by)
-  values ('approval', generated_document_no, auth.uid())
+  values ('group', generated_document_no, auth.uid())
   returning id into new_room_id;
 
   insert into public.worktalk_room_members (room_id, user_id, member_role)
@@ -270,30 +318,31 @@ begin
   on conflict (room_id, user_id) do update
   set member_role = 'owner', left_at = null;
 
-  with participants as (
-    select line.approver_id as user_id, 'member'::text as member_role
-    from public.approval_lines line
-    where line.document_id = target_document_id
-      and line.approver_id is not null
-    union all
-    select reference.user_id, 'viewer'::text as member_role
-    from public.approval_references reference
-    where reference.document_id = target_document_id
-      and reference.user_id is not null
-  ),
-  unique_participants as (
-    select
-      user_id,
-      case when bool_or(member_role = 'member') then 'member' else 'viewer' end as member_role
-    from participants
-    where user_id <> auth.uid()
-    group by user_id
-  )
   insert into public.worktalk_room_members (room_id, user_id, member_role)
-  select new_room_id, user_id, member_role
-  from unique_participants
+  select new_room_id, profile.id, 'member'
+  from public.profiles profile
+  where profile.id <> auth.uid()
+    and (
+      profile.name in (
+        '한차현',
+        '한재영',
+        '권영일',
+        '김학',
+        '박상현',
+        '이승준',
+        '김종혁'
+      )
+      or (
+        market_type = '국내'
+        and profile.name in ('김선일')
+      )
+      or (
+        market_type = '해외'
+        and profile.name in ('이양로', '반준영')
+      )
+    )
   on conflict (room_id, user_id) do update
-  set member_role = excluded.member_role,
+  set member_role = 'member',
       left_at = null;
 
   insert into public.worktalk_messages (
@@ -335,8 +384,9 @@ begin
   update public.approval_documents
   set document_no = generated_document_no,
       worktalk_room_id = new_room_id,
-      status = 'pending',
-      current_step = 1,
+      status = 'approved',
+      current_step = 0,
+      completed_at = now(),
       form_data = jsonb_set(
         jsonb_set(form_data, '{documentNo}', to_jsonb(generated_document_no), true),
         '{roomDocumentNo}', to_jsonb(generated_room_no), true
