@@ -18,6 +18,7 @@ import {
 } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
+import { createWorkOrderPdf } from "@/app/_lib/nexusWorkOrderPdf";
 import {
   NEXUS_DOCUMENT_MAP,
   isNexusDocumentKey,
@@ -1938,6 +1939,71 @@ export default function ApprovalPage() {
           : null;
       nexusDocumentNo = String(nexusResult?.document_no || "");
       nexusSubmittedLabel = "작업지시서";
+
+      if (nexusDocumentNo && nexusResult?.room_id) {
+        try {
+          const targetMessageId = await ensureWorkTalkDocumentMessageId(
+            Number(nexusResult.room_id),
+            Number(documentId),
+            nexusResult.message_id,
+            `${currentName || "작성자"}님이 ${title} 작업지시서를 발행했습니다.`
+          );
+          if (!targetMessageId) {
+            throw new Error("PDF를 연결할 작업지시방 메시지를 찾지 못했습니다.");
+          }
+
+          const pdfBlob = await createWorkOrderPdf({
+            documentNo: nexusDocumentNo,
+            requesterName: currentName || "작성자",
+            formData: finalFormData,
+          });
+          const fileName = `${nexusDocumentNo}_${title}_제출본.pdf`;
+          downloadPdf(pdfBlob, fileName);
+
+          const issueDateValue = String(
+            (finalFormData as Record<string, unknown>)["issueDate"] || ""
+          );
+          const date = /^\d{4}-\d{2}-\d{2}$/.test(issueDateValue)
+            ? new Date(`${issueDateValue}T00:00:00`)
+            : new Date();
+          const storagePath = [
+            "work-order",
+            String(date.getFullYear()),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+            nexusDocumentNo,
+            "submitted.pdf",
+          ].join("/");
+          const { error: uploadError } = await supabase.storage
+            .from("nexus-documents")
+            .upload(storagePath, pdfBlob, {
+              contentType: "application/pdf",
+              upsert: true,
+            });
+          if (uploadError) {
+            throw new Error(`Storage 업로드 실패: ${uploadError.message}`);
+          }
+
+          const { error: attachError } = await supabase.rpc(
+            "nexus_attach_work_order_pdf",
+            {
+              target_document_id: Number(documentId),
+              target_room_id: Number(nexusResult.room_id),
+              target_message_id: targetMessageId,
+              target_storage_path: storagePath,
+              target_original_name: fileName,
+              target_size_bytes: pdfBlob.size,
+            }
+          );
+          if (attachError) {
+            throw new Error(`작업지시방 파일 연결 실패: ${attachError.message}`);
+          }
+          await assertWorkTalkFileAttached(storagePath);
+          nexusPdfAttached = true;
+        } catch (pdfError) {
+          nexusPdfErrorMessage = `${nexusDocumentNo} 문서는 발행됐지만 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
+        }
+      }
     } else if (
       nexusManufacturingMode &&
       selectedTemplate.key === "manufacturing_request"
