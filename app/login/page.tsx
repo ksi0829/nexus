@@ -150,28 +150,6 @@ export default function LoginPage() {
   return (
     <main className={styles.page}>
       <section className={styles.shell}>
-        <div className={styles.brandPanel}>
-          <Image
-            src="/nexus-icon-v2-512.png"
-            alt="NEXUS"
-            width={220}
-            height={220}
-            className={styles.brandLogo}
-            priority
-          />
-          <div className={styles.brandCopy}>
-            <strong>사람과 업무, 문서를 하나로 연결합니다.</strong>
-            <p>
-              스마트 커뮤니케이션과 연결된 업무 흐름을 위한 제타의 통합 업무
-              플랫폼입니다.
-            </p>
-          </div>
-          <div className={styles.keywords}>
-            <span>CONNECTION</span>
-            <span>COMMUNICATION</span>
-            <span>TRUST</span>
-          </div>
-        </div>
         <div className={styles.formPanel}>
           <Image
             src="/nexus-icon-v2-512.png"
@@ -187,52 +165,38 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className={styles.form}>
             <label className={styles.field}>
               <span>아이디</span>
-            <input
-              type="text"
-              value={loginId}
-              onChange={(e) =>
-                setLoginId(e.target.value)
-              }
-              placeholder="아이디 입력"
-              autoCapitalize="none"
-              autoCorrect="off"
-              required
-            />
+              <input
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                placeholder="아이디 입력"
+                autoCapitalize="none"
+                autoCorrect="off"
+                required
+              />
             </label>
             <label className={styles.field}>
               <span>비밀번호</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) =>
-                setPassword(
-                  e.target.value
-                )
-              }
-              placeholder="비밀번호 입력"
-              required
-            />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="비밀번호 입력"
+                required
+              />
             </label>
-          <label className={styles.remember}>
-            <input
-              type="checkbox"
-              checked={rememberId}
-              onChange={(e) =>
-                setRememberId(
-                  e.target.checked
-                )
-              }
-            />
-            아이디 저장
-          </label>
-          <button
-            type="submit"
-            disabled={loading}
-            className={styles.submit}
-          >
-            {loading ? "연결 중..." : "NEXUS 시작하기"}
-          </button>
-        </form>
+            <label className={styles.remember}>
+              <input
+                type="checkbox"
+                checked={rememberId}
+                onChange={(e) => setRememberId(e.target.checked)}
+              />
+              아이디 저장
+            </label>
+            <button type="submit" disabled={loading} className={styles.submit}>
+              {loading ? "연결 중..." : "NEXUS 시작하기"}
+            </button>
+          </form>
           <div className={styles.footer}>ZETA NEXUS · CONNECT EVERYTHING</div>
         </div>
       </section>

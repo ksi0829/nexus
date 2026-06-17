@@ -39,19 +39,19 @@ export function NexusNavigation({ active }: NexusNavigationProps) {
       <nav className={styles.nav}>
         <button
           type="button"
-          className={active === "chat" ? styles.active : ""}
-          onClick={() => navigate("/worktalk?section=chat")}
-          title="채팅"
-        >
-          <WorkTalkIcon name="chat" />
-        </button>
-        <button
-          type="button"
           className={active === "people" ? styles.active : ""}
           onClick={() => navigate("/worktalk?section=people")}
           title="직원·조직"
         >
           <WorkTalkIcon name="people" />
+        </button>
+        <button
+          type="button"
+          className={active === "chat" ? styles.active : ""}
+          onClick={() => navigate("/worktalk?section=chat")}
+          title="채팅"
+        >
+          <WorkTalkIcon name="chat" />
         </button>
         <button
           type="button"

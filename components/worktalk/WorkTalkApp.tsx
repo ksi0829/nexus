@@ -1446,8 +1446,7 @@ export function WorkTalkApp() {
                     <button
                       key={result.id}
                       type="button"
-                      title="해당 위치로 이동"
-                      onClick={() => openSearchResult(result)}
+                      title="더블클릭하여 해당 대화방 열기"
                       onDoubleClick={() => openSearchResult(result)}
                     >
                       <span className={styles.searchResultIcon}>
