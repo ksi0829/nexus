@@ -4875,7 +4875,8 @@ const styles: Record<string, CSSProperties> = {
   },
   nexusPage: {
     width: "100%",
-    maxWidth: "none",
+    maxWidth: "1440px",
+    margin: "0 auto",
     overflowX: "auto",
   },
   summaryGrid: {
