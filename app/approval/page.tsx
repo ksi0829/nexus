@@ -1715,14 +1715,15 @@ export default function ApprovalPage() {
     await loadData();
   }
 
-  async function resolveWorkTalkDocumentMessageId(
+  async function ensureWorkTalkDocumentMessageId(
     roomId: number,
     documentId: number,
-    fallbackMessageId?: number | null
+    fallbackMessageId: number | null | undefined,
+    messageBody: string
   ) {
     if (fallbackMessageId) return fallbackMessageId;
 
-    const { data } = await supabase
+    const { data: metadataMessage } = await supabase
       .from("worktalk_messages")
       .select("id")
       .eq("room_id", roomId)
@@ -1732,7 +1733,33 @@ export default function ApprovalPage() {
       .limit(1)
       .maybeSingle();
 
-    return data?.id ? Number(data.id) : null;
+    if (metadataMessage?.id) return Number(metadataMessage.id);
+
+    const { data: latestMessage } = await supabase
+      .from("worktalk_messages")
+      .select("id")
+      .eq("room_id", roomId)
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestMessage?.id) return Number(latestMessage.id);
+
+    const { data: createdMessageId, error } = await supabase.rpc(
+      "worktalk_send_message",
+      {
+        target_room_id: roomId,
+        message_body: messageBody,
+      }
+    );
+
+    if (error || !createdMessageId) {
+      throw new Error(
+        error?.message || "PDF를 연결할 채팅 메시지를 생성하지 못했습니다."
+      );
+    }
+
+    return Number(createdMessageId);
   }
 
   async function submitDocument() {
@@ -1822,7 +1849,7 @@ export default function ApprovalPage() {
     }
 
     const linePayload = selectedApprovers.map((slot, index) => ({
-      step_order: slot.stepOrder,
+      step_order: index + 1,
       role_label:
         selectedApprovers.length === 1
           ? "1차 최종 결재"
@@ -1929,10 +1956,11 @@ export default function ApprovalPage() {
 
       if (nexusDocumentNo && nexusResult?.room_id) {
         try {
-          const targetMessageId = await resolveWorkTalkDocumentMessageId(
+          const targetMessageId = await ensureWorkTalkDocumentMessageId(
             Number(nexusResult.room_id),
             Number(documentId),
-            nexusResult.message_id
+            nexusResult.message_id,
+            `${currentName || "작성자"}님이 ${selectedTemplate.title} - ${title} 문서를 상신합니다.`
           );
           if (!targetMessageId) {
             throw new Error("PDF를 연결할 결재방 메시지를 찾지 못했습니다.");
@@ -2015,10 +2043,11 @@ export default function ApprovalPage() {
 
       if (nexusDocumentNo && nexusResult?.room_id) {
         try {
-          const targetMessageId = await resolveWorkTalkDocumentMessageId(
+          const targetMessageId = await ensureWorkTalkDocumentMessageId(
             Number(nexusResult.room_id),
             Number(documentId),
-            nexusResult.message_id
+            nexusResult.message_id,
+            `${currentName || "작성자"}님이 ${nexusSubmittedLabel} - ${title} 문서를 상신합니다.`
           );
           if (!targetMessageId) {
             throw new Error("PDF를 연결할 결재방 메시지를 찾지 못했습니다.");
@@ -2095,10 +2124,11 @@ export default function ApprovalPage() {
 
       if (nexusDocumentNo && nexusResult?.room_id) {
         try {
-          const targetMessageId = await resolveWorkTalkDocumentMessageId(
+          const targetMessageId = await ensureWorkTalkDocumentMessageId(
             Number(nexusResult.room_id),
             Number(documentId),
-            nexusResult.message_id
+            nexusResult.message_id,
+            `${currentName || "작성자"}님이 ${nexusSubmittedLabel} - ${title} 문서를 상신합니다.`
           );
           if (!targetMessageId) {
             throw new Error("PDF를 연결할 결재방 메시지를 찾지 못했습니다.");

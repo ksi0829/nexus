@@ -17,7 +17,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 internal static class NexusClient
 {
-    internal const string AppUrl = "https://zeta-nexus.vercel.app/worktalk?standalone=1";
+    internal const string AppUrl = "https://nexus-wheat-eight.vercel.app/worktalk?standalone=1";
     internal static readonly string UserDataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "NEXUS",
@@ -219,7 +219,7 @@ internal class NexusWindow : Form
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             await webView.CoreWebView2.Profile.SetPermissionStateAsync(
                 CoreWebView2PermissionKind.Notifications,
-                "https://zeta-nexus.vercel.app",
+                "https://nexus-wheat-eight.vercel.app",
                 CoreWebView2PermissionState.Allow
             );
             webView.CoreWebView2.PermissionRequested += HandlePermissionRequested;
@@ -290,7 +290,7 @@ internal class NexusWindow : Form
         if (
             eventArgs.PermissionKind == CoreWebView2PermissionKind.Notifications &&
             eventArgs.Uri.StartsWith(
-                "https://zeta-nexus.vercel.app",
+                "https://nexus-wheat-eight.vercel.app",
                 StringComparison.OrdinalIgnoreCase
             )
         )
