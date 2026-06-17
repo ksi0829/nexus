@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { isActualMobileDevice } from "@/app/_lib/device";
+import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
 import { createNexusWorklogPdf } from "@/app/_lib/nexusWorklogPdf";
 
 type Profile = {
@@ -328,6 +329,12 @@ export default function InputPageClient({
     return () =>
       window.removeEventListener("resize", apply);
   }, [nexusMode]);
+
+  useEffect(() => {
+    if (isNexusMode && !isMobileDevice) {
+      maximizeDocumentWindow();
+    }
+  }, [isMobileDevice, isNexusMode]);
 
   const ensureProfile = useCallback(async () => {
     const { data: ures, error: uerr } =

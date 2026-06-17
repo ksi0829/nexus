@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { isActualMobileDevice } from "@/app/_lib/device";
 import { NEXUS_DOCUMENTS } from "@/app/_lib/nexusDocuments";
 import {
+  maximizeDocumentWindow,
+  restoreDocumentWindowPlacement,
+} from "@/app/_lib/windowPlacement";
+import {
   NexusNavigation,
   nexusNavigationStyles,
 } from "@/components/nexus/NexusNavigation";
@@ -16,6 +20,7 @@ export default function NexusPage() {
 
   function openDocumentWriter(path: string) {
     if (isMobile) return;
+    maximizeDocumentWindow({ saveCurrent: true });
     router.push(path);
   }
 
@@ -29,7 +34,13 @@ export default function NexusPage() {
           <h1>넥스 문서</h1>
           <p>문서를 선택하면 작성부터 결재방 생성까지 이어집니다.</p>
         </div>
-        <button className={styles.backButton} onClick={() => router.push("/worktalk")}>
+        <button
+          className={styles.backButton}
+          onClick={() => {
+            restoreDocumentWindowPlacement();
+            router.push("/worktalk");
+          }}
+        >
           메신저로 돌아가기
         </button>
       </header>

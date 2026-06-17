@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { WorkTalkIcon } from "@/components/worktalk/WorkTalkIcon";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
+import { restoreDocumentWindowPlacement } from "@/app/_lib/windowPlacement";
 import styles from "./NexusNavigation.module.css";
 
 type NexusNavigationProps = {
@@ -14,6 +15,9 @@ export function NexusNavigation({ active }: NexusNavigationProps) {
   const router = useRouter();
 
   const navigate = (path: string) => {
+    if (path.startsWith("/worktalk")) {
+      restoreDocumentWindowPlacement();
+    }
     router.push(path);
   };
 

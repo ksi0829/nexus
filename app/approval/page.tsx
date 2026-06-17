@@ -24,6 +24,7 @@ import {
   type NexusDocumentKey,
 } from "@/app/_lib/nexusDocuments";
 import { isActualMobileDevice } from "@/app/_lib/device";
+import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NexusNavigation,
@@ -1312,6 +1313,9 @@ export default function ApprovalPage() {
     const nexusKey = params.get("nexus");
     if (!isNexusDocumentKey(nexusKey)) return;
     const nexusConfig = NEXUS_DOCUMENT_MAP[nexusKey];
+    if (!isActualMobileDevice()) {
+      maximizeDocumentWindow();
+    }
 
     const timeoutId = window.setTimeout(() => {
       setNexusDocumentKey(nexusKey);

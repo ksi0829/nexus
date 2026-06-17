@@ -23,6 +23,7 @@ import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import { createManufacturingPdf } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
+import { restoreDocumentWindowPlacement } from "@/app/_lib/windowPlacement";
 import type {
   WorkTalkMessage,
   WorkTalkNotification,
@@ -258,6 +259,10 @@ function isOnlinePresence(presence: PresenceRow) {
 
 export function WorkTalkApp() {
   const router = useRouter();
+  useEffect(() => {
+    restoreDocumentWindowPlacement();
+  }, []);
+
   const {
     setupState,
     errorMessage,
