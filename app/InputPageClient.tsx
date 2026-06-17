@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import { isActualMobileDevice } from "@/app/_lib/device";
 import { createNexusWorklogPdf } from "@/app/_lib/nexusWorklogPdf";
 
 type Profile = {
@@ -289,6 +290,7 @@ export default function InputPageClient({
   );
 
   const [viewport, setViewport] = useState<Viewport>("desktop");
+  const [isMobileDevice] = useState(() => isActualMobileDevice());
   const [isNexusMode, setIsNexusMode] = useState(nexusMode);
   const [date, setDate] = useState(toKSTDateString());
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -683,7 +685,7 @@ export default function InputPageClient({
 
   const save = useCallback(async () => {
     if (!profile?.id) return;
-    if (isNexusMode && viewport === "mobile") {
+    if (isNexusMode && isMobileDevice) {
       setMsg({
         type: "err",
         text: "문서 작성은 PC에서만 가능합니다. 모바일에서는 메신저와 문서 확인만 사용할 수 있습니다.",
@@ -755,7 +757,7 @@ export default function InputPageClient({
     prevRows,
     todayRows,
     isNexusMode,
-    viewport,
+    isMobileDevice,
     shareWorklogToTeamRoom,
     supabase,
   ]);
@@ -770,11 +772,14 @@ export default function InputPageClient({
       .join(" · ");
   }, [profile]);
 
+  const displayViewport: Viewport =
+    isNexusMode && !isMobileDevice ? "desktop" : viewport;
+
   return (
     <div
       style={{
         maxWidth:
-          viewport === "tablet"
+          displayViewport === "tablet"
             ? 1180
             : isNexusMode
               ? 1520
@@ -783,7 +788,7 @@ export default function InputPageClient({
         boxSizing: "border-box",
         margin: "0 auto",
         padding:
-          viewport === "desktop"
+          displayViewport === "desktop"
             ? isNexusMode
               ? "26px 28px 64px"
               : "26px 18px 64px"
@@ -827,12 +832,12 @@ export default function InputPageClient({
               "space-between",
             gap: 12,
             alignItems:
-              viewport === "mobile"
+              displayViewport === "mobile"
                 ? "stretch"
                 : "center",
             flexWrap: "wrap",
             flexDirection:
-              viewport === "mobile"
+              displayViewport === "mobile"
                 ? "column"
                 : "row",
           }}
@@ -884,10 +889,10 @@ export default function InputPageClient({
             <button
               style={btnPrimary}
               onClick={save}
-              disabled={loading || (isNexusMode && viewport === "mobile")}
+              disabled={loading || (isNexusMode && isMobileDevice)}
               type="button"
             >
-              {isNexusMode && viewport === "mobile"
+              {isNexusMode && isMobileDevice
                 ? "PC에서 작성 가능"
                 : isNexusMode
                   ? "저장 및 팀방 공유"

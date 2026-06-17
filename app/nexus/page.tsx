@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { isActualMobileDevice } from "@/app/_lib/device";
 import { NEXUS_DOCUMENTS } from "@/app/_lib/nexusDocuments";
 import {
   NexusNavigation,
@@ -11,16 +12,7 @@ import styles from "./page.module.css";
 
 export default function NexusPage() {
   const router = useRouter();
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 760px)");
-    const updateMobile = () => setIsMobile(mediaQuery.matches);
-
-    updateMobile();
-    mediaQuery.addEventListener("change", updateMobile);
-    return () => mediaQuery.removeEventListener("change", updateMobile);
-  }, []);
+  const [isMobile] = useState(() => isActualMobileDevice());
 
   function openDocumentWriter(path: string) {
     if (isMobile) return;

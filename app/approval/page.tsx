@@ -23,6 +23,7 @@ import {
   isNexusDocumentKey,
   type NexusDocumentKey,
 } from "@/app/_lib/nexusDocuments";
+import { isActualMobileDevice } from "@/app/_lib/device";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NexusNavigation,
@@ -969,7 +970,7 @@ export default function ApprovalPage() {
   const [expandedHistoryMonths, setExpandedHistoryMonths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile] = useState(() => isActualMobileDevice());
   const [setupError, setSetupError] = useState("");
   const [message, setMessage] = useState("");
   const [nexusDocumentKey, setNexusDocumentKey] = useState<NexusDocumentKey | null>(null);
@@ -1448,15 +1449,6 @@ export default function ApprovalPage() {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [currentName, formData.marketType, nexusWorkOrderMode, profiles]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 760px)");
-    const updateMobile = () => setIsMobile(mediaQuery.matches);
-
-    updateMobile();
-    mediaQuery.addEventListener("change", updateMobile);
-    return () => mediaQuery.removeEventListener("change", updateMobile);
-  }, []);
 
   useEffect(() => {
     if (!shouldSelectEquipmentOrder || !selectedEquipmentOrderId) return;
@@ -3035,7 +3027,10 @@ export default function ApprovalPage() {
       {nexusDocument && <NexusNavigation active="document" />}
       <section
         className={nexusDocument ? nexusNavigationStyles.content : undefined}
-        style={styles.page}
+        style={{
+          ...styles.page,
+          ...(nexusDocument ? styles.nexusPage : {}),
+        }}
       >
       {nexusDocument && (
         <>
@@ -4873,6 +4868,11 @@ function LegacyInspectionRequestForm({
 const styles: Record<string, CSSProperties> = {
   page: {
     minWidth: 0,
+  },
+  nexusPage: {
+    width: "100%",
+    maxWidth: "none",
+    overflowX: "auto",
   },
   summaryGrid: {
     display: "grid",
