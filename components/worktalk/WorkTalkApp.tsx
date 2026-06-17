@@ -137,12 +137,10 @@ function getRoomSubtitle(room: WorkTalkRoom, currentUserId?: string) {
 }
 
 function getRoomMemberRole(room: WorkTalkRoom, member: WorkTalkRoom["members"][number]) {
-  const name = member.profile?.name || "";
   if (room.room_type === "approval") {
-    if (member.user_id === room.created_by) return "작성자 / 방장";
-    if (name === "장동철") return "1차 결재";
-    if (name === "신영호") return "2차 최종 결재";
-    if (name === "신훈식" || name === "신상민") return "참조";
+    if (member.user_id === room.created_by) return "작성자";
+    if (member.member_role === "viewer") return "참조";
+    return "결재자";
   }
   if (member.user_id === room.created_by) return "방장";
   if (member.member_role === "viewer") return "조회";
@@ -549,6 +547,18 @@ export function WorkTalkApp() {
     selectedRoom?.room_type === "direct"
       ? selectedRoom.members.filter((member) => !member.left_at).length
       : 0;
+  const selectedRoomMembers = useMemo(
+    () =>
+      selectedRoom
+        ? [...selectedRoom.members].sort((left, right) =>
+            (left.profile?.name || "").localeCompare(
+              right.profile?.name || "",
+              "ko"
+            )
+          )
+        : [],
+    [selectedRoom]
+  );
   const activeMemberIds = useMemo(
     () => new Set(selectedRoom?.members.map((member) => member.user_id) || []),
     [selectedRoom?.members]
@@ -842,10 +852,21 @@ export function WorkTalkApp() {
 
   function openSearchResult(result: WorkTalkSearchResult) {
     setActiveSection("chat");
+    setRoomSearch("");
     setMessageSearch("");
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
-    openRoom(result.room_id, result.message_id);
+    selectRoom(result.room_id, result.message_id || undefined);
+    window.setTimeout(() => {
+      const target = result.message_id
+        ? document.querySelector(`[data-message-id="${result.message_id}"]`)
+        : null;
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+        return;
+      }
+      messageEndRef.current?.scrollIntoView({ block: "end" });
+    }, 250);
   }
 
   async function requestBrowserNotifications() {
@@ -1423,6 +1444,7 @@ export function WorkTalkApp() {
                       type="button"
                       title="해당 위치로 이동"
                       onClick={() => openSearchResult(result)}
+                      onDoubleClick={() => openSearchResult(result)}
                     >
                       <span className={styles.searchResultIcon}>
                         <WorkTalkIcon
@@ -2589,7 +2611,7 @@ export function WorkTalkApp() {
               </button>
             </header>
             <div className={styles.memberViewList}>
-              {selectedRoom.members.map((member) => (
+              {selectedRoomMembers.map((member) => (
                 <article key={member.user_id}>
                   <span className={styles.memberAvatar}>
                     <WorkTalkIcon name="person" />
@@ -2625,9 +2647,9 @@ export function WorkTalkApp() {
               </button>
             </header>
             <div className={styles.currentMembers}>
-              <strong>현재 참여자 {selectedRoom.members.length}명</strong>
+              <strong>현재 참여자 {selectedRoomMembers.length}명</strong>
               <div>
-                {selectedRoom.members.map((member) => (
+                {selectedRoomMembers.map((member) => (
                   <span key={member.user_id}>
                     <WorkTalkIcon name="person" />
                     {member.profile?.name || "사용자"}

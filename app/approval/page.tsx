@@ -1762,6 +1762,21 @@ export default function ApprovalPage() {
     return Number(createdMessageId);
   }
 
+  async function assertWorkTalkFileAttached(storagePath: string) {
+    const { data, error } = await supabase
+      .from("worktalk_files")
+      .select("id")
+      .eq("storage_path", storagePath)
+      .maybeSingle();
+
+    if (error || !data?.id) {
+      throw new Error(
+        error?.message ||
+          "PDF는 업로드됐지만 채팅방 첨부파일로 연결되지 않았습니다."
+      );
+    }
+  }
+
   async function submitDocument() {
     setMessage("");
 
@@ -2006,6 +2021,7 @@ export default function ApprovalPage() {
             }
           );
           if (attachError) throw attachError;
+          await assertWorkTalkFileAttached(storagePath);
           nexusPdfAttached = true;
         } catch (pdfError) {
           nexusPdfErrorMessage = `${nexusDocumentNo} 문서는 상신됐지만 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
@@ -2310,6 +2326,7 @@ export default function ApprovalPage() {
             }
           );
           if (attachError) throw attachError;
+          await assertWorkTalkFileAttached(approvedPath);
         } catch (pdfError) {
           approvalMessage = `승인은 완료됐지만 최종 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
         }
