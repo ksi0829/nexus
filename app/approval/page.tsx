@@ -2007,7 +2007,9 @@ export default function ApprovalPage() {
               contentType: "application/pdf",
               upsert: true,
             });
-          if (uploadError) throw uploadError;
+          if (uploadError) {
+            throw new Error(`Storage 업로드 실패: ${uploadError.message}`);
+          }
 
           const { error: attachError } = await supabase.rpc(
             "nexus_attach_manufacturing_pdf",
@@ -2020,7 +2022,9 @@ export default function ApprovalPage() {
               target_size_bytes: pdfBlob.size,
             }
           );
-          if (attachError) throw attachError;
+          if (attachError) {
+            throw new Error(`채팅방 파일 연결 실패: ${attachError.message}`);
+          }
           await assertWorkTalkFileAttached(storagePath);
           nexusPdfAttached = true;
         } catch (pdfError) {
@@ -2314,7 +2318,9 @@ export default function ApprovalPage() {
               contentType: "application/pdf",
               upsert: true,
             });
-          if (uploadError) throw uploadError;
+          if (uploadError) {
+            throw new Error(`Storage 업로드 실패: ${uploadError.message}`);
+          }
 
           const { error: attachError } = await supabase.rpc(
             "nexus_attach_approved_manufacturing_pdf",
@@ -2325,7 +2331,9 @@ export default function ApprovalPage() {
               target_size_bytes: approvedPdf.size,
             }
           );
-          if (attachError) throw attachError;
+          if (attachError) {
+            throw new Error(`채팅방 파일 연결 실패: ${attachError.message}`);
+          }
           await assertWorkTalkFileAttached(approvedPath);
         } catch (pdfError) {
           approvalMessage = `승인은 완료됐지만 최종 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
