@@ -111,6 +111,7 @@ export function useWorkTalk() {
   const messageRequestIdRef = useRef(0);
   const roomRequestIdRef = useRef(0);
   const roomRefreshTimerRef = useRef<number | null>(null);
+  const messageRefreshTimerRef = useRef<number | null>(null);
   const pendingFocusMessageIdRef = useRef<number | null>(null);
   const allowAutomaticRoomSelectionRef = useRef(true);
   const lastDeliveredNotificationIdRef = useRef<number | null>(null);
@@ -445,6 +446,12 @@ export function useWorkTalk() {
     focusMessageId?: number | null
   ) => {
     const requestId = ++messageRequestIdRef.current;
+    console.log("[WorkTalk realtime debug] loadMessages:start", {
+      roomId,
+      focusMessageId: focusMessageId || null,
+      requestId,
+      selectedRoomId: selectedRoomIdRef.current,
+    });
     setLoadingMessages(true);
 
     try {
@@ -548,9 +555,23 @@ export function useWorkTalk() {
         requestId !== messageRequestIdRef.current ||
         selectedRoomIdRef.current !== roomId
       ) {
+        console.log("[WorkTalk realtime debug] loadMessages:ignored", {
+          roomId,
+          requestId,
+          latestRequestId: messageRequestIdRef.current,
+          selectedRoomId: selectedRoomIdRef.current,
+          messageCount: nextMessages.length,
+        });
         return;
       }
       setMessages(nextMessages);
+      console.log("[WorkTalk realtime debug] loadMessages:applied", {
+        roomId,
+        requestId,
+        messageCount: nextMessages.length,
+        lastMessageId: nextMessages.at(-1)?.id || null,
+        fileCount: files.length,
+      });
       setFocusedMessageId(focusMessageId || null);
       pendingFocusMessageIdRef.current = null;
       const lastMessageId = nextMessages.at(-1)?.id || null;
@@ -593,6 +614,11 @@ export function useWorkTalk() {
       );
     } catch (error) {
       if (requestId !== messageRequestIdRef.current) return;
+      console.log("[WorkTalk realtime debug] loadMessages:error", {
+        roomId,
+        requestId,
+        error,
+      });
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       if (requestId === messageRequestIdRef.current) {
@@ -659,6 +685,32 @@ export function useWorkTalk() {
       }, 800);
     },
     [loadRooms]
+  );
+
+  const scheduleMessageRefresh = useCallback(
+    (roomId: number, delay = 180) => {
+      console.log("[WorkTalk realtime debug] scheduleMessageRefresh", {
+        roomId,
+        delay,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      if (messageRefreshTimerRef.current) {
+        window.clearTimeout(messageRefreshTimerRef.current);
+      }
+
+      messageRefreshTimerRef.current = window.setTimeout(() => {
+        messageRefreshTimerRef.current = null;
+        console.log("[WorkTalk realtime debug] scheduleMessageRefresh:fire", {
+          roomId,
+          selectedRoomId: selectedRoomIdRef.current,
+          willLoad: selectedRoomIdRef.current === roomId,
+        });
+        if (selectedRoomIdRef.current === roomId) {
+          void loadMessages(roomId);
+        }
+      }, delay);
+    },
+    [loadMessages]
   );
 
   const selectRoom = useCallback((roomId: number, focusMessageId?: number) => {
@@ -1382,13 +1434,17 @@ export function useWorkTalk() {
             files: [],
           };
           const activeRoomId = selectedRoomIdRef.current;
+          console.log("[WorkTalk realtime debug] messages:INSERT", {
+            messageId: message.id,
+            roomId: message.room_id,
+            activeRoomId,
+            messageType: message.message_type,
+            senderId: message.sender_id,
+            matchesActiveRoom: message.room_id === activeRoomId,
+          });
 
           if (message.room_id === activeRoomId) {
-            setMessages((current) =>
-              current.some((item) => item.id === message.id)
-                ? current
-                : [...current, message]
-            );
+            scheduleMessageRefresh(message.room_id, 80);
             void supabase.rpc("worktalk_mark_room_read", {
               target_room_id: message.room_id,
               target_message_id: message.id,
@@ -1433,8 +1489,15 @@ export function useWorkTalk() {
         { event: "INSERT", schema: "public", table: "worktalk_files" },
         (payload) => {
           const roomId = Number((payload.new as { room_id?: number }).room_id);
+          console.log("[WorkTalk realtime debug] files:INSERT", {
+            fileId: (payload.new as { id?: number }).id,
+            roomId,
+            messageId: (payload.new as { message_id?: number }).message_id,
+            activeRoomId: selectedRoomIdRef.current,
+            matchesActiveRoom: roomId === selectedRoomIdRef.current,
+          });
           if (roomId && roomId === selectedRoomIdRef.current) {
-            void loadMessages(roomId);
+            scheduleMessageRefresh(roomId, 120);
           }
         }
       )
@@ -1448,6 +1511,14 @@ export function useWorkTalk() {
         },
         (payload) => {
           const notification = payload.new as WorkTalkNotification;
+          console.log("[WorkTalk realtime debug] notifications:INSERT", {
+            notificationId: notification.id,
+            roomId: notification.room_id,
+            messageId: notification.message_id,
+            type: notification.notification_type,
+            activeRoomId: selectedRoomIdRef.current,
+            matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
+          });
           setNotifications((current) =>
             current.some((item) => item.id === notification.id)
               ? current
@@ -1459,6 +1530,9 @@ export function useWorkTalk() {
             notification.id
           );
           setLatestNotification(notification);
+          if (notification.room_id === selectedRoomIdRef.current) {
+            scheduleMessageRefresh(notification.room_id, 250);
+          }
         }
       )
       .on(
@@ -1478,16 +1552,34 @@ export function useWorkTalk() {
           );
         }
       )
-      .subscribe();
+      .subscribe((status, error) => {
+        console.log("[WorkTalk realtime debug] channel:status", {
+          channel: `worktalk-${currentProfile.id}`,
+          status,
+          error,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+      });
 
     return () => {
       if (roomRefreshTimerRef.current) {
         window.clearTimeout(roomRefreshTimerRef.current);
         roomRefreshTimerRef.current = null;
       }
+      if (messageRefreshTimerRef.current) {
+        window.clearTimeout(messageRefreshTimerRef.current);
+        messageRefreshTimerRef.current = null;
+      }
       void supabase.removeChannel(channel);
     };
-  }, [currentProfile, loadMessages, loadRoomNotice, scheduleRoomRefresh, setupState]);
+  }, [
+    currentProfile,
+    loadMessages,
+    loadRoomNotice,
+    scheduleMessageRefresh,
+    scheduleRoomRefresh,
+    setupState,
+  ]);
 
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;

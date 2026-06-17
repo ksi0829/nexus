@@ -501,6 +501,11 @@ export function WorkTalkApp() {
         .includes(query)
     );
   }, [messageSearch, messages]);
+  const messageTailKey = useMemo(() => {
+    const lastMessage = filteredMessages.at(-1);
+    if (!lastMessage) return "";
+    return `${lastMessage.id}:${lastMessage.files.length}`;
+  }, [filteredMessages]);
 
   const availableProfiles = useMemo(
     () => profiles.filter((profile) => profile.id !== currentProfile?.id),
@@ -734,7 +739,7 @@ export function WorkTalkApp() {
   }, [clearFocusedMessage, focusedMessageId, messages]);
 
   useEffect(() => {
-    if (!selectedRoomId || focusedMessageId || messages.length === 0) return;
+    if (!selectedRoomId || focusedMessageId || !messageTailKey) return;
     const animationFrame = window.requestAnimationFrame(() => {
       messageEndRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -742,7 +747,7 @@ export function WorkTalkApp() {
       });
     });
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [focusedMessageId, messages.length, selectedRoomId]);
+  }, [focusedMessageId, messageTailKey, selectedRoomId]);
 
   useEffect(() => {
     if (!isNexusDesktopApp) return;
