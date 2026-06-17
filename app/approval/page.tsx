@@ -177,17 +177,6 @@ const NEXUS_PURCHASE_APPROVERS = ["한차현", "장동철", "신영호"];
 const NEXUS_PURCHASE_TEAM_REFERENCES = ["한재영", "권영일", "김학", "박상현"];
 const NEXUS_PURCHASE_FIXED_REFERENCES = ["신훈식", "최하영"];
 const NEXUS_PURCHASE_RESOLUTION_REFERENCES = ["최하영", "신상민"];
-const NEXUS_WORK_ORDER_TECH_MEMBERS = [
-  "한차현",
-  "한재영",
-  "권영일",
-  "김학",
-  "박상현",
-  "이승준",
-  "김종혁",
-];
-const NEXUS_WORK_ORDER_DOMESTIC_SALES = ["김선일"];
-const NEXUS_WORK_ORDER_OVERSEAS_SALES = ["이양로", "반준영"];
 const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
   "xlsx",
   "xls",
@@ -524,6 +513,34 @@ function createDefaultApproverSlots(count = DEFAULT_APPROVER_COUNT): ApproverSlo
     roleLabel: `${index + 1}차 결재`,
     approverId: "",
   }));
+}
+
+function defaultApprovalRole(index: number, total: number) {
+  if (total === 1) return "1차 최종 결재";
+  if (index === total - 1) return `${index + 1}차 최종 결재`;
+  return `${index + 1}차 결재`;
+}
+
+function purchasePdfRole(roleLabel: string, index: number, total: number) {
+  if (roleLabel.includes("대표") || roleLabel.includes("사장")) return "대표이사";
+  if (roleLabel.includes("본부")) return "본부장";
+  if (roleLabel.includes("부사")) return "부사장";
+  if (roleLabel.includes("팀장")) return "팀장";
+  if (total <= 1) return "대표이사";
+  if (index === 0) return "팀장";
+  if (index === total - 1) return "대표이사";
+  return "본부장";
+}
+
+function purchaseResolutionPdfRole(roleLabel: string, index: number, total: number) {
+  if (roleLabel.includes("대표") || roleLabel.includes("사장")) return "사장";
+  if (roleLabel.includes("전무")) return "전무";
+  if (roleLabel.includes("본부")) return "본부장";
+  if (roleLabel.includes("이사") || roleLabel.includes("팀장")) return "이사";
+  if (total <= 1) return "사장";
+  if (index === 0) return "이사";
+  if (index === total - 1) return "사장";
+  return "본부장";
 }
 
 function getDisplayTeam(profile: ProfileRow) {
@@ -1429,33 +1446,6 @@ export default function ApprovalPage() {
   }, [nexusPurchaseResolutionMode, profiles]);
 
   useEffect(() => {
-    if (!nexusWorkOrderMode || profiles.length === 0) return;
-
-    const profileByName = new Map(
-      profiles.map((profile) => [profile.name || "", profile])
-    );
-    const marketType = String(formData.marketType || "국내");
-    const salesNames =
-      marketType === "해외"
-        ? NEXUS_WORK_ORDER_OVERSEAS_SALES
-        : NEXUS_WORK_ORDER_DOMESTIC_SALES;
-    const participantNames = [
-      ...NEXUS_WORK_ORDER_TECH_MEMBERS,
-      ...salesNames,
-    ].filter((name) => name !== currentName);
-
-    const timeoutId = window.setTimeout(() => {
-      setApproverSlots([]);
-      setReferenceIds(
-        participantNames
-          .map((name) => profileByName.get(name)?.id || "")
-          .filter(Boolean)
-      );
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [currentName, formData.marketType, nexusWorkOrderMode, profiles]);
-
-  useEffect(() => {
     if (!shouldSelectEquipmentOrder || !selectedEquipmentOrderId) return;
 
     const selectedOrder = linkableEquipmentOrders.find(
@@ -1811,7 +1801,7 @@ export default function ApprovalPage() {
       .map((profileId) => getProfile(profileId))
       .filter((profile): profile is ProfileRow => Boolean(profile));
 
-    if (!nexusWorkOrderMode && selectedApprovers.length === 0) {
+    if (selectedApprovers.length === 0) {
       setMessage("결재라인에서 최소 1명 이상 선택해 주세요.");
       return;
     }
@@ -1844,11 +1834,11 @@ export default function ApprovalPage() {
       template_key: selectedTemplate.key,
       template_title: selectedTemplate.title,
       title,
-      status: nexusWorkOrderMode ? "approved" : "pending",
+      status: "pending",
       requester_id: requesterId,
       requester_name: currentName || "작성자",
       requester_team: currentTeam || null,
-      current_step: nexusWorkOrderMode ? 0 : 1,
+      current_step: 1,
       form_data: finalFormData,
     };
 
@@ -1862,12 +1852,7 @@ export default function ApprovalPage() {
 
     const linePayload = selectedApprovers.map((slot, index) => ({
       step_order: index + 1,
-      role_label:
-        selectedApprovers.length === 1
-          ? "1차 최종 결재"
-          : index === selectedApprovers.length - 1
-            ? `${index + 1}차 최종 결재`
-            : `${index + 1}차 결재`,
+      role_label: slot.roleLabel.trim() || defaultApprovalRole(index, selectedApprovers.length),
       approver_id: slot.profile?.id || "",
       approver_name: slot.profile?.name || "결재자",
       approver_team: slot.profile ? getDisplayTeam(slot.profile) || slot.profile.team || null : null,
@@ -1889,6 +1874,16 @@ export default function ApprovalPage() {
         message: `${currentName || "작성자"}님이 ${selectedTemplate.title} 참조자로 지정했습니다.`,
       })),
     ];
+    const submittedApprovalRows = linePayload.map((line) => ({
+      role: line.role_label,
+      name: line.approver_name,
+      status: "대기",
+    }));
+    const submittedReferenceRows = referencePayload.map((reference) => ({
+      role: "참조",
+      name: reference.reference_name,
+      status: "참조",
+    }));
 
     const { data: documentId, error: submitError } = await supabase.rpc(
       "submit_approval_document",
@@ -1956,6 +1951,7 @@ export default function ApprovalPage() {
             documentNo: nexusDocumentNo,
             requesterName: currentName || "작성자",
             formData: finalFormData,
+            approvals: submittedApprovalRows,
           });
           const fileName = `${nexusDocumentNo}_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
@@ -2054,6 +2050,7 @@ export default function ApprovalPage() {
             requesterTeam: currentTeam || "",
             formData: finalFormData,
             inputMode,
+            approvals: [...submittedApprovalRows, ...submittedReferenceRows],
           });
           const fileName = `${nexusDocumentNo}_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
@@ -2143,6 +2140,14 @@ export default function ApprovalPage() {
             documentNo: nexusDocumentNo,
             requesterName: currentName || "작성자",
             formData: finalFormData,
+            approvals: [
+              { role: "담당", name: currentName || "작성자", status: "작성" },
+              ...linePayload.map((line, index) => ({
+                role: purchasePdfRole(line.role_label, index, linePayload.length),
+                name: line.approver_name,
+                status: "대기",
+              })),
+            ],
           });
           const fileName = `${nexusDocumentNo}_${nexusSubmittedLabel}_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
@@ -2223,6 +2228,14 @@ export default function ApprovalPage() {
           const pdfBlob = await createPurchaseResolutionPdf({
             requesterName: currentName || "작성자",
             formData: finalFormData,
+            approvals: [
+              { role: "담당", name: currentName || "작성자", status: "작성" },
+              ...linePayload.map((line, index) => ({
+                role: purchaseResolutionPdfRole(line.role_label, index, linePayload.length),
+                name: line.approver_name,
+                status: "대기",
+              })),
+            ],
           });
           const fileName = `${nexusDocumentNo}_구매결의서_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
@@ -3344,7 +3357,7 @@ export default function ApprovalPage() {
             </section>
           )}
 
-          {!nexusSubmissionLocked && !nexusWorkOrderMode && <section
+          {!nexusSubmissionLocked && <section
             style={{
               ...styles.approvalLineBoxTop,
               ...(nexusDocument ? styles.nexusApprovalLineBox : {}),
