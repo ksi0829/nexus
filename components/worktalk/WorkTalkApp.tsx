@@ -851,8 +851,12 @@ export function WorkTalkApp() {
   }
 
   function openSearchResult(result: WorkTalkSearchResult) {
+    if (!popupMode) {
+      openRoom(result.room_id, result.message_id);
+      return;
+    }
+
     setActiveSection("chat");
-    setRoomSearch("");
     setMessageSearch("");
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
