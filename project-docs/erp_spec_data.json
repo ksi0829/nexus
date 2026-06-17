@@ -1,0 +1,101 @@
+{
+  "title": "ZETA 업무 통합 시스템 기능 설명서",
+  "subtitle": "회계·재고를 제외한 경량형 ERP / 내부 업무 운영 플랫폼",
+  "version": "2026-05-18 기준",
+  "summary": [
+    "ZETA 업무 통합 시스템은 결재문서, 업무일지, A/S 관리, 영업관리, 일정관리, 고객사 DB, 공지, 조직도, 계정관리 기능을 하나의 웹 애플리케이션으로 묶은 경량형 ERP 성격의 내부 업무 시스템이다.",
+    "현재 구현 방향은 대규모 ERP처럼 회계·재고·원가·생산 BOM 전체를 포함하기보다, 실제 현장에서 매일 사용하는 기록·승인·일정·고객접점·작업진행 현황을 빠르게 남기고 조회하는 데 맞춰져 있다.",
+    "데이터는 Supabase PostgreSQL에 저장되고, 프론트엔드는 Next.js App Router 기반으로 개발되며, Vercel을 통해 인터넷 배포된다."
+  ],
+  "techStack": [
+    ["구분", "사용 기술/서비스", "설명"],
+    ["프론트엔드", "Next.js 16.1.6 / React 19.2.3 / TypeScript", "좌측 메뉴 기반 단일 업무 화면, 클라이언트 컴포넌트 중심의 업무 UI 구성"],
+    ["백엔드/DB", "Supabase PostgreSQL / Supabase Auth / RLS", "로그인 계정, 프로필, 업무 데이터, 결재 데이터, 고객사, 영업, A/S, 일정 저장"],
+    ["배포", "Vercel Hobby", "GitHub main 브랜치 푸시 시 자동 배포. 운영 URL은 zeta-worklog.vercel.app"],
+    ["인증", "Supabase Email/Password Auth", "이메일 로그인과 사내 단축 ID 로그인 보조 처리. profiles 테이블의 이름, 팀, role을 앱 권한에 활용"],
+    ["문서/다운로드", "HTML 기반 화면 + Excel HTML export", "업무일지/결재문서/영업/A/S 일부 화면에서 엑셀 형태 다운로드 제공"],
+    ["보안 모델", "Client UI Guard + Supabase RLS", "화면에서 버튼을 숨기고, DB 정책으로 작성자/관리자 기준 수정·삭제 제한을 보강"]
+  ],
+  "deployment": [
+    ["항목", "내용"],
+    ["소스 저장소", "GitHub: ksi0829/worklog"],
+    ["배포 방식", "Vercel 프로젝트 zeta-worklog. main 브랜치 푸시 후 Production 자동 배포"],
+    ["환경변수", "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY"],
+    ["무료 사용 관점", "Vercel Hobby와 Supabase Free/저가 구성을 우선 사용. 텍스트 중심 업무 데이터라 초기 사용량은 크지 않을 가능성이 높음"],
+    ["주의사항", ".env.local, node_modules, .git은 외부 공유용 압축파일에 포함하면 안 됨"]
+  ],
+  "modules": [
+    ["메뉴", "핵심 목적", "주요 기능", "저장 위치", "권한/주의"],
+    ["메인 대시보드", "로그인 후 첫 화면에서 공지, 장비 발주/제작 현황, 다가오는 일정 확인", "공지 노출, 결재 승인 기반 장비 단계 현황, 일정 요약", "notices, approval_documents, equipment_orders, schedules", "읽기 중심. 생산 현황은 제조요구서 등 결재문서 승인 결과와 연결"],
+    ["결재문서", "기존 엑셀/워드 결재 양식을 웹 입력 흐름으로 전환", "8개 양식 선택, 결재라인 지정, 참조 인원 지정, 승인/반려, 문서함, 완료 히스토리", "approval_documents, approval_lines, approval_references, approval_notifications", "작성자, 결재자, 참조자 중심 표시. 결재자는 본인 순서에서만 승인/반려"],
+    ["업무일지", "일별 업무 기록과 팀별 조회", "금일업무/전일업무 입력, 조회, 수정, 삭제, 모바일 작성 제한 안내", "worklogs, worklog_items", "일반 사용자는 본인 팀 조회. 팀장/임원/관리자는 넓은 조회. 수정/삭제는 작성자 또는 관리자"],
+    ["A/S 관리", "작업지시와 처리내역 누적 관리", "작업지시 등록, 상태 변경, 처리내역 기록, 완료 처리, 삭제", "as_work_orders, as_service_logs", "수정/삭제/처리내역 추가는 작업지시 작성자 또는 관리자"],
+    ["영업관리", "국내/해외 영업 기회와 후속 활동 관리", "국내/해외 탭, 업체/담당자 연결, 단계 변경, 예상 금액/통화, 활동 기록", "sales_opportunities, sales_activities", "금액은 영업/임원 중심 표시. 단계 변경/삭제/활동 추가는 작성자 또는 관리자"],
+    ["일정관리", "사내 일정 보드", "월간 달력, 일정 등록, 출장 기간 등록, 삭제, 휴가 자동 반영", "schedules", "삭제는 일정 작성자 또는 관리자. 휴가신청서 최종 승인 시 연차/반차 일정 자동 등록"],
+    ["고객사 DB", "업체와 업체별 담당자 연락처 관리", "업체 가나다순 목록, 업체 등록, 담당자 등록, 담당자 상세 모달, 삭제", "customers, customer_contacts", "업체 삭제는 업체 작성자 또는 관리자. 담당자 삭제는 담당자 작성자 또는 관리자"],
+    ["공지관리", "메인 화면 공지 등록/관리", "공지 작성, 기간/고정 여부 관리", "notices", "admin/lead/executive 등 공지 관리자 중심"],
+    ["조직도", "현재 조직과 팀원 정보 확인", "대표이사/고문/팀별 트리, 팀장 표기, 인원 정보 확인", "프론트엔드 currentOrg.ts 기준", "업무일지 조회 범위, 영업 접근, 생산 현황 관리 권한의 기준 데이터로도 활용"],
+    ["계정관리", "내 계정 정보와 비밀번호 관리", "계정 정보 확인, 비밀번호 변경", "profiles, auth.users", "본인 계정 중심. 관리자 기능은 추후 별도 확장 가능"]
+  ],
+  "approvalFlow": [
+    ["단계", "설명", "연동 결과"],
+    ["양식 선택", "제조요구서, 구매의뢰서, 외주의뢰서, 제품검사요청서, 기안서, 지출품의서, 휴가신청서, 휴일근무신청서 중 선택", "선택한 양식에 맞는 입력 필드와 표가 표시됨"],
+    ["수주건 연결", "구매의뢰서/외주의뢰서/제품검사요청서 등은 기존 제조요구서 승인으로 생성된 장비 수주건과 연결 가능", "수주처, 장비명, S/N, 입고장소 등 겹치는 항목 자동 채움"],
+    ["결재라인 지정", "기본 3개 결재 슬롯 제공, 필요 시 결재라인 추가", "approval_lines에 순서와 결재자 정보 저장"],
+    ["참조 인원 지정", "승인 순서에는 포함되지 않지만 문서 확인 대상자를 지정", "approval_references 및 form_data._references에 참조 정보 저장"],
+    ["상신", "작성자 정보, 입력값, 결재라인, 참조자, 수주건 연결 정보 저장", "submit_approval_document RPC를 통해 approval_documents와 하위 테이블에 일괄 저장"],
+    ["승인 진행", "현재 순서의 결재자만 승인/반려 가능", "현재 결재자 승인 후 다음 결재자에게 알림 생성. 대시보드는 현재 지연 단계와 진행률 표시"],
+    ["최종 승인", "마지막 결재자가 승인하면 문서 상태가 approved가 됨", "완료 히스토리에 남고, 제조/구매/검사 문서는 equipment_orders 단계 날짜에 반영"],
+    ["휴가 자동 일정", "휴가신청서가 최종 승인되면 시작일~종료일 범위로 일정관리 등록", "schedules에 연차/반차 일정으로 자동 생성"],
+    ["문서함", "내 문서, 결재 대기, 완료로 구분", "내 문서는 작성자 본인 문서만, 결재 대기는 현재 내가 승인해야 하는 문서, 완료는 내가 참여한 승인 완료 문서"]
+  ],
+  "dataTables": [
+    ["테이블", "역할", "주요 필드"],
+    ["profiles", "사용자 프로필", "id, name, team, role, must_change_password"],
+    ["worklogs", "업무일지 헤더", "id, user_id, work_date"],
+    ["worklog_items", "업무일지 상세 항목", "worklog_id, type, start_time, end_time, content"],
+    ["schedules", "일정 데이터", "date, time, type, company, title, writer, team, trip_id"],
+    ["notices", "메인 공지", "title, body, target_team, pinned, starts_on, ends_on, created_by"],
+    ["customers", "고객사 업체", "name, phone, address, memo, created_by, updated_at"],
+    ["customer_contacts", "고객사 담당자", "customer_id, name, department, position, phone, email, memo, created_by"],
+    ["as_work_orders", "A/S 작업지시", "wo_no, customer, model, title, description, priority, status, created_by"],
+    ["as_service_logs", "A/S 처리내역", "work_order_id, seq, action, part, memo, created_by"],
+    ["sales_opportunities", "영업 기회", "division, company, contact, item, amount, currency, stage, next_action, due_date, created_by"],
+    ["sales_activities", "영업 활동 기록", "opportunity_id, type, title, memo, date, created_by"],
+    ["approval_documents", "결재문서 본문", "template_key, title, status, requester_id, requester_name, form_data, equipment_order_id"],
+    ["approval_lines", "결재라인", "document_id, step_order, role_label, approver_id, approver_name, status, acted_at"],
+    ["approval_references", "참조자", "document_id, user_id, reference_name, reference_team"],
+    ["approval_notifications", "결재 알림", "user_id, document_id, message, read_at"],
+    ["equipment_orders", "장비 발주/제작 대시보드", "category, order_date, customer, model, owner_name, serial_no, stage document ids/dates"]
+  ],
+  "permissions": [
+    ["대상", "읽기", "등록", "수정/삭제"],
+    ["업무일지", "본인 팀 중심. 팀장/임원/관리자는 확대 조회", "본인 계정으로 등록", "작성자 또는 관리자"],
+    ["일정관리", "인증 사용자 전체 일정 조회", "본인 이름으로 등록", "작성자 또는 관리자"],
+    ["A/S 관리", "인증 사용자 조회", "인증 사용자 등록", "작업지시 작성자 또는 관리자. 처리내역 추가도 작업지시 작성자 또는 관리자"],
+    ["영업관리", "인증 사용자 조회. 금액 표시는 영업/임원 중심", "인증 사용자 등록", "영업 건 작성자 또는 관리자"],
+    ["고객사 DB", "인증 사용자 조회", "인증 사용자 등록", "업체/담당자 각각 작성자 또는 관리자"],
+    ["결재문서", "작성자, 결재자, 참조자 중심 표시", "인증 사용자 상신", "승인은 현재 결재자만. 삭제/관리 기능은 작성자 또는 관리자 기준으로 확장 예정"],
+    ["공지", "인증 사용자 조회", "공지 관리자", "공지 관리자"],
+    ["관리자 예외", "관리자 role=admin은 수정/삭제 제한에서 예외", "필요 시 전체 운영 보정 가능", "RLS와 UI에서 admin 예외 적용"]
+  ],
+  "mobile": [
+    ["화면", "모바일 기준"],
+    ["로그인", "로고 배경과 입력 폼이 모바일 폭에 맞게 축소 표시"],
+    ["메인/대시보드", "좌측 메뉴 구조가 모바일에서 세로 흐름으로 전환되어야 하며, 주요 카드는 줄바꿈으로 가독성 확보"],
+    ["업무일지", "모바일에서는 업무일지 작성 버튼을 눌러도 작성 화면 진입을 막고, 모바일 작성 불가 안내 표시"],
+    ["일정관리", "월 이동, 계정 버튼, 달력 그리드가 작은 폭에서도 겹치지 않도록 버튼과 제목 영역 정렬 필요"],
+    ["결재문서", "양식 선택, 결재라인, 문서함이 세로 배치로 내려가며 문서 상세는 모달/패널 폭 조정 필요"],
+    ["A/S·영업·고객사", "목록과 상세가 한 화면 2열에서 모바일 1열로 전환되는 방식이 적합"]
+  ],
+  "roadmap": [
+    ["우선순위", "내용"],
+    ["상", "Supabase RLS를 운영 기준으로 정리하고 SQL 적용 여부를 정책 조회로 확인"],
+    ["상", "결재문서 모달 상세 보기, 완료 문서 히스토리 검색, 양식별 필드 다듬기"],
+    ["중", "고객사 DB 엑셀 일괄 등록, 중복 검사 강화, 담당자 수정 기능"],
+    ["중", "A/S 처리내역 수정/삭제, 고객사 DB와 장비/담당자 연결 강화"],
+    ["중", "영업관리 실제 사용 피드백 기반 단계/금액/통화/견적 흐름 조정"],
+    ["하", "개인별 입사일, 연차 잔여일수, 휴가 사용 현황 자동 계산"],
+    ["하", "결재 알림을 화면 배지, 이메일, 카카오/슬랙 등 외부 알림으로 확장 검토"]
+  ]
+}

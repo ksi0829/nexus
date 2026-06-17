@@ -1,0 +1,194 @@
+@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8fafc;
+  --foreground: #111820;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --line-strong: #d1d5db;
+  --card: #ffffff;
+  --soft: #f9fafb;
+  --primary: #2fa36b;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    "Pretendard",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Apple SD Gothic Neo",
+    "Noto Sans KR",
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+*::placeholder {
+  color: #9ca3af;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  line-height: 1.2;
+}
+
+.app-shell-content > main {
+  min-height: auto !important;
+  background: transparent !important;
+}
+
+.app-shell-content > main > section {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.app-shell-content > main > section > header {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  body {
+    background: #f3f5f7;
+  }
+
+  body > div {
+    grid-template-columns: 1fr !important;
+  }
+
+  .app-icon-rail {
+    display: none !important;
+  }
+
+  .app-mobile-menu-button {
+    display: inline-flex !important;
+  }
+
+  .app-mobile-menu-button span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    border-radius: 999px;
+    background: #111827;
+  }
+
+  .app-sidebar {
+    display: none !important;
+  }
+
+  .app-topbar {
+    position: sticky !important;
+    align-items: stretch !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 12px 14px !important;
+  }
+
+  .app-shell-content {
+    padding: 12px !important;
+  }
+
+  .app-topbar-actions {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+    align-items: center !important;
+    overflow: visible !important;
+  }
+
+  .app-topbar-identity {
+    grid-column: 1 / -1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .app-topbar-identity img {
+    width: 70px !important;
+  }
+
+  .app-alert-button {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .app-topbar-action-button {
+    min-width: 0 !important;
+    width: 100% !important;
+    min-height: 38px !important;
+    padding: 0 6px !important;
+    font-size: 12px !important;
+    white-space: normal !important;
+    word-break: keep-all !important;
+  }
+
+  .app-worklog-input-button {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-topbar .app-mobile-menu-button {
+    width: 40px !important;
+    min-width: 40px !important;
+    padding: 0 !important;
+  }
+
+  .app-topbar-actions {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .app-topbar-action-button {
+    font-size: 11px !important;
+  }
+
+  .app-alert-button {
+    min-width: 0 !important;
+  }
+
+  .app-topbar-identity img {
+    width: 58px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-topbar-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}

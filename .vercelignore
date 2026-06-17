@@ -1,0 +1,5 @@
+scripts/vendor/
+dist/
+*.log
+public/*-preview-*.png
+public/*-debug.png
