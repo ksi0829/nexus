@@ -1966,12 +1966,16 @@ export default function ApprovalPage() {
           const date = /^\d{4}-\d{2}-\d{2}$/.test(issueDateValue)
             ? new Date(`${issueDateValue}T00:00:00`)
             : new Date();
+          const workOrderNoMatch = nexusDocumentNo.match(/(\d{2})-(\d+)/);
+          const safeWorkOrderKey = workOrderNoMatch
+            ? `WO-${workOrderNoMatch[1]}-${workOrderNoMatch[2]}`
+            : `WO-${String(documentId)}`;
           const storagePath = [
             "work-order",
             String(date.getFullYear()),
             String(date.getMonth() + 1).padStart(2, "0"),
             String(date.getDate()).padStart(2, "0"),
-            nexusDocumentNo,
+            safeWorkOrderKey,
             "submitted.pdf",
           ].join("/");
           const { error: uploadError } = await supabase.storage

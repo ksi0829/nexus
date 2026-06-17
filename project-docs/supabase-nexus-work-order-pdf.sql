@@ -3,7 +3,8 @@
 --
 -- The storage bucket policy in supabase-nexus-storage-rls-fix-20260617.sql
 -- already allows:
--- work-order/YYYY/MM/DD/{document_no}/submitted.pdf
+-- work-order/YYYY/MM/DD/{safe_work_order_key}/submitted.pdf
+-- Example: work-order/2026/06/17/WO-26-2/submitted.pdf
 
 create or replace function public.nexus_attach_work_order_pdf(
   target_document_id bigint,
