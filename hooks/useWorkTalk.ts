@@ -1424,10 +1424,12 @@ export function useWorkTalk() {
     if (!currentProfile || setupState !== "ready") return;
 
     const baseChannelName = `worktalk-${currentProfile.id}`;
-    const coreChannelName = `${baseChannelName}-core`;
+    const messagesChannelName = `${baseChannelName}-messages`;
+    const filesChannelName = `${baseChannelName}-files`;
+    const notificationsChannelName = `${baseChannelName}-notifications`;
     const metaChannelName = `${baseChannelName}-meta`;
     const logChannelStatus = (
-      scope: "core" | "meta",
+      scope: "messages" | "files" | "notifications" | "meta",
       channelName: string,
       channel: unknown,
       status: string,
@@ -1472,8 +1474,22 @@ export function useWorkTalk() {
     };
 
     console.log("[WorkTalk realtime debug] channel:create", {
-      scope: "core",
-      channelName: coreChannelName,
+      scope: "messages",
+      channelName: messagesChannelName,
+      currentProfileId: currentProfile.id,
+      selectedRoomId: selectedRoomIdRef.current,
+      setupState,
+    });
+    console.log("[WorkTalk realtime debug] channel:create", {
+      scope: "files",
+      channelName: filesChannelName,
+      currentProfileId: currentProfile.id,
+      selectedRoomId: selectedRoomIdRef.current,
+      setupState,
+    });
+    console.log("[WorkTalk realtime debug] channel:create", {
+      scope: "notifications",
+      channelName: notificationsChannelName,
       currentProfileId: currentProfile.id,
       selectedRoomId: selectedRoomIdRef.current,
       setupState,
@@ -1486,8 +1502,8 @@ export function useWorkTalk() {
       setupState,
     });
 
-    const coreChannel = supabase
-      .channel(coreChannelName)
+    const messagesChannel = supabase
+      .channel(messagesChannelName)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "worktalk_messages" },
@@ -1517,6 +1533,18 @@ export function useWorkTalk() {
           scheduleRoomRefresh(activeRoomId);
         }
       )
+      .subscribe((status, error) => {
+        logChannelStatus(
+          "messages",
+          messagesChannelName,
+          messagesChannel,
+          status,
+          error
+        );
+      });
+
+    const filesChannel = supabase
+      .channel(filesChannelName)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "worktalk_files" },
@@ -1534,6 +1562,12 @@ export function useWorkTalk() {
           }
         }
       )
+      .subscribe((status, error) => {
+        logChannelStatus("files", filesChannelName, filesChannel, status, error);
+      });
+
+    const notificationsChannel = supabase
+      .channel(notificationsChannelName)
       .on(
         "postgres_changes",
         {
@@ -1586,7 +1620,13 @@ export function useWorkTalk() {
         }
       )
       .subscribe((status, error) => {
-        logChannelStatus("core", coreChannelName, coreChannel, status, error);
+        logChannelStatus(
+          "notifications",
+          notificationsChannelName,
+          notificationsChannel,
+          status,
+          error
+        );
       });
 
     const metaChannel = supabase
@@ -1627,8 +1667,18 @@ export function useWorkTalk() {
 
     return () => {
       console.log("[WorkTalk realtime debug] channel:cleanup", {
-        scope: "core",
-        channelName: coreChannelName,
+        scope: "messages",
+        channelName: messagesChannelName,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      console.log("[WorkTalk realtime debug] channel:cleanup", {
+        scope: "files",
+        channelName: filesChannelName,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      console.log("[WorkTalk realtime debug] channel:cleanup", {
+        scope: "notifications",
+        channelName: notificationsChannelName,
         selectedRoomId: selectedRoomIdRef.current,
       });
       console.log("[WorkTalk realtime debug] channel:cleanup", {
@@ -1644,7 +1694,9 @@ export function useWorkTalk() {
         window.clearTimeout(messageRefreshTimerRef.current);
         messageRefreshTimerRef.current = null;
       }
-      void supabase.removeChannel(coreChannel);
+      void supabase.removeChannel(messagesChannel);
+      void supabase.removeChannel(filesChannel);
+      void supabase.removeChannel(notificationsChannel);
       void supabase.removeChannel(metaChannel);
     };
   }, [
