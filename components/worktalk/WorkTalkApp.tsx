@@ -325,7 +325,12 @@ export function WorkTalkApp() {
     transferOwnerAndLeave,
     reload,
   } = useWorkTalk();
-  const [activeSection, setActiveSection] = useState<WorkTalkSection>("people");
+  const [activeSection, setActiveSection] = useState<WorkTalkSection>(() => {
+    if (typeof window === "undefined") return "people";
+    return new URLSearchParams(window.location.search).has("room")
+      ? "chat"
+      : "people";
+  });
   const [peopleSearch, setPeopleSearch] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
     null
@@ -361,7 +366,11 @@ export function WorkTalkApp() {
     url: string;
   } | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
+  const [mobileConversationOpen, setMobileConversationOpen] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).has("room")
+  );
   const [popupMode, setPopupMode] = useState(false);
   const [highlightedRoomId, setHighlightedRoomId] = useState<number | null>(null);
   const [createMode, setCreateMode] = useState<CreateMode>(null);
@@ -395,6 +404,7 @@ export function WorkTalkApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
+  const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollTimersRef = useRef<number[]>([]);
   const {
     status: pushStatus,
@@ -666,6 +676,10 @@ export function WorkTalkApp() {
       : notifications;
   const canReorderRooms = filter === "all" && !roomSearch.trim();
   const clearBottomScrollTimers = useCallback(() => {
+    if (bottomScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(bottomScrollRafRef.current);
+      bottomScrollRafRef.current = null;
+    }
     bottomScrollTimersRef.current.forEach((timerId) =>
       window.clearTimeout(timerId)
     );
@@ -681,10 +695,16 @@ export function WorkTalkApp() {
     []
   );
   const scheduleBottomScroll = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
+    (
+      behavior: ScrollBehavior = "auto",
+      options: { extraSettle?: boolean } = {}
+    ) => {
       clearBottomScrollTimers();
-      window.requestAnimationFrame(() => scrollConversationToBottom(behavior));
-      [80, 220, 520].forEach((delay) => {
+      bottomScrollRafRef.current = window.requestAnimationFrame(() => {
+        bottomScrollRafRef.current = null;
+        scrollConversationToBottom(behavior);
+      });
+      [140, ...(options.extraSettle ? [420] : [])].forEach((delay) => {
         const timerId = window.setTimeout(
           () => scrollConversationToBottom("auto"),
           delay
@@ -700,7 +720,7 @@ export function WorkTalkApp() {
       setActiveSection("chat");
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
-      scheduleBottomScroll();
+      scheduleBottomScroll("auto", { extraSettle: true });
     },
     [markNotificationRead, scheduleBottomScroll, selectRoom]
   );
@@ -730,7 +750,7 @@ export function WorkTalkApp() {
       setMobileConversationOpen(true);
       window.history.replaceState({}, "", "/worktalk");
       if (!(Number.isSafeInteger(messageId) && messageId > 0)) {
-        scheduleBottomScroll();
+        scheduleBottomScroll("auto", { extraSettle: true });
       }
     }, 0);
     return () => window.clearTimeout(timeoutId);
