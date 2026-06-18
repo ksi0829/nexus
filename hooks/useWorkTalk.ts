@@ -1423,8 +1423,16 @@ export function useWorkTalk() {
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;
 
+    const channelName = `worktalk-${currentProfile.id}`;
+    console.log("[WorkTalk realtime debug] channel:create", {
+      channelName,
+      currentProfileId: currentProfile.id,
+      selectedRoomId: selectedRoomIdRef.current,
+      setupState,
+    });
+
     const channel = supabase
-      .channel(`worktalk-${currentProfile.id}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "worktalk_messages" },
@@ -1553,15 +1561,48 @@ export function useWorkTalk() {
         }
       )
       .subscribe((status, error) => {
-        console.log("[WorkTalk realtime debug] channel:status", {
-          channel: `worktalk-${currentProfile.id}`,
+        const channelSnapshot = channel as unknown as {
+          topic?: string;
+          state?: string;
+          joinedOnce?: boolean;
+          joinRef?: () => string;
+          socket?: {
+            isConnected?: () => boolean;
+            connectionState?: () => string;
+          };
+        };
+        const debugPayload = {
+          channel: channelName,
           status,
           error,
           selectedRoomId: selectedRoomIdRef.current,
+          topic: channelSnapshot.topic,
+          channelState: channelSnapshot.state,
+          joinedOnce: channelSnapshot.joinedOnce,
+          joinRef:
+            typeof channelSnapshot.joinRef === "function"
+              ? channelSnapshot.joinRef()
+              : null,
+          socketConnected:
+            typeof channelSnapshot.socket?.isConnected === "function"
+              ? channelSnapshot.socket.isConnected()
+              : null,
+          socketState:
+            typeof channelSnapshot.socket?.connectionState === "function"
+              ? channelSnapshot.socket.connectionState()
+              : null,
+        };
+        console.log("[WorkTalk realtime debug] channel:status", {
+          ...debugPayload,
+          json: JSON.stringify(debugPayload),
         });
       });
 
     return () => {
+      console.log("[WorkTalk realtime debug] channel:cleanup", {
+        channelName,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
       if (roomRefreshTimerRef.current) {
         window.clearTimeout(roomRefreshTimerRef.current);
         roomRefreshTimerRef.current = null;
