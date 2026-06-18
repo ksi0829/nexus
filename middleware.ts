@@ -59,7 +59,7 @@ export async function middleware(req: NextRequest) {
 
     url.pathname = "/login";
     if (pathname.startsWith("/worktalk") || pathname.startsWith("/nexus")) {
-      url.searchParams.set("next", pathname);
+      url.searchParams.set("next", `${pathname}${req.nextUrl.search}`);
     }
 
     return NextResponse.redirect(url);
@@ -75,8 +75,14 @@ export async function middleware(req: NextRequest) {
       const url = req.nextUrl.clone();
 
       const nextPath = req.nextUrl.searchParams.get("next");
-      url.pathname = nextPath?.startsWith("/") ? nextPath : "/worktalk";
-      url.search = "";
+      if (nextPath?.startsWith("/")) {
+        const nextUrl = new URL(nextPath, req.nextUrl.origin);
+        url.pathname = nextUrl.pathname;
+        url.search = nextUrl.search;
+      } else {
+        url.pathname = "/worktalk";
+        url.search = "";
+      }
 
       return NextResponse.redirect(url);
 

@@ -726,21 +726,17 @@ export function WorkTalkApp() {
   );
 
   useEffect(() => {
-    if (
-      deepLinkHandledRef.current ||
-      !currentProfile ||
-      setupState !== "ready" ||
-      rooms.length === 0
-    ) {
+    if (deepLinkHandledRef.current || !currentProfile || setupState !== "ready") {
       return;
     }
 
     const params = new URLSearchParams(window.location.search);
     const roomId = Number(params.get("room"));
     const messageId = Number(params.get("message"));
-    deepLinkHandledRef.current = true;
 
     if (!Number.isSafeInteger(roomId) || roomId <= 0) return;
+    deepLinkHandledRef.current = true;
+
     const timeoutId = window.setTimeout(() => {
       setActiveSection("chat");
       selectRoom(
