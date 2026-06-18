@@ -1423,16 +1423,71 @@ export function useWorkTalk() {
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;
 
-    const channelName = `worktalk-${currentProfile.id}`;
+    const baseChannelName = `worktalk-${currentProfile.id}`;
+    const coreChannelName = `${baseChannelName}-core`;
+    const metaChannelName = `${baseChannelName}-meta`;
+    const logChannelStatus = (
+      scope: "core" | "meta",
+      channelName: string,
+      channel: unknown,
+      status: string,
+      error?: unknown
+    ) => {
+      const channelSnapshot = channel as {
+        topic?: string;
+        state?: string;
+        joinedOnce?: boolean;
+        joinRef?: () => string;
+        socket?: {
+          isConnected?: () => boolean;
+          connectionState?: () => string;
+        };
+      };
+      const debugPayload = {
+        scope,
+        channel: channelName,
+        status,
+        error,
+        selectedRoomId: selectedRoomIdRef.current,
+        topic: channelSnapshot.topic,
+        channelState: channelSnapshot.state,
+        joinedOnce: channelSnapshot.joinedOnce,
+        joinRef:
+          typeof channelSnapshot.joinRef === "function"
+            ? channelSnapshot.joinRef()
+            : null,
+        socketConnected:
+          typeof channelSnapshot.socket?.isConnected === "function"
+            ? channelSnapshot.socket.isConnected()
+            : null,
+        socketState:
+          typeof channelSnapshot.socket?.connectionState === "function"
+            ? channelSnapshot.socket.connectionState()
+            : null,
+      };
+      console.log("[WorkTalk realtime debug] channel:status", {
+        ...debugPayload,
+        json: JSON.stringify(debugPayload),
+      });
+    };
+
     console.log("[WorkTalk realtime debug] channel:create", {
-      channelName,
+      scope: "core",
+      channelName: coreChannelName,
+      currentProfileId: currentProfile.id,
+      selectedRoomId: selectedRoomIdRef.current,
+      setupState,
+    });
+    console.log("[WorkTalk realtime debug] channel:create", {
+      scope: "meta",
+      channelName: metaChannelName,
       currentProfileId: currentProfile.id,
       selectedRoomId: selectedRoomIdRef.current,
       setupState,
     });
 
-    const channel = supabase
-      .channel(channelName)
+    const coreChannel = supabase
+      .channel(coreChannelName)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "worktalk_messages" },
@@ -1460,36 +1515,6 @@ export function useWorkTalk() {
           }
 
           scheduleRoomRefresh(activeRoomId);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "worktalk_room_notices" },
-        (payload) => {
-          const roomId = Number(
-            ((payload.new || payload.old) as { room_id?: number }).room_id
-          );
-          if (roomId && roomId === selectedRoomIdRef.current) {
-            void loadRoomNotice(roomId);
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "worktalk_room_members",
-        },
-        () => {
-          scheduleRoomRefresh(selectedRoomIdRef.current);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "worktalk_rooms" },
-        () => {
-          scheduleRoomRefresh(selectedRoomIdRef.current);
         }
       )
       .on(
@@ -1561,46 +1586,54 @@ export function useWorkTalk() {
         }
       )
       .subscribe((status, error) => {
-        const channelSnapshot = channel as unknown as {
-          topic?: string;
-          state?: string;
-          joinedOnce?: boolean;
-          joinRef?: () => string;
-          socket?: {
-            isConnected?: () => boolean;
-            connectionState?: () => string;
-          };
-        };
-        const debugPayload = {
-          channel: channelName,
-          status,
-          error,
-          selectedRoomId: selectedRoomIdRef.current,
-          topic: channelSnapshot.topic,
-          channelState: channelSnapshot.state,
-          joinedOnce: channelSnapshot.joinedOnce,
-          joinRef:
-            typeof channelSnapshot.joinRef === "function"
-              ? channelSnapshot.joinRef()
-              : null,
-          socketConnected:
-            typeof channelSnapshot.socket?.isConnected === "function"
-              ? channelSnapshot.socket.isConnected()
-              : null,
-          socketState:
-            typeof channelSnapshot.socket?.connectionState === "function"
-              ? channelSnapshot.socket.connectionState()
-              : null,
-        };
-        console.log("[WorkTalk realtime debug] channel:status", {
-          ...debugPayload,
-          json: JSON.stringify(debugPayload),
-        });
+        logChannelStatus("core", coreChannelName, coreChannel, status, error);
+      });
+
+    const metaChannel = supabase
+      .channel(metaChannelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "worktalk_room_notices" },
+        (payload) => {
+          const roomId = Number(
+            ((payload.new || payload.old) as { room_id?: number }).room_id
+          );
+          if (roomId && roomId === selectedRoomIdRef.current) {
+            void loadRoomNotice(roomId);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "worktalk_room_members",
+        },
+        () => {
+          scheduleRoomRefresh(selectedRoomIdRef.current);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "worktalk_rooms" },
+        () => {
+          scheduleRoomRefresh(selectedRoomIdRef.current);
+        }
+      )
+      .subscribe((status, error) => {
+        logChannelStatus("meta", metaChannelName, metaChannel, status, error);
       });
 
     return () => {
       console.log("[WorkTalk realtime debug] channel:cleanup", {
-        channelName,
+        scope: "core",
+        channelName: coreChannelName,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      console.log("[WorkTalk realtime debug] channel:cleanup", {
+        scope: "meta",
+        channelName: metaChannelName,
         selectedRoomId: selectedRoomIdRef.current,
       });
       if (roomRefreshTimerRef.current) {
@@ -1611,7 +1644,8 @@ export function useWorkTalk() {
         window.clearTimeout(messageRefreshTimerRef.current);
         messageRefreshTimerRef.current = null;
       }
-      void supabase.removeChannel(channel);
+      void supabase.removeChannel(coreChannel);
+      void supabase.removeChannel(metaChannel);
     };
   }, [
     currentProfile,
