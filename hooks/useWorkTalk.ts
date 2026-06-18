@@ -1429,6 +1429,35 @@ export function useWorkTalk() {
     const filesChannelName = `${baseChannelName}-files`;
     const notificationsChannelName = `${baseChannelName}-notifications`;
     const metaChannelName = `${baseChannelName}-meta`;
+    type RealtimeDebugSnapshot = {
+      endPoint?: string;
+      endpointURL?: () => string;
+      connectionState?: () => string;
+      isConnected?: () => boolean;
+      conn?: {
+        readyState?: number;
+        url?: string;
+      } | null;
+      setAuth?: (token?: string | null) => Promise<void>;
+    };
+    const getRealtimeDebugState = (realtimeClient: unknown) => {
+      const snapshot = realtimeClient as RealtimeDebugSnapshot;
+      return {
+        realtimeEndPoint: snapshot.endPoint ?? null,
+        realtimeEndpointURL:
+          typeof snapshot.endpointURL === "function"
+            ? snapshot.endpointURL()
+            : null,
+        realtimeConnectionState:
+          typeof snapshot.connectionState === "function"
+            ? snapshot.connectionState()
+            : null,
+        realtimeIsConnected:
+          typeof snapshot.isConnected === "function" ? snapshot.isConnected() : null,
+        realtimeConnReadyState: snapshot.conn?.readyState ?? null,
+        realtimeConnUrl: snapshot.conn?.url ?? null,
+      };
+    };
     const logChannelStatus = (
       scope: "messages" | "files" | "notifications" | "meta",
       channelName: string,
@@ -1442,8 +1471,14 @@ export function useWorkTalk() {
         joinedOnce?: boolean;
         joinRef?: () => string;
         socket?: {
+          endPoint?: string;
+          endpointURL?: () => string;
           isConnected?: () => boolean;
           connectionState?: () => string;
+          conn?: {
+            readyState?: number;
+            url?: string;
+          } | null;
         };
       };
       const debugPayload = {
@@ -1467,6 +1502,13 @@ export function useWorkTalk() {
           typeof channelSnapshot.socket?.connectionState === "function"
             ? channelSnapshot.socket.connectionState()
             : null,
+        socketEndPoint: channelSnapshot.socket?.endPoint ?? null,
+        socketEndpointURL:
+          typeof channelSnapshot.socket?.endpointURL === "function"
+            ? channelSnapshot.socket.endpointURL()
+            : null,
+        socketConnReadyState: channelSnapshot.socket?.conn?.readyState ?? null,
+        socketConnUrl: channelSnapshot.socket?.conn?.url ?? null,
       };
       console.log("[WorkTalk realtime debug] channel:status", {
         ...debugPayload,
@@ -1484,46 +1526,42 @@ export function useWorkTalk() {
       } = await supabase.auth.getSession();
       if (isCancelled) return;
 
-      const realtimeSnapshot = supabase.realtime as unknown as {
-        endpoint?: string;
-        accessToken?: string;
-        socket?: {
-          isConnected?: () => boolean;
-          connectionState?: () => string;
-        };
-        setAuth?: (token?: string) => void;
-      };
+      const realtimeSnapshot = supabase.realtime as unknown as RealtimeDebugSnapshot;
       const accessToken = session?.access_token;
-      if (accessToken && typeof realtimeSnapshot.setAuth === "function") {
-        realtimeSnapshot.setAuth(accessToken);
-      }
-      console.log("[WorkTalk realtime debug] realtime:preflight", {
+      console.log("[WorkTalk realtime debug] realtime:preflight:beforeAuth", {
         hasSession: Boolean(session),
         sessionUserId: session?.user?.id ?? null,
         sessionError: sessionError?.message ?? null,
         expiresAt: session?.expires_at ?? null,
         accessTokenLength: accessToken?.length ?? 0,
-        realtimeEndpoint: realtimeSnapshot.endpoint,
-        socketConnected:
-          typeof realtimeSnapshot.socket?.isConnected === "function"
-            ? realtimeSnapshot.socket.isConnected()
-            : null,
-        socketState:
-          typeof realtimeSnapshot.socket?.connectionState === "function"
-            ? realtimeSnapshot.socket.connectionState()
-            : null,
+        ...getRealtimeDebugState(supabase.realtime),
+      });
+
+      if (accessToken && typeof realtimeSnapshot.setAuth === "function") {
+        await realtimeSnapshot.setAuth(accessToken);
+        if (isCancelled) return;
+      }
+
+      console.log("[WorkTalk realtime debug] realtime:preflight:afterAuth", {
+        hasSession: Boolean(session),
+        sessionUserId: session?.user?.id ?? null,
+        sessionError: sessionError?.message ?? null,
+        expiresAt: session?.expires_at ?? null,
+        accessTokenLength: accessToken?.length ?? 0,
+        ...getRealtimeDebugState(supabase.realtime),
       });
 
       authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
         const nextToken = nextSession?.access_token;
         if (nextToken && typeof realtimeSnapshot.setAuth === "function") {
-          realtimeSnapshot.setAuth(nextToken);
+          void realtimeSnapshot.setAuth(nextToken);
         }
         console.log("[WorkTalk realtime debug] realtime:auth-state", {
           event: _event,
           hasSession: Boolean(nextSession),
           sessionUserId: nextSession?.user?.id ?? null,
           accessTokenLength: nextToken?.length ?? 0,
+          ...getRealtimeDebugState(supabase.realtime),
         });
       }).data.subscription;
 
