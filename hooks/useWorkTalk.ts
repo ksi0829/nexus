@@ -1423,7 +1423,8 @@ export function useWorkTalk() {
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;
 
-    const baseChannelName = `worktalk-${currentProfile.id}`;
+    const profileId = currentProfile.id;
+    const baseChannelName = `worktalk-${profileId}`;
     const messagesChannelName = `${baseChannelName}-messages`;
     const filesChannelName = `${baseChannelName}-files`;
     const notificationsChannelName = `${baseChannelName}-notifications`;
@@ -1472,198 +1473,256 @@ export function useWorkTalk() {
         json: JSON.stringify(debugPayload),
       });
     };
+    const channels: Array<ReturnType<typeof supabase.channel>> = [];
+    let isCancelled = false;
+    let authSubscription: { unsubscribe: () => void } | null = null;
 
-    console.log("[WorkTalk realtime debug] channel:create", {
-      scope: "messages",
-      channelName: messagesChannelName,
-      currentProfileId: currentProfile.id,
-      selectedRoomId: selectedRoomIdRef.current,
-      setupState,
-    });
-    console.log("[WorkTalk realtime debug] channel:create", {
-      scope: "files",
-      channelName: filesChannelName,
-      currentProfileId: currentProfile.id,
-      selectedRoomId: selectedRoomIdRef.current,
-      setupState,
-    });
-    console.log("[WorkTalk realtime debug] channel:create", {
-      scope: "notifications",
-      channelName: notificationsChannelName,
-      currentProfileId: currentProfile.id,
-      selectedRoomId: selectedRoomIdRef.current,
-      setupState,
-    });
-    console.log("[WorkTalk realtime debug] channel:create", {
-      scope: "meta",
-      channelName: metaChannelName,
-      currentProfileId: currentProfile.id,
-      selectedRoomId: selectedRoomIdRef.current,
-      setupState,
-    });
+    async function startRealtimeChannels() {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (isCancelled) return;
 
-    const messagesChannel = supabase
-      .channel(messagesChannelName)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "worktalk_messages" },
-        (payload) => {
-          const message = {
-            ...(payload.new as Omit<WorkTalkMessage, "files">),
-            files: [],
-          };
-          const activeRoomId = selectedRoomIdRef.current;
-          console.log("[WorkTalk realtime debug] messages:INSERT", {
-            messageId: message.id,
-            roomId: message.room_id,
-            activeRoomId,
-            messageType: message.message_type,
-            senderId: message.sender_id,
-            matchesActiveRoom: message.room_id === activeRoomId,
-          });
+      const realtimeSnapshot = supabase.realtime as unknown as {
+        endpoint?: string;
+        accessToken?: string;
+        socket?: {
+          isConnected?: () => boolean;
+          connectionState?: () => string;
+        };
+        setAuth?: (token?: string) => void;
+      };
+      const accessToken = session?.access_token;
+      if (accessToken && typeof realtimeSnapshot.setAuth === "function") {
+        realtimeSnapshot.setAuth(accessToken);
+      }
+      console.log("[WorkTalk realtime debug] realtime:preflight", {
+        hasSession: Boolean(session),
+        sessionUserId: session?.user?.id ?? null,
+        sessionError: sessionError?.message ?? null,
+        expiresAt: session?.expires_at ?? null,
+        accessTokenLength: accessToken?.length ?? 0,
+        realtimeEndpoint: realtimeSnapshot.endpoint,
+        socketConnected:
+          typeof realtimeSnapshot.socket?.isConnected === "function"
+            ? realtimeSnapshot.socket.isConnected()
+            : null,
+        socketState:
+          typeof realtimeSnapshot.socket?.connectionState === "function"
+            ? realtimeSnapshot.socket.connectionState()
+            : null,
+      });
 
-          if (message.room_id === activeRoomId) {
-            scheduleMessageRefresh(message.room_id, 80);
-            void supabase.rpc("worktalk_mark_room_read", {
-              target_room_id: message.room_id,
-              target_message_id: message.id,
+      authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        const nextToken = nextSession?.access_token;
+        if (nextToken && typeof realtimeSnapshot.setAuth === "function") {
+          realtimeSnapshot.setAuth(nextToken);
+        }
+        console.log("[WorkTalk realtime debug] realtime:auth-state", {
+          event: _event,
+          hasSession: Boolean(nextSession),
+          sessionUserId: nextSession?.user?.id ?? null,
+          accessTokenLength: nextToken?.length ?? 0,
+        });
+      }).data.subscription;
+
+      console.log("[WorkTalk realtime debug] channel:create", {
+        scope: "messages",
+        channelName: messagesChannelName,
+        currentProfileId: profileId,
+        selectedRoomId: selectedRoomIdRef.current,
+        setupState,
+      });
+      console.log("[WorkTalk realtime debug] channel:create", {
+        scope: "files",
+        channelName: filesChannelName,
+        currentProfileId: profileId,
+        selectedRoomId: selectedRoomIdRef.current,
+        setupState,
+      });
+      console.log("[WorkTalk realtime debug] channel:create", {
+        scope: "notifications",
+        channelName: notificationsChannelName,
+        currentProfileId: profileId,
+        selectedRoomId: selectedRoomIdRef.current,
+        setupState,
+      });
+      console.log("[WorkTalk realtime debug] channel:create", {
+        scope: "meta",
+        channelName: metaChannelName,
+        currentProfileId: profileId,
+        selectedRoomId: selectedRoomIdRef.current,
+        setupState,
+      });
+
+      const messagesChannel = supabase
+        .channel(messagesChannelName)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "worktalk_messages" },
+          (payload) => {
+            const message = {
+              ...(payload.new as Omit<WorkTalkMessage, "files">),
+              files: [],
+            };
+            const activeRoomId = selectedRoomIdRef.current;
+            console.log("[WorkTalk realtime debug] messages:INSERT", {
+              messageId: message.id,
+              roomId: message.room_id,
+              activeRoomId,
+              messageType: message.message_type,
+              senderId: message.sender_id,
+              matchesActiveRoom: message.room_id === activeRoomId,
             });
-          }
 
-          scheduleRoomRefresh(activeRoomId);
-        }
-      )
-      .subscribe((status, error) => {
-        logChannelStatus(
-          "messages",
-          messagesChannelName,
-          messagesChannel,
-          status,
-          error
-        );
-      });
+            if (message.room_id === activeRoomId) {
+              scheduleMessageRefresh(message.room_id, 80);
+              void supabase.rpc("worktalk_mark_room_read", {
+                target_room_id: message.room_id,
+                target_message_id: message.id,
+              });
+            }
 
-    const filesChannel = supabase
-      .channel(filesChannelName)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "worktalk_files" },
-        (payload) => {
-          const roomId = Number((payload.new as { room_id?: number }).room_id);
-          console.log("[WorkTalk realtime debug] files:INSERT", {
-            fileId: (payload.new as { id?: number }).id,
-            roomId,
-            messageId: (payload.new as { message_id?: number }).message_id,
-            activeRoomId: selectedRoomIdRef.current,
-            matchesActiveRoom: roomId === selectedRoomIdRef.current,
-          });
-          if (roomId && roomId === selectedRoomIdRef.current) {
-            scheduleMessageRefresh(roomId, 120);
+            scheduleRoomRefresh(activeRoomId);
           }
-        }
-      )
-      .subscribe((status, error) => {
-        logChannelStatus("files", filesChannelName, filesChannel, status, error);
-      });
+        )
+        .subscribe((status, error) => {
+          logChannelStatus(
+            "messages",
+            messagesChannelName,
+            messagesChannel,
+            status,
+            error
+          );
+        });
 
-    const notificationsChannel = supabase
-      .channel(notificationsChannelName)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "worktalk_notifications",
-          filter: `user_id=eq.${currentProfile.id}`,
-        },
-        (payload) => {
-          const notification = payload.new as WorkTalkNotification;
-          console.log("[WorkTalk realtime debug] notifications:INSERT", {
-            notificationId: notification.id,
-            roomId: notification.room_id,
-            messageId: notification.message_id,
-            type: notification.notification_type,
-            activeRoomId: selectedRoomIdRef.current,
-            matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
-          });
-          setNotifications((current) =>
-            current.some((item) => item.id === notification.id)
-              ? current
-              : [notification, ...current].slice(0, 100)
-          );
-          setNotificationsReady(true);
-          lastDeliveredNotificationIdRef.current = Math.max(
-            lastDeliveredNotificationIdRef.current || 0,
-            notification.id
-          );
-          setLatestNotification(notification);
-          if (notification.room_id === selectedRoomIdRef.current) {
-            scheduleMessageRefresh(notification.room_id, 250);
+      const filesChannel = supabase
+        .channel(filesChannelName)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "worktalk_files" },
+          (payload) => {
+            const roomId = Number((payload.new as { room_id?: number }).room_id);
+            console.log("[WorkTalk realtime debug] files:INSERT", {
+              fileId: (payload.new as { id?: number }).id,
+              roomId,
+              messageId: (payload.new as { message_id?: number }).message_id,
+              activeRoomId: selectedRoomIdRef.current,
+              matchesActiveRoom: roomId === selectedRoomIdRef.current,
+            });
+            if (roomId && roomId === selectedRoomIdRef.current) {
+              scheduleMessageRefresh(roomId, 120);
+            }
           }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "worktalk_notifications",
-          filter: `user_id=eq.${currentProfile.id}`,
-        },
-        (payload) => {
-          const notification = payload.new as WorkTalkNotification;
-          setNotifications((current) =>
-            current.map((item) =>
-              item.id === notification.id ? notification : item
-            )
-          );
-        }
-      )
-      .subscribe((status, error) => {
-        logChannelStatus(
-          "notifications",
-          notificationsChannelName,
-          notificationsChannel,
-          status,
-          error
-        );
-      });
+        )
+        .subscribe((status, error) => {
+          logChannelStatus("files", filesChannelName, filesChannel, status, error);
+        });
 
-    const metaChannel = supabase
-      .channel(metaChannelName)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "worktalk_room_notices" },
-        (payload) => {
-          const roomId = Number(
-            ((payload.new || payload.old) as { room_id?: number }).room_id
-          );
-          if (roomId && roomId === selectedRoomIdRef.current) {
-            void loadRoomNotice(roomId);
+      const notificationsChannel = supabase
+        .channel(notificationsChannelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "worktalk_notifications",
+            filter: `user_id=eq.${profileId}`,
+          },
+          (payload) => {
+            const notification = payload.new as WorkTalkNotification;
+            console.log("[WorkTalk realtime debug] notifications:INSERT", {
+              notificationId: notification.id,
+              roomId: notification.room_id,
+              messageId: notification.message_id,
+              type: notification.notification_type,
+              activeRoomId: selectedRoomIdRef.current,
+              matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
+            });
+            setNotifications((current) =>
+              current.some((item) => item.id === notification.id)
+                ? current
+                : [notification, ...current].slice(0, 100)
+            );
+            setNotificationsReady(true);
+            lastDeliveredNotificationIdRef.current = Math.max(
+              lastDeliveredNotificationIdRef.current || 0,
+              notification.id
+            );
+            setLatestNotification(notification);
+            if (notification.room_id === selectedRoomIdRef.current) {
+              scheduleMessageRefresh(notification.room_id, 250);
+            }
           }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "worktalk_room_members",
-        },
-        () => {
-          scheduleRoomRefresh(selectedRoomIdRef.current);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "worktalk_rooms" },
-        () => {
-          scheduleRoomRefresh(selectedRoomIdRef.current);
-        }
-      )
-      .subscribe((status, error) => {
-        logChannelStatus("meta", metaChannelName, metaChannel, status, error);
-      });
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "worktalk_notifications",
+            filter: `user_id=eq.${profileId}`,
+          },
+          (payload) => {
+            const notification = payload.new as WorkTalkNotification;
+            setNotifications((current) =>
+              current.map((item) =>
+                item.id === notification.id ? notification : item
+              )
+            );
+          }
+        )
+        .subscribe((status, error) => {
+          logChannelStatus(
+            "notifications",
+            notificationsChannelName,
+            notificationsChannel,
+            status,
+            error
+          );
+        });
+
+      const metaChannel = supabase
+        .channel(metaChannelName)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "worktalk_room_notices" },
+          (payload) => {
+            const roomId = Number(
+              ((payload.new || payload.old) as { room_id?: number }).room_id
+            );
+            if (roomId && roomId === selectedRoomIdRef.current) {
+              void loadRoomNotice(roomId);
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "worktalk_room_members",
+          },
+          () => {
+            scheduleRoomRefresh(selectedRoomIdRef.current);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "worktalk_rooms" },
+          () => {
+            scheduleRoomRefresh(selectedRoomIdRef.current);
+          }
+        )
+        .subscribe((status, error) => {
+          logChannelStatus("meta", metaChannelName, metaChannel, status, error);
+        });
+
+      channels.push(messagesChannel, filesChannel, notificationsChannel, metaChannel);
+    }
+
+    void startRealtimeChannels();
 
     return () => {
       console.log("[WorkTalk realtime debug] channel:cleanup", {
@@ -1694,10 +1753,11 @@ export function useWorkTalk() {
         window.clearTimeout(messageRefreshTimerRef.current);
         messageRefreshTimerRef.current = null;
       }
-      void supabase.removeChannel(messagesChannel);
-      void supabase.removeChannel(filesChannel);
-      void supabase.removeChannel(notificationsChannel);
-      void supabase.removeChannel(metaChannel);
+      isCancelled = true;
+      authSubscription?.unsubscribe();
+      channels.forEach((channel) => {
+        void supabase.removeChannel(channel);
+      });
     };
   }, [
     currentProfile,
