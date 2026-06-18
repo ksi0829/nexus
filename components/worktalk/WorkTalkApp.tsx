@@ -395,6 +395,7 @@ export function WorkTalkApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
+  const bottomScrollTimersRef = useRef<number[]>([]);
   const {
     status: pushStatus,
     errorMessage: pushErrorMessage,
@@ -664,14 +665,44 @@ export function WorkTalkApp() {
       ? notifications.filter((notification) => !notification.read_at)
       : notifications;
   const canReorderRooms = filter === "all" && !roomSearch.trim();
+  const clearBottomScrollTimers = useCallback(() => {
+    bottomScrollTimersRef.current.forEach((timerId) =>
+      window.clearTimeout(timerId)
+    );
+    bottomScrollTimersRef.current = [];
+  }, []);
+  const scrollConversationToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      messageEndRef.current?.scrollIntoView({
+        behavior,
+        block: "end",
+      });
+    },
+    []
+  );
+  const scheduleBottomScroll = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      clearBottomScrollTimers();
+      window.requestAnimationFrame(() => scrollConversationToBottom(behavior));
+      [80, 220, 520].forEach((delay) => {
+        const timerId = window.setTimeout(
+          () => scrollConversationToBottom("auto"),
+          delay
+        );
+        bottomScrollTimersRef.current.push(timerId);
+      });
+    },
+    [clearBottomScrollTimers, scrollConversationToBottom]
+  );
   const openNotification = useCallback(
     async (notification: WorkTalkNotification) => {
       await markNotificationRead(notification.id);
       setActiveSection("chat");
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
+      scheduleBottomScroll();
     },
-    [markNotificationRead, selectRoom]
+    [markNotificationRead, scheduleBottomScroll, selectRoom]
   );
 
   useEffect(() => {
@@ -698,9 +729,12 @@ export function WorkTalkApp() {
       );
       setMobileConversationOpen(true);
       window.history.replaceState({}, "", "/worktalk");
+      if (!(Number.isSafeInteger(messageId) && messageId > 0)) {
+        scheduleBottomScroll();
+      }
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentProfile, rooms.length, selectRoom, setupState]);
+  }, [currentProfile, rooms.length, scheduleBottomScroll, selectRoom, setupState]);
 
   useEffect(() => {
     if (searchMode === "room") return;
@@ -728,6 +762,9 @@ export function WorkTalkApp() {
       document
         .querySelector(`[data-message-id="${focusedMessageId}"]`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (focusedMessageId === filteredMessages.at(-1)?.id) {
+        scheduleBottomScroll();
+      }
     }, 80);
     const clearTimeoutId = window.setTimeout(() => {
       clearFocusedMessage();
@@ -736,18 +773,25 @@ export function WorkTalkApp() {
       window.clearTimeout(timeoutId);
       window.clearTimeout(clearTimeoutId);
     };
-  }, [clearFocusedMessage, focusedMessageId, messages]);
+  }, [
+    clearFocusedMessage,
+    filteredMessages,
+    focusedMessageId,
+    messages,
+    scheduleBottomScroll,
+  ]);
 
   useEffect(() => {
     if (!selectedRoomId || focusedMessageId || !messageTailKey) return;
-    const animationFrame = window.requestAnimationFrame(() => {
-      messageEndRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
-    });
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [focusedMessageId, messageTailKey, selectedRoomId]);
+    scheduleBottomScroll("smooth");
+  }, [focusedMessageId, messageTailKey, scheduleBottomScroll, selectedRoomId]);
+
+  useEffect(
+    () => () => {
+      clearBottomScrollTimers();
+    },
+    [clearBottomScrollTimers]
+  );
 
   useEffect(() => {
     if (!isNexusDesktopApp) return;
@@ -797,6 +841,13 @@ export function WorkTalkApp() {
     const handleVisibility = () => {
       void syncPresence();
       void loadPresence();
+      if (
+        document.visibilityState === "visible" &&
+        activeSection === "chat" &&
+        selectedRoomId
+      ) {
+        scheduleBottomScroll();
+      }
     };
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("focus", handleVisibility);
@@ -817,7 +868,7 @@ export function WorkTalkApp() {
         { onConflict: "user_id" }
       );
     };
-  }, [currentProfile]);
+  }, [activeSection, currentProfile, scheduleBottomScroll, selectedRoomId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -925,10 +976,7 @@ export function WorkTalkApp() {
     setMessageSearch("");
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
-    window.setTimeout(
-      () => messageEndRef.current?.scrollIntoView({ block: "end" }),
-      80
-    );
+    scheduleBottomScroll();
   }
 
   function openSearchResult(result: WorkTalkSearchResult) {
@@ -1157,10 +1205,7 @@ export function WorkTalkApp() {
       setReplyTarget(null);
       setPendingFiles([]);
       setFileError("");
-      window.setTimeout(
-        () => messageEndRef.current?.scrollIntoView({ block: "end" }),
-        60
-      );
+      scheduleBottomScroll();
     }
   }
 
