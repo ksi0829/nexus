@@ -1434,6 +1434,13 @@ export function useWorkTalk() {
       endpointURL?: () => string;
       connectionState?: () => string;
       isConnected?: () => boolean;
+      logger?: (...args: unknown[]) => void;
+      stateChangeCallbacks?: {
+        open?: Array<(event?: unknown) => void>;
+        close?: Array<(event?: unknown) => void>;
+        error?: Array<(event?: unknown) => void>;
+        message?: Array<(event?: unknown) => void>;
+      };
       conn?: {
         readyState?: number;
         url?: string;
@@ -1456,6 +1463,36 @@ export function useWorkTalk() {
           typeof snapshot.isConnected === "function" ? snapshot.isConnected() : null,
         realtimeConnReadyState: snapshot.conn?.readyState ?? null,
         realtimeConnUrl: snapshot.conn?.url ?? null,
+      };
+    };
+    const getRealtimeEventDebugState = (event?: unknown) => {
+      const candidate = event as
+        | {
+            type?: string;
+            code?: number;
+            reason?: string;
+            wasClean?: boolean;
+            message?: string;
+            target?: {
+              readyState?: number;
+              url?: string;
+            };
+            currentTarget?: {
+              readyState?: number;
+              url?: string;
+            };
+          }
+        | undefined;
+      return {
+        eventType: candidate?.type ?? null,
+        closeCode: candidate?.code ?? null,
+        closeReason: candidate?.reason ?? null,
+        closeWasClean: candidate?.wasClean ?? null,
+        errorMessage: candidate?.message ?? null,
+        eventTargetReadyState: candidate?.target?.readyState ?? null,
+        eventTargetUrl: candidate?.target?.url ?? null,
+        eventCurrentTargetReadyState: candidate?.currentTarget?.readyState ?? null,
+        eventCurrentTargetUrl: candidate?.currentTarget?.url ?? null,
       };
     };
     const logChannelStatus = (
@@ -1518,6 +1555,7 @@ export function useWorkTalk() {
     const channels: Array<ReturnType<typeof supabase.channel>> = [];
     let isCancelled = false;
     let authSubscription: { unsubscribe: () => void } | null = null;
+    let realtimeDiagnosticsCleanup: (() => void) | null = null;
 
     async function startRealtimeChannels() {
       const {
@@ -1527,6 +1565,59 @@ export function useWorkTalk() {
       if (isCancelled) return;
 
       const realtimeSnapshot = supabase.realtime as unknown as RealtimeDebugSnapshot;
+      if (!realtimeDiagnosticsCleanup) {
+        const originalLogger = realtimeSnapshot.logger;
+        const closeCallback = (event?: unknown) => {
+          console.log("[WorkTalk realtime debug] realtime:close", {
+            ...getRealtimeEventDebugState(event),
+            ...getRealtimeDebugState(supabase.realtime),
+          });
+        };
+        const errorCallback = (event?: unknown) => {
+          console.log("[WorkTalk realtime debug] realtime:error", {
+            ...getRealtimeEventDebugState(event),
+            ...getRealtimeDebugState(supabase.realtime),
+          });
+        };
+        const openCallback = (event?: unknown) => {
+          console.log("[WorkTalk realtime debug] realtime:open", {
+            ...getRealtimeEventDebugState(event),
+            ...getRealtimeDebugState(supabase.realtime),
+          });
+        };
+        realtimeSnapshot.logger = (...args: unknown[]) => {
+          const [kind, message, data] = args;
+          console.log("[WorkTalk realtime debug] realtime:logger", {
+            kind,
+            message,
+            data,
+            event: getRealtimeEventDebugState(data),
+            ...getRealtimeDebugState(supabase.realtime),
+          });
+          if (typeof originalLogger === "function") {
+            originalLogger(...args);
+          }
+        };
+        realtimeSnapshot.stateChangeCallbacks?.close?.push(closeCallback);
+        realtimeSnapshot.stateChangeCallbacks?.error?.push(errorCallback);
+        realtimeSnapshot.stateChangeCallbacks?.open?.push(openCallback);
+        realtimeDiagnosticsCleanup = () => {
+          realtimeSnapshot.logger = originalLogger;
+          const removeCallback = (
+            list: Array<(event?: unknown) => void> | undefined,
+            callback: (event?: unknown) => void
+          ) => {
+            const index = list?.indexOf(callback) ?? -1;
+            if (list && index >= 0) {
+              list.splice(index, 1);
+            }
+          };
+          removeCallback(realtimeSnapshot.stateChangeCallbacks?.close, closeCallback);
+          removeCallback(realtimeSnapshot.stateChangeCallbacks?.error, errorCallback);
+          removeCallback(realtimeSnapshot.stateChangeCallbacks?.open, openCallback);
+        };
+      }
+
       const accessToken = session?.access_token;
       console.log("[WorkTalk realtime debug] realtime:preflight:beforeAuth", {
         hasSession: Boolean(session),
@@ -1535,6 +1626,11 @@ export function useWorkTalk() {
         expiresAt: session?.expires_at ?? null,
         accessTokenLength: accessToken?.length ?? 0,
         ...getRealtimeDebugState(supabase.realtime),
+      });
+      console.log("[WorkTalk realtime debug] realtime:network-hint", {
+        websocketUrl: getRealtimeDebugState(supabase.realtime).realtimeEndpointURL,
+        note:
+          "브라우저 Network 탭에서 이 websocket URL의 handshake status, close code, failed reason을 확인하세요.",
       });
 
       if (accessToken && typeof realtimeSnapshot.setAuth === "function") {
@@ -1793,6 +1889,7 @@ export function useWorkTalk() {
       }
       isCancelled = true;
       authSubscription?.unsubscribe();
+      realtimeDiagnosticsCleanup?.();
       channels.forEach((channel) => {
         void supabase.removeChannel(channel);
       });
