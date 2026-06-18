@@ -76,9 +76,14 @@ export async function middleware(req: NextRequest) {
 
       const nextPath = req.nextUrl.searchParams.get("next");
       if (nextPath?.startsWith("/")) {
-        const nextUrl = new URL(nextPath, req.nextUrl.origin);
-        url.pathname = nextUrl.pathname;
-        url.search = nextUrl.search;
+        try {
+          const nextUrl = new URL(nextPath, req.nextUrl.origin);
+          url.pathname = nextUrl.pathname;
+          url.search = nextUrl.search;
+        } catch {
+          url.pathname = "/worktalk";
+          url.search = "";
+        }
       } else {
         url.pathname = "/worktalk";
         url.search = "";

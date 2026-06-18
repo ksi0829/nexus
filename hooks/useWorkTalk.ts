@@ -38,6 +38,27 @@ function isMissingWorkTalkTable(message?: string) {
   );
 }
 
+function formatWorkTalkError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const parts = ["message", "details", "hint", "code"]
+      .map((key) => {
+        const value = record[key];
+        return typeof value === "string" && value.trim() ? value : null;
+      })
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(" ");
+    try {
+      return JSON.stringify(record);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 function parseJsonValue<T>(value: T | string | null | undefined, fallback: T): T {
   if (value === null || value === undefined) return fallback;
   if (typeof value !== "string") return value;
@@ -427,7 +448,7 @@ export function useWorkTalk() {
       setSetupState("ready");
     } catch (error) {
       if (requestId !== roomRequestIdRef.current) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatWorkTalkError(error);
       if (isMissingWorkTalkTable(message)) {
         setSetupState("migration-required");
       } else {
@@ -619,7 +640,7 @@ export function useWorkTalk() {
         requestId,
         error,
       });
-      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setErrorMessage(formatWorkTalkError(error));
     } finally {
       if (requestId === messageRequestIdRef.current) {
         setLoadingMessages(false);
@@ -961,7 +982,7 @@ export function useWorkTalk() {
             supabase.storage.from(WORKTALK_FILE_BUCKET).remove([path])
           )
         );
-        setErrorMessage(error instanceof Error ? error.message : String(error));
+        setErrorMessage(formatWorkTalkError(error));
         return false;
       } finally {
         setSending(false);
@@ -1389,11 +1410,7 @@ export function useWorkTalk() {
         setProfiles(nextProfiles);
       } catch (profileError) {
         setSetupState("error");
-        setErrorMessage(
-          profileError instanceof Error
-            ? profileError.message
-            : String(profileError)
-        );
+        setErrorMessage(formatWorkTalkError(profileError));
       }
     }
 

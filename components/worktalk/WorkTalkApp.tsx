@@ -93,6 +93,21 @@ const ALLOWED_EXTENSIONS = new Set([
 const FILE_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.xlsx,.xls,.csv,.docx,.doc,.pptx,.ppt,.dwg,.dxf,.zip";
 
+function hasWorkTalkRoomParam() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("room");
+}
+
+function getCurrentWorkTalkPath() {
+  if (typeof window === "undefined") return "/worktalk";
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function buildWorkTalkLoginUrl(nextPath = "/worktalk") {
+  const params = new URLSearchParams({ next: nextPath });
+  return `/login?${params.toString()}`;
+}
+
 function roomColor(room: WorkTalkRoom) {
   if (room.room_type === "team") return "team";
   if (room.room_type === "idea") return "idea";
@@ -327,9 +342,7 @@ export function WorkTalkApp() {
   } = useWorkTalk();
   const [activeSection, setActiveSection] = useState<WorkTalkSection>(() => {
     if (typeof window === "undefined") return "people";
-    return new URLSearchParams(window.location.search).has("room")
-      ? "chat"
-      : "people";
+    return hasWorkTalkRoomParam() ? "chat" : "people";
   });
   const [peopleSearch, setPeopleSearch] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
@@ -367,9 +380,7 @@ export function WorkTalkApp() {
   } | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [mobileConversationOpen, setMobileConversationOpen] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).has("room")
+    () => hasWorkTalkRoomParam()
   );
   const [popupMode, setPopupMode] = useState(false);
   const [highlightedRoomId, setHighlightedRoomId] = useState<number | null>(null);
@@ -735,22 +746,25 @@ export function WorkTalkApp() {
     const messageId = Number(params.get("message"));
 
     if (!Number.isSafeInteger(roomId) || roomId <= 0) return;
+
+    if (!rooms.some((room) => room.id === roomId)) return;
+
     deepLinkHandledRef.current = true;
 
     const timeoutId = window.setTimeout(() => {
       setActiveSection("chat");
+      setMobileConversationOpen(true);
       selectRoom(
         roomId,
         Number.isSafeInteger(messageId) && messageId > 0 ? messageId : undefined
       );
-      setMobileConversationOpen(true);
       window.history.replaceState({}, "", "/worktalk");
       if (!(Number.isSafeInteger(messageId) && messageId > 0)) {
         scheduleBottomScroll("auto", { extraSettle: true });
       }
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentProfile, rooms.length, scheduleBottomScroll, selectRoom, setupState]);
+  }, [currentProfile, rooms, scheduleBottomScroll, selectRoom, setupState]);
 
   useEffect(() => {
     if (searchMode === "room") return;
@@ -1359,7 +1373,10 @@ export function WorkTalkApp() {
         <div className={styles.stateLogo}>Z</div>
         <strong>로그인이 필요합니다</strong>
         <span>NEXUS 계정으로 로그인한 뒤 이용해 주세요.</span>
-        <button type="button" onClick={() => router.push("/login?next=/worktalk")}>
+        <button
+          type="button"
+          onClick={() => router.push(buildWorkTalkLoginUrl(getCurrentWorkTalkPath()))}
+        >
           로그인으로 이동
         </button>
       </main>
@@ -1375,7 +1392,10 @@ export function WorkTalkApp() {
           `project-docs/supabase-worktalk-foundation.sql`을 검토한 뒤 Supabase에
           적용하면 메신저가 활성화됩니다.
         </span>
-        <button type="button" onClick={() => router.push("/login?next=/worktalk")}>
+        <button
+          type="button"
+          onClick={() => router.push(buildWorkTalkLoginUrl(getCurrentWorkTalkPath()))}
+        >
           로그인으로 돌아가기
         </button>
       </main>
