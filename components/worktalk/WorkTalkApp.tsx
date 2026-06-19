@@ -63,6 +63,14 @@ type DeepLinkDebugStatus = {
   selectedRoomId: number | null;
   mobileConversationOpen: boolean | null;
   isMobileListView: boolean | null;
+  renderViewMode: string;
+  conversationPanelVisible: boolean | null;
+  selectedRoomObjectId: number | null;
+  currentRoomId: number | null;
+  activeSection: WorkTalkSection | null;
+  isMobile: boolean | null;
+  shouldShowConversationPanel: boolean | null;
+  shouldShowRoomList: boolean | null;
   deepLinkOpenBlockedReason: string;
   timestamp: string;
 };
@@ -523,6 +531,14 @@ export function WorkTalkApp() {
       selectedRoomId: null,
       mobileConversationOpen: null,
       isMobileListView: null,
+      renderViewMode: "waiting",
+      conversationPanelVisible: null,
+      selectedRoomObjectId: null,
+      currentRoomId: null,
+      activeSection: null,
+      isMobile: null,
+      shouldShowConversationPanel: null,
+      shouldShowRoomList: null,
       deepLinkOpenBlockedReason: "waiting",
       timestamp: "",
     });
@@ -569,6 +585,29 @@ export function WorkTalkApp() {
     !pendingDeepLinkRoomId &&
     !serviceWorkerDeepLink &&
     (!isNarrowLayoutNow || mobileConversationOpen);
+  const shouldShowRoomList = !isNarrowLayoutNow || !mobileConversationOpen;
+  const shouldShowConversationPanel =
+    !isNarrowLayoutNow || mobileConversationOpen;
+  const conversationRenderBranch =
+    activeSection === "notifications"
+      ? "notifications"
+      : activeSection === "people"
+        ? "people"
+        : pendingDeepLinkRoomId
+          ? "chat:pending-deep-link"
+          : selectedRoom
+            ? "chat:conversation"
+            : "chat:welcome";
+  const conversationPanelVisible =
+    shouldShowConversationPanel &&
+    conversationRenderBranch === "chat:conversation";
+  const renderViewMode = `${
+    shouldShowRoomList ? "room-list-visible" : "room-list-hidden"
+  } / ${
+    shouldShowConversationPanel
+      ? "conversation-pane-visible"
+      : "conversation-pane-hidden"
+  } / ${conversationRenderBranch}`;
   const showReadReceiptDebugPanel =
     process.env.NODE_ENV === "development" || currentProfile?.role === "admin";
 
@@ -663,6 +702,31 @@ export function WorkTalkApp() {
     pendingDeepLinkRoomId,
     selectedRoomId,
     serviceWorkerDeepLink,
+  ]);
+
+  useEffect(() => {
+    if (!showReadReceiptDebugPanel) return;
+
+    updateDeepLinkDebugStatus({
+      renderViewMode,
+      conversationPanelVisible,
+      selectedRoomObjectId: selectedRoom?.id ?? null,
+      currentRoomId: selectedRoom?.id ?? null,
+      activeSection,
+      isMobile: isNarrowLayoutNow,
+      shouldShowConversationPanel,
+      shouldShowRoomList,
+    });
+  }, [
+    activeSection,
+    conversationPanelVisible,
+    isNarrowLayoutNow,
+    renderViewMode,
+    selectedRoom?.id,
+    shouldShowConversationPanel,
+    shouldShowRoomList,
+    showReadReceiptDebugPanel,
+    updateDeepLinkDebugStatus,
   ]);
 
   useEffect(() => {
@@ -3845,6 +3909,28 @@ export function WorkTalkApp() {
             </div>
             <div>
               isMobileListView: {String(deepLinkDebugStatus.isMobileListView)}
+            </div>
+            <div>renderViewMode: {deepLinkDebugStatus.renderViewMode}</div>
+            <div>
+              conversationPanelVisible:{" "}
+              {String(deepLinkDebugStatus.conversationPanelVisible)}
+            </div>
+            <div>
+              selectedRoom?.id:{" "}
+              {deepLinkDebugStatus.selectedRoomObjectId ?? "null"}
+            </div>
+            <div>
+              currentRoom?.id: {deepLinkDebugStatus.currentRoomId ?? "null"}
+            </div>
+            <div>activeSection: {deepLinkDebugStatus.activeSection ?? "null"}</div>
+            <div>isMobile: {String(deepLinkDebugStatus.isMobile)}</div>
+            <div>
+              shouldShowConversationPanel:{" "}
+              {String(deepLinkDebugStatus.shouldShowConversationPanel)}
+            </div>
+            <div>
+              shouldShowRoomList:{" "}
+              {String(deepLinkDebugStatus.shouldShowRoomList)}
             </div>
             <div>
               deepLinkOpenBlockedReason:{" "}
