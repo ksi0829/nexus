@@ -53,6 +53,19 @@ type ReadReceiptDebugEvent = {
   source?: string;
   stack?: string;
 };
+type DeepLinkDebugStatus = {
+  pendingDeepLinkRoomId: number | null;
+  serviceWorkerDeepLinkRoomId: number | null;
+  targetRoomId: number | null;
+  targetMessageId: number | null;
+  targetRoomFound: boolean | null;
+  selectRoomCalled: boolean;
+  selectedRoomId: number | null;
+  mobileConversationOpen: boolean | null;
+  isMobileListView: boolean | null;
+  deepLinkOpenBlockedReason: string;
+  timestamp: string;
+};
 type NexusDesktopWindow = Window & {
   chrome?: {
     webview?: {
@@ -499,6 +512,20 @@ export function WorkTalkApp() {
   const [readReceiptDebugEvents, setReadReceiptDebugEvents] = useState<
     ReadReceiptDebugEvent[]
   >([]);
+  const [deepLinkDebugStatus, setDeepLinkDebugStatus] =
+    useState<DeepLinkDebugStatus>({
+      pendingDeepLinkRoomId: null,
+      serviceWorkerDeepLinkRoomId: null,
+      targetRoomId: null,
+      targetMessageId: null,
+      targetRoomFound: null,
+      selectRoomCalled: false,
+      selectedRoomId: null,
+      mobileConversationOpen: null,
+      isMobileListView: null,
+      deepLinkOpenBlockedReason: "waiting",
+      timestamp: "",
+    });
   const messageEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
@@ -556,6 +583,24 @@ export function WorkTalkApp() {
       setReadReceiptDebugEvents((current) =>
         [{ ...event, timestamp }, ...current].slice(0, 10)
       );
+    },
+    []
+  );
+  const updateDeepLinkDebugStatus = useCallback(
+    (patch: Partial<DeepLinkDebugStatus>) => {
+      setDeepLinkDebugStatus((current) => ({
+        ...current,
+        ...patch,
+        selectedRoomId: selectedRoomIdUiRef.current,
+        mobileConversationOpen: mobileConversationOpenRef.current,
+        isMobileListView: isMobileListViewRef.current,
+        pendingDeepLinkRoomId: pendingDeepLinkRoomIdRef.current,
+        serviceWorkerDeepLinkRoomId:
+          serviceWorkerDeepLinkRef.current?.roomId ?? null,
+        timestamp: new Date().toLocaleTimeString("ko-KR", {
+          hour12: false,
+        }),
+      }));
     },
     []
   );
@@ -1207,6 +1252,15 @@ export function WorkTalkApp() {
         messageId: deepLink?.messageId ?? null,
         rawData: data,
       });
+      updateDeepLinkDebugStatus({
+        targetRoomId: deepLink?.roomId ?? null,
+        targetMessageId: deepLink?.messageId ?? null,
+        targetRoomFound: null,
+        selectRoomCalled: false,
+        deepLinkOpenBlockedReason: deepLink
+          ? "service_worker_message_received"
+          : "invalid_service_worker_deep_link",
+      });
 
       if (!deepLink) {
         logWorkTalkDeepLink("fallback reason", {
@@ -1234,7 +1288,7 @@ export function WorkTalkApp() {
         handleServiceWorkerMessage
       );
     };
-  }, [setRoomSelectionRestoreBlocked]);
+  }, [setRoomSelectionRestoreBlocked, updateDeepLinkDebugStatus]);
 
   useEffect(() => {
     const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();
@@ -1252,10 +1306,22 @@ export function WorkTalkApp() {
       rawRoom: deepLink.rawRoom,
       rawMessage: deepLink.rawMessage,
     });
+    updateDeepLinkDebugStatus({
+      targetRoomId: deepLink.roomId,
+      targetMessageId: deepLink.messageId ?? null,
+      targetRoomFound: null,
+      selectRoomCalled: false,
+      deepLinkOpenBlockedReason: "deep_link_detected",
+    });
     setRoomSelectionRestoreBlocked(false, "pending_deep_link");
 
     if (pendingDeepLinkRoomId !== deepLink.roomId) {
       const pendingTimeoutId = window.setTimeout(() => {
+        updateDeepLinkDebugStatus({
+          targetRoomId: deepLink.roomId,
+          targetMessageId: deepLink.messageId ?? null,
+          deepLinkOpenBlockedReason: "syncing_pending_deep_link_room",
+        });
         setRoomSelectionRestoreBlocked(false, "pending_deep_link");
         setPendingDeepLinkRoomId(deepLink.roomId);
         setActiveSection("chat");
@@ -1269,6 +1335,11 @@ export function WorkTalkApp() {
         reason: "already handled",
         roomId: deepLink.roomId,
       });
+      updateDeepLinkDebugStatus({
+        targetRoomId: deepLink.roomId,
+        targetMessageId: deepLink.messageId ?? null,
+        deepLinkOpenBlockedReason: "already_handled",
+      });
       return;
     }
 
@@ -1276,6 +1347,11 @@ export function WorkTalkApp() {
       logWorkTalkDeepLink("fallback reason", {
         reason: "waiting currentProfile",
         roomId: deepLink.roomId,
+      });
+      updateDeepLinkDebugStatus({
+        targetRoomId: deepLink.roomId,
+        targetMessageId: deepLink.messageId ?? null,
+        deepLinkOpenBlockedReason: "waiting_currentProfile",
       });
       return;
     }
@@ -1285,6 +1361,11 @@ export function WorkTalkApp() {
         reason: "waiting setup ready",
         setupState,
         roomId: deepLink.roomId,
+      });
+      updateDeepLinkDebugStatus({
+        targetRoomId: deepLink.roomId,
+        targetMessageId: deepLink.messageId ?? null,
+        deepLinkOpenBlockedReason: `waiting_setup_${setupState}`,
       });
       return;
     }
@@ -1298,6 +1379,16 @@ export function WorkTalkApp() {
       found: Boolean(targetRoom),
       roomId: deepLink.roomId,
       title: targetRoom ? getRoomTitle(targetRoom, currentProfile.id) : null,
+    });
+    updateDeepLinkDebugStatus({
+      targetRoomId: deepLink.roomId,
+      targetMessageId: deepLink.messageId ?? null,
+      targetRoomFound: Boolean(targetRoom),
+      deepLinkOpenBlockedReason: targetRoom
+        ? "target_room_found_waiting_select"
+        : rooms.length === 0
+          ? "waiting_rooms"
+          : "target_room_not_in_rooms",
     });
 
     if (!targetRoom) {
@@ -1318,11 +1409,18 @@ export function WorkTalkApp() {
 
     deepLinkHandledRef.current = true;
 
-    const timeoutId = window.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
       setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
       setRoomSelectionRestoreBlocked(false, "confirmed_deep_link");
+      updateDeepLinkDebugStatus({
+        targetRoomId: deepLink.roomId,
+        targetMessageId: deepLink.messageId ?? null,
+        targetRoomFound: true,
+        selectRoomCalled: true,
+        deepLinkOpenBlockedReason: "selectRoom_called",
+      });
       logWorkTalkDeepLink("selectRoom called", {
         roomId: deepLink.roomId,
         messageId: deepLink.messageId ?? null,
@@ -1348,6 +1446,7 @@ export function WorkTalkApp() {
     serviceWorkerDeepLink,
     setRoomSelectionRestoreBlocked,
     setupState,
+    updateDeepLinkDebugStatus,
   ]);
 
   useEffect(() => {
@@ -1355,7 +1454,17 @@ export function WorkTalkApp() {
       selectedRoomId,
       pendingDeepLinkRoomId,
     });
-  }, [pendingDeepLinkRoomId, selectedRoomId]);
+    updateDeepLinkDebugStatus({
+      selectedRoomId,
+      pendingDeepLinkRoomId,
+      serviceWorkerDeepLinkRoomId: serviceWorkerDeepLink?.roomId ?? null,
+    });
+  }, [
+    pendingDeepLinkRoomId,
+    selectedRoomId,
+    serviceWorkerDeepLink,
+    updateDeepLinkDebugStatus,
+  ]);
 
   useEffect(() => {
     if (searchMode === "room") return;
@@ -3696,6 +3805,52 @@ export function WorkTalkApp() {
           <strong style={{ display: "block", marginBottom: 6 }}>
             READ RECEIPT DEBUG · last read receipt event
           </strong>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
+              PUSH DEEP LINK DEBUG
+            </strong>
+            <div>timestamp: {deepLinkDebugStatus.timestamp || "waiting"}</div>
+            <div>
+              pendingDeepLinkRoomId:{" "}
+              {deepLinkDebugStatus.pendingDeepLinkRoomId ?? "null"}
+            </div>
+            <div>
+              serviceWorkerDeepLink.roomId:{" "}
+              {deepLinkDebugStatus.serviceWorkerDeepLinkRoomId ?? "null"}
+            </div>
+            <div>
+              target roomId: {deepLinkDebugStatus.targetRoomId ?? "null"}
+            </div>
+            <div>
+              target messageId: {deepLinkDebugStatus.targetMessageId ?? "null"}
+            </div>
+            <div>
+              targetRoomFound: {String(deepLinkDebugStatus.targetRoomFound)}
+            </div>
+            <div>
+              selectRoomCalled: {String(deepLinkDebugStatus.selectRoomCalled)}
+            </div>
+            <div>
+              selectedRoomId: {deepLinkDebugStatus.selectedRoomId ?? "null"}
+            </div>
+            <div>
+              mobileConversationOpen:{" "}
+              {String(deepLinkDebugStatus.mobileConversationOpen)}
+            </div>
+            <div>
+              isMobileListView: {String(deepLinkDebugStatus.isMobileListView)}
+            </div>
+            <div>
+              deepLinkOpenBlockedReason:{" "}
+              {deepLinkDebugStatus.deepLinkOpenBlockedReason}
+            </div>
+          </div>
           {readReceiptDebugEvents.length === 0 ? (
             <div style={{ color: "rgba(223, 252, 245, 0.68)" }}>
               waiting for READ RECEIPT FIRING...
