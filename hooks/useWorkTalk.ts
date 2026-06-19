@@ -160,6 +160,7 @@ export function useWorkTalk() {
   const messageRefreshTimerRef = useRef<number | null>(null);
   const pendingFocusMessageIdRef = useRef<number | null>(null);
   const allowAutomaticRoomSelectionRef = useRef(false);
+  const blockRoomSelectionRestoreRef = useRef(false);
   const lastDeliveredNotificationIdRef = useRef<number | null>(null);
   const roomReadGuardRef = useRef<RoomReadGuard>(defaultRoomReadGuard);
 
@@ -305,9 +306,29 @@ export function useWorkTalk() {
           .filter((room) => isActiveRoomForUser(room, currentProfile?.id));
 
         const currentSelectedId = selectedRoomIdRef.current;
-        const nextSelectedId =
-          currentSelectedId &&
-          nextRooms.some((room) => room.id === currentSelectedId)
+        const roomRestoreBlocked = blockRoomSelectionRestoreRef.current;
+        if (roomRestoreBlocked) {
+          if (currentSelectedId) {
+            console.warn("[WorkTalk read guard] loadRooms selected restore blocked", {
+              currentSelectedId,
+            });
+          }
+          if (preferredRoomId) {
+            console.warn("[WorkTalk read guard] loadRooms preferredRoom blocked", {
+              preferredRoomId,
+            });
+          }
+          if (allowAutomaticRoomSelectionRef.current) {
+            console.warn("[WorkTalk read guard] loadRooms auto select blocked", {
+              firstRoomId: nextRooms[0]?.id || null,
+            });
+          }
+          allowAutomaticRoomSelectionRef.current = false;
+        }
+        const nextSelectedId = roomRestoreBlocked
+          ? null
+          : currentSelectedId &&
+              nextRooms.some((room) => room.id === currentSelectedId)
             ? currentSelectedId
             : preferredRoomId &&
                 nextRooms.some((room) => room.id === preferredRoomId)
@@ -319,6 +340,11 @@ export function useWorkTalk() {
         selectedRoomIdRef.current = nextSelectedId;
         setRooms(nextRooms);
         setSelectedRoomId(nextSelectedId);
+        if (roomRestoreBlocked) {
+          setMessages([]);
+          setRoomNoticeState(null);
+          setLoadingMessages(false);
+        }
         setSetupState("ready");
         return;
       }
@@ -458,9 +484,29 @@ export function useWorkTalk() {
         });
 
       const currentSelectedId = selectedRoomIdRef.current;
-      const nextSelectedId =
-        currentSelectedId &&
-        nextRooms.some((room) => room.id === currentSelectedId)
+      const roomRestoreBlocked = blockRoomSelectionRestoreRef.current;
+      if (roomRestoreBlocked) {
+        if (currentSelectedId) {
+          console.warn("[WorkTalk read guard] loadRooms selected restore blocked", {
+            currentSelectedId,
+          });
+        }
+        if (preferredRoomId) {
+          console.warn("[WorkTalk read guard] loadRooms preferredRoom blocked", {
+            preferredRoomId,
+          });
+        }
+        if (allowAutomaticRoomSelectionRef.current) {
+          console.warn("[WorkTalk read guard] loadRooms auto select blocked", {
+            firstRoomId: nextRooms[0]?.id || null,
+          });
+        }
+        allowAutomaticRoomSelectionRef.current = false;
+      }
+      const nextSelectedId = roomRestoreBlocked
+        ? null
+        : currentSelectedId &&
+            nextRooms.some((room) => room.id === currentSelectedId)
           ? currentSelectedId
           : preferredRoomId &&
               nextRooms.some((room) => room.id === preferredRoomId)
@@ -471,6 +517,11 @@ export function useWorkTalk() {
       selectedRoomIdRef.current = nextSelectedId;
       setRooms(nextRooms);
       setSelectedRoomId(nextSelectedId);
+      if (roomRestoreBlocked) {
+        setMessages([]);
+        setRoomNoticeState(null);
+        setLoadingMessages(false);
+      }
       setSetupState("ready");
     } catch (error) {
       if (requestId !== roomRequestIdRef.current) return;
@@ -770,6 +821,19 @@ export function useWorkTalk() {
 
       roomRefreshTimerRef.current = window.setTimeout(() => {
         roomRefreshTimerRef.current = null;
+        if (blockRoomSelectionRestoreRef.current) {
+          if (preferredRoomId ?? selectedRoomIdRef.current) {
+            console.warn(
+              "[WorkTalk read guard] scheduleRoomRefresh preferredRoom blocked",
+              {
+                preferredRoomId,
+                selectedRoomId: selectedRoomIdRef.current,
+              }
+            );
+          }
+          void loadRooms(null);
+          return;
+        }
         void loadRooms(preferredRoomId ?? selectedRoomIdRef.current);
       }, 800);
     },
@@ -803,6 +867,7 @@ export function useWorkTalk() {
   );
 
   const selectRoom = useCallback((roomId: number, focusMessageId?: number) => {
+    blockRoomSelectionRestoreRef.current = false;
     allowAutomaticRoomSelectionRef.current = true;
     pendingFocusMessageIdRef.current = focusMessageId || null;
     if (selectedRoomIdRef.current === roomId) {
@@ -832,6 +897,32 @@ export function useWorkTalk() {
     setRoomNoticeState(null);
     setLoadingMessages(false);
   }, []);
+
+  const setRoomSelectionRestoreBlocked = useCallback(
+    (blocked: boolean, reason = "unknown") => {
+      if (blockRoomSelectionRestoreRef.current === blocked) return;
+
+      console.warn("[WorkTalk read guard] room selection restore block changed", {
+        blocked,
+        reason,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      blockRoomSelectionRestoreRef.current = blocked;
+
+      if (blocked) {
+        allowAutomaticRoomSelectionRef.current = false;
+        selectedRoomIdRef.current = null;
+        pendingFocusMessageIdRef.current = null;
+        messageRequestIdRef.current += 1;
+        setSelectedRoomId(null);
+        setMessages([]);
+        setFocusedMessageId(null);
+        setRoomNoticeState(null);
+        setLoadingMessages(false);
+      }
+    },
+    []
+  );
 
   const searchWorkTalk = useCallback(
     async (
@@ -2068,6 +2159,7 @@ export function useWorkTalk() {
     clearRoomNotice,
     transferOwnerAndLeave,
     setRoomReadGuard,
+    setRoomSelectionRestoreBlocked,
     reload: () => loadRooms(selectedRoomIdRef.current),
   };
 }

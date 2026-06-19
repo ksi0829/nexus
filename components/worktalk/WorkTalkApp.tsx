@@ -396,6 +396,7 @@ export function WorkTalkApp() {
     clearRoomNotice,
     transferOwnerAndLeave,
     setRoomReadGuard,
+    setRoomSelectionRestoreBlocked,
     reload,
   } = useWorkTalk();
   const [activeSection, setActiveSection] = useState<WorkTalkSection>(() => {
@@ -526,13 +527,39 @@ export function WorkTalkApp() {
       readAllowedRef.current = false;
       isMobileListViewRef.current = true;
       lastVisibleReadKeyRef.current = "";
+      setRoomSelectionRestoreBlocked(true, reason);
       clearSelectedRoom(reason);
       setPendingDeepLinkRoomId(null);
       setServiceWorkerDeepLink(null);
       deepLinkHandledRef.current = false;
     },
-    [clearSelectedRoom]
+    [clearSelectedRoom, setRoomSelectionRestoreBlocked]
   );
+
+  useEffect(() => {
+    if (isActualMobileListView) {
+      console.warn(
+        "[WorkTalk read guard] forceMobileListModeReset called before loadRooms",
+        {
+          activeSection,
+          selectedRoomId,
+          pendingDeepLinkRoomId,
+          mobileConversationOpen,
+        }
+      );
+      setRoomSelectionRestoreBlocked(true, "mobile_list_before_loadRooms");
+      return;
+    }
+
+    setRoomSelectionRestoreBlocked(false, "conversation_or_non_mobile_list");
+  }, [
+    activeSection,
+    isActualMobileListView,
+    mobileConversationOpen,
+    pendingDeepLinkRoomId,
+    selectedRoomId,
+    setRoomSelectionRestoreBlocked,
+  ]);
 
   useEffect(() => {
     activeSectionRef.current = activeSection;
