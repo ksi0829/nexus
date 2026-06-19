@@ -71,6 +71,16 @@ type DeepLinkDebugStatus = {
   isMobile: boolean | null;
   shouldShowConversationPanel: boolean | null;
   shouldShowRoomList: boolean | null;
+  roomListClassName: string;
+  conversationPanelClassName: string;
+  roomListComputedDisplay: string;
+  conversationComputedDisplay: string;
+  roomListZIndex: string;
+  conversationZIndex: string;
+  roomListTransform: string;
+  conversationTransform: string;
+  roomListRect: string;
+  conversationRect: string;
   deepLinkOpenBlockedReason: string;
   timestamp: string;
 };
@@ -386,6 +396,15 @@ function isOnlinePresence(presence: PresenceRow) {
   );
 }
 
+function formatDebugRect(rect: DOMRect | null) {
+  if (!rect) return "null";
+
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return `x:${round(rect.x)} y:${round(rect.y)} w:${round(
+    rect.width
+  )} h:${round(rect.height)} top:${round(rect.top)} left:${round(rect.left)}`;
+}
+
 export function WorkTalkApp() {
   const router = useRouter();
   useEffect(() => {
@@ -539,12 +558,24 @@ export function WorkTalkApp() {
       isMobile: null,
       shouldShowConversationPanel: null,
       shouldShowRoomList: null,
+      roomListClassName: "waiting",
+      conversationPanelClassName: "waiting",
+      roomListComputedDisplay: "waiting",
+      conversationComputedDisplay: "waiting",
+      roomListZIndex: "waiting",
+      conversationZIndex: "waiting",
+      roomListTransform: "waiting",
+      conversationTransform: "waiting",
+      roomListRect: "waiting",
+      conversationRect: "waiting",
       deepLinkOpenBlockedReason: "waiting",
       timestamp: "",
     });
   const messageEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
+  const roomPaneRef = useRef<HTMLElement>(null);
+  const conversationPaneRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
   const userOpenedRoomRef = useRef(false);
   const confirmedDeepLinkOpenedRef = useRef(false);
@@ -707,6 +738,15 @@ export function WorkTalkApp() {
   useEffect(() => {
     if (!showReadReceiptDebugPanel) return;
 
+    const roomPaneElement = roomPaneRef.current;
+    const conversationPaneElement = conversationPaneRef.current;
+    const roomPaneStyle = roomPaneElement
+      ? window.getComputedStyle(roomPaneElement)
+      : null;
+    const conversationPaneStyle = conversationPaneElement
+      ? window.getComputedStyle(conversationPaneElement)
+      : null;
+
     updateDeepLinkDebugStatus({
       renderViewMode,
       conversationPanelVisible,
@@ -716,6 +756,26 @@ export function WorkTalkApp() {
       isMobile: isNarrowLayoutNow,
       shouldShowConversationPanel,
       shouldShowRoomList,
+      roomListClassName:
+        typeof roomPaneElement?.className === "string"
+          ? roomPaneElement.className
+          : "null",
+      conversationPanelClassName:
+        typeof conversationPaneElement?.className === "string"
+          ? conversationPaneElement.className
+          : "null",
+      roomListComputedDisplay: roomPaneStyle?.display ?? "null",
+      conversationComputedDisplay: conversationPaneStyle?.display ?? "null",
+      roomListZIndex: roomPaneStyle?.zIndex ?? "null",
+      conversationZIndex: conversationPaneStyle?.zIndex ?? "null",
+      roomListTransform: roomPaneStyle?.transform ?? "null",
+      conversationTransform: conversationPaneStyle?.transform ?? "null",
+      roomListRect: formatDebugRect(
+        roomPaneElement?.getBoundingClientRect() ?? null
+      ),
+      conversationRect: formatDebugRect(
+        conversationPaneElement?.getBoundingClientRect() ?? null
+      ),
     });
   }, [
     activeSection,
@@ -2242,6 +2302,7 @@ export function WorkTalkApp() {
       </aside>
 
       <section
+        ref={roomPaneRef}
         className={`${styles.roomPane} ${
           mobileConversationOpen ? styles.mobileHidden : ""
         }`}
@@ -2796,6 +2857,7 @@ export function WorkTalkApp() {
       </section>
 
       <section
+        ref={conversationPaneRef}
         className={`${styles.conversationPane} ${
           mobileConversationOpen ? styles.mobileVisible : ""
         } ${dragActive ? styles.dragActive : ""}`}
@@ -3932,6 +3994,31 @@ export function WorkTalkApp() {
               shouldShowRoomList:{" "}
               {String(deepLinkDebugStatus.shouldShowRoomList)}
             </div>
+            <div>roomListClassName: {deepLinkDebugStatus.roomListClassName}</div>
+            <div>
+              conversationPanelClassName:{" "}
+              {deepLinkDebugStatus.conversationPanelClassName}
+            </div>
+            <div>
+              roomListComputedDisplay:{" "}
+              {deepLinkDebugStatus.roomListComputedDisplay}
+            </div>
+            <div>
+              conversationComputedDisplay:{" "}
+              {deepLinkDebugStatus.conversationComputedDisplay}
+            </div>
+            <div>roomListZIndex: {deepLinkDebugStatus.roomListZIndex}</div>
+            <div>
+              conversationZIndex: {deepLinkDebugStatus.conversationZIndex}
+            </div>
+            <div>
+              roomListTransform: {deepLinkDebugStatus.roomListTransform}
+            </div>
+            <div>
+              conversationTransform: {deepLinkDebugStatus.conversationTransform}
+            </div>
+            <div>roomListRect: {deepLinkDebugStatus.roomListRect}</div>
+            <div>conversationRect: {deepLinkDebugStatus.conversationRect}</div>
             <div>
               deepLinkOpenBlockedReason:{" "}
               {deepLinkDebugStatus.deepLinkOpenBlockedReason}
