@@ -309,21 +309,6 @@ export function useWorkTalk() {
         const currentSelectedId = selectedRoomIdRef.current;
         const roomRestoreBlocked = blockRoomSelectionRestoreRef.current;
         if (roomRestoreBlocked) {
-          if (currentSelectedId) {
-            console.warn("[WorkTalk read guard] loadRooms selected restore blocked", {
-              currentSelectedId,
-            });
-          }
-          if (preferredRoomId) {
-            console.warn("[WorkTalk read guard] loadRooms preferredRoom blocked", {
-              preferredRoomId,
-            });
-          }
-          if (allowAutomaticRoomSelectionRef.current) {
-            console.warn("[WorkTalk read guard] loadRooms auto select blocked", {
-              firstRoomId: nextRooms[0]?.id || null,
-            });
-          }
           allowAutomaticRoomSelectionRef.current = false;
         }
         const nextSelectedId = roomRestoreBlocked
@@ -487,21 +472,6 @@ export function useWorkTalk() {
       const currentSelectedId = selectedRoomIdRef.current;
       const roomRestoreBlocked = blockRoomSelectionRestoreRef.current;
       if (roomRestoreBlocked) {
-        if (currentSelectedId) {
-          console.warn("[WorkTalk read guard] loadRooms selected restore blocked", {
-            currentSelectedId,
-          });
-        }
-        if (preferredRoomId) {
-          console.warn("[WorkTalk read guard] loadRooms preferredRoom blocked", {
-            preferredRoomId,
-          });
-        }
-        if (allowAutomaticRoomSelectionRef.current) {
-          console.warn("[WorkTalk read guard] loadRooms auto select blocked", {
-            firstRoomId: nextRooms[0]?.id || null,
-          });
-        }
         allowAutomaticRoomSelectionRef.current = false;
       }
       const nextSelectedId = roomRestoreBlocked
@@ -559,23 +529,9 @@ export function useWorkTalk() {
         documentVisibilityState,
       });
 
-      const logPayload = {
-        callReason: reason,
-        roomId,
-        targetMessageId,
-        selectedRoomId,
-        documentVisibilityState,
-        ...guardDecision,
-      };
-
-      console.log("[WorkTalk read guard] markAsRead called", logPayload);
-
       if (!guardDecision.allowed) {
-        console.warn("[WorkTalk read guard] markAsRead blocked", logPayload);
         return false;
       }
-
-      console.log("[WorkTalk read guard] markAsRead updating DB", logPayload);
 
       const readReceiptDebugEvent = {
         roomId,
@@ -590,7 +546,6 @@ export function useWorkTalk() {
         source: "useWorkTalk:worktalk_mark_room_read",
       };
 
-      console.error("READ RECEIPT FIRING", readReceiptDebugEvent);
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent(READ_RECEIPT_DEBUG_EVENT, {
@@ -845,15 +800,6 @@ export function useWorkTalk() {
       roomRefreshTimerRef.current = window.setTimeout(() => {
         roomRefreshTimerRef.current = null;
         if (blockRoomSelectionRestoreRef.current) {
-          if (preferredRoomId ?? selectedRoomIdRef.current) {
-            console.warn(
-              "[WorkTalk read guard] scheduleRoomRefresh preferredRoom blocked",
-              {
-                preferredRoomId,
-                selectedRoomId: selectedRoomIdRef.current,
-              }
-            );
-          }
           void loadRooms(null);
           return;
         }
@@ -905,11 +851,8 @@ export function useWorkTalk() {
     setSelectedRoomId(roomId);
   }, [loadMessages]);
 
-  const clearSelectedRoom = useCallback((reason = "manual") => {
-    console.warn("[WorkTalk read guard] clearSelectedRoom", {
-      reason,
-      selectedRoomId: selectedRoomIdRef.current,
-    });
+  const clearSelectedRoom = useCallback((_reason = "manual") => {
+    void _reason;
     allowAutomaticRoomSelectionRef.current = false;
     selectedRoomIdRef.current = null;
     pendingFocusMessageIdRef.current = null;
@@ -922,14 +865,10 @@ export function useWorkTalk() {
   }, []);
 
   const setRoomSelectionRestoreBlocked = useCallback(
-    (blocked: boolean, reason = "unknown") => {
+    (blocked: boolean, _reason = "unknown") => {
+      void _reason;
       if (blockRoomSelectionRestoreRef.current === blocked) return;
 
-      console.warn("[WorkTalk read guard] room selection restore block changed", {
-        blocked,
-        reason,
-        selectedRoomId: selectedRoomIdRef.current,
-      });
       blockRoomSelectionRestoreRef.current = blocked;
 
       if (blocked) {

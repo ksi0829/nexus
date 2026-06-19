@@ -559,14 +559,6 @@ export function WorkTalkApp() {
 
   const forceMobileListModeReset = useCallback(
     (reason: string) => {
-      console.warn("[WorkTalk read guard] forceMobileListModeReset called", {
-        resetReason: reason,
-        activeSection: activeSectionRef.current,
-        selectedRoomRef: selectedRoomIdUiRef.current,
-        pendingDeepLinkRoomId: pendingDeepLinkRoomIdRef.current,
-        isMobileListViewRef: isMobileListViewRef.current,
-        readAllowedRef: readAllowedRef.current,
-      });
       readAllowedRef.current = false;
       isMobileListViewRef.current = true;
       userOpenedRoomRef.current = false;
@@ -583,15 +575,6 @@ export function WorkTalkApp() {
 
   useEffect(() => {
     if (isActualMobileListView) {
-      console.warn(
-        "[WorkTalk read guard] forceMobileListModeReset called before loadRooms",
-        {
-          activeSection,
-          selectedRoomId,
-          pendingDeepLinkRoomId,
-          mobileConversationOpen,
-        }
-      );
       setRoomSelectionRestoreBlocked(true, "mobile_list_before_loadRooms");
       return;
     }
@@ -640,15 +623,6 @@ export function WorkTalkApp() {
     if (!isMessageListVisible) return;
 
     confirmedDeepLinkOpenedRef.current = true;
-    console.warn("[WorkTalk read guard] confirmedDeepLinkOpened set true", {
-      roomId: selectedRoomId,
-      source: "message_panel_rendered",
-      activeSection,
-      mobileConversationOpen,
-      isNarrowLayoutNow,
-      isMessageListMounted: Boolean(messageEndElement),
-      isMessageListVisible,
-    });
   }, [
     activeSection,
     isNarrowLayoutNow,
@@ -752,17 +726,6 @@ export function WorkTalkApp() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    console.log("[WorkTalk read guard] rendered view mode", {
-      activeSection,
-      selectedRoomId,
-      mobileConversationOpen,
-      pendingDeepLinkRoomId,
-      messagePanelMounted: Boolean(messageEndRef.current),
-      mobileView: isActualMobileListView ? "list" : "detail",
-      isMobileListViewRef: isMobileListViewRef.current,
-      readAllowedRef: readAllowedRef.current,
-    });
-
     if (
       !isActualMobileListView ||
       (!selectedRoomId && !pendingDeepLinkRoomId && !readAllowedRef.current)
@@ -770,12 +733,6 @@ export function WorkTalkApp() {
       return;
     }
 
-    console.warn("[WorkTalk read guard] push fallback reset called", {
-      selectedRoomId,
-      pendingDeepLinkRoomId,
-      activeSection,
-      mobileConversationOpen,
-    });
     const resetTimer = window.setTimeout(() => {
       forceMobileListModeReset(
         pendingDeepLinkRoomId ? "push_open_list_fallback" : "normal_list"
@@ -1008,42 +965,11 @@ export function WorkTalkApp() {
       isDocumentVisible &&
       hasConfirmedOpen;
 
-    const logPayload = {
-      roomId: selectedRoomId,
-      latestMessageId: latestMessage.id,
-      activeSection,
-      mobileConversationOpen,
-      pendingDeepLinkRoomId,
-      fromPushDeepLink,
-      documentVisibilityState:
-        typeof document === "undefined" ? "unknown" : document.visibilityState,
-      isNarrowLayout,
-      isMobileListView,
-      isMessageListMounted,
-      isMessageListVisible,
-      isConversationVisible,
-      isMobileListViewRef: isMobileListViewRef.current,
-      readAllowedRef: readAllowedRef.current,
-      userOpenedRoomRef: userOpenedRoomRef.current,
-      confirmedDeepLinkOpenedRef: confirmedDeepLinkOpenedRef.current,
-      hasConfirmedOpen,
-    };
-
-    console.log(
-      "[WorkTalk read guard] conversation visible effect decision",
-      logPayload
-    );
-
     if (!hasConfirmedOpen) {
-      console.warn("[WorkTalk read guard] auto read blocked: no user open", logPayload);
       return;
     }
 
     if (!isConversationVisible) {
-      console.warn(
-        "[WorkTalk read guard] visible message panel not ready",
-        logPayload
-      );
       return;
     }
 
@@ -1063,7 +989,6 @@ export function WorkTalkApp() {
       stack: new Error().stack,
     };
 
-    console.error("READ RECEIPT FIRING", readReceiptDebugEvent);
     appendReadReceiptDebugEvent({
       ...readReceiptDebugEvent,
       source: "WorkTalkApp:auto-read-effect",
@@ -1208,10 +1133,6 @@ export function WorkTalkApp() {
       await markNotificationRead(notification.id);
       setActiveSection("chat");
       userOpenedRoomRef.current = true;
-      console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
-        roomId: notification.room_id,
-        source: "notification_click",
-      });
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
       scheduleBottomScroll("auto", { extraSettle: true });
@@ -1637,11 +1558,6 @@ export function WorkTalkApp() {
     }
 
     userOpenedRoomRef.current = true;
-    console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
-      roomId,
-      focusMessageId: focusMessageId ?? null,
-      source: "openRoom",
-    });
 
     if (roomId === selectedRoomId) {
       if (focusMessageId) {
@@ -1673,11 +1589,6 @@ export function WorkTalkApp() {
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
     userOpenedRoomRef.current = true;
-    console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
-      roomId: result.room_id,
-      focusMessageId: result.message_id ?? null,
-      source: "search_result",
-    });
     selectRoom(result.room_id, result.message_id || undefined);
     window.setTimeout(() => {
       const target = result.message_id
