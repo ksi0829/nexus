@@ -18,6 +18,7 @@ import type {
 const supabase = createSupabaseBrowser();
 const MESSAGE_LIMIT = 100;
 const WORKTALK_FILE_BUCKET = "worktalk-files";
+const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 
 type RoomRow = Omit<WorkTalkRoom, "members" | "latestMessage" | "unreadCount">;
 type MemberRow = Omit<WorkTalkRoomMember, "profile">;
@@ -576,7 +577,7 @@ export function useWorkTalk() {
 
       console.log("[WorkTalk read guard] markAsRead updating DB", logPayload);
 
-      console.error("READ RECEIPT FIRING", {
+      const readReceiptDebugEvent = {
         roomId,
         selectedRoomId,
         readAllowed: guardDecision.readAllowed ?? null,
@@ -586,7 +587,17 @@ export function useWorkTalk() {
         confirmedDeepLinkOpenedRef: null,
         callReason: reason,
         stack: new Error().stack,
-      });
+        source: "useWorkTalk:worktalk_mark_room_read",
+      };
+
+      console.error("READ RECEIPT FIRING", readReceiptDebugEvent);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(READ_RECEIPT_DEBUG_EVENT, {
+            detail: readReceiptDebugEvent,
+          })
+        );
+      }
 
       await supabase.rpc("worktalk_mark_room_read", {
         target_room_id: roomId,

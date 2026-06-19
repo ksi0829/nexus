@@ -40,6 +40,19 @@ type CreateMode = "direct" | "group" | null;
 type RoomFilter = "all" | "unread" | "team" | "direct";
 type SearchMode = "room" | WorkTalkSearchScope;
 type WorkTalkSection = "chat" | "people" | "notifications";
+type ReadReceiptDebugEvent = {
+  roomId: number | null;
+  selectedRoomId: number | null;
+  callReason: string;
+  userOpenedRoomRef: boolean | null;
+  confirmedDeepLinkOpenedRef: boolean | null;
+  isMobileListView: boolean | null;
+  mobileConversationOpen: boolean | null;
+  readAllowed: boolean | null;
+  timestamp: string;
+  source?: string;
+  stack?: string;
+};
 type NexusDesktopWindow = Window & {
   chrome?: {
     webview?: {
@@ -65,6 +78,7 @@ type ApprovalMemberRoleRow = {
 };
 const workTalkSupabase = createSupabaseBrowser();
 const NEXUS_DOCUMENT_BUCKET = "nexus-documents";
+const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 const ORG_GROUP_ORDER = [
   "경영진",
   ...CURRENT_ORG.map((group) => group.team),
@@ -475,6 +489,9 @@ export function WorkTalkApp() {
     x: number;
     y: number;
   } | null>(null);
+  const [readReceiptDebugEvents, setReadReceiptDebugEvents] = useState<
+    ReadReceiptDebugEvent[]
+  >([]);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
@@ -515,6 +532,23 @@ export function WorkTalkApp() {
     !pendingDeepLinkRoomId &&
     !serviceWorkerDeepLink &&
     (!isNarrowLayoutNow || mobileConversationOpen);
+  const showReadReceiptDebugPanel =
+    process.env.NODE_ENV === "development" || currentProfile?.role === "admin";
+
+  const appendReadReceiptDebugEvent = useCallback(
+    (event: Omit<ReadReceiptDebugEvent, "timestamp"> & { timestamp?: string }) => {
+      const timestamp =
+        event.timestamp ||
+        new Date().toLocaleTimeString("ko-KR", {
+          hour12: false,
+        });
+
+      setReadReceiptDebugEvents((current) =>
+        [{ ...event, timestamp }, ...current].slice(0, 10)
+      );
+    },
+    []
+  );
 
   const forceMobileListModeReset = useCallback(
     (reason: string) => {
@@ -586,6 +620,41 @@ export function WorkTalkApp() {
     selectedRoomId,
     serviceWorkerDeepLink,
   ]);
+
+  useEffect(() => {
+    if (!showReadReceiptDebugPanel) return;
+
+    const handleReadReceiptDebugEvent = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<ReadReceiptDebugEvent>>)
+        .detail;
+      if (!detail) return;
+
+      appendReadReceiptDebugEvent({
+        roomId: detail.roomId ?? null,
+        selectedRoomId: detail.selectedRoomId ?? null,
+        readAllowed: detail.readAllowed ?? null,
+        mobileConversationOpen: detail.mobileConversationOpen ?? null,
+        isMobileListView: detail.isMobileListView ?? null,
+        userOpenedRoomRef: detail.userOpenedRoomRef ?? null,
+        confirmedDeepLinkOpenedRef: detail.confirmedDeepLinkOpenedRef ?? null,
+        callReason: detail.callReason || "unknown",
+        source: detail.source || "unknown",
+        stack: detail.stack,
+      });
+    };
+
+    window.addEventListener(
+      READ_RECEIPT_DEBUG_EVENT,
+      handleReadReceiptDebugEvent
+    );
+
+    return () => {
+      window.removeEventListener(
+        READ_RECEIPT_DEBUG_EVENT,
+        handleReadReceiptDebugEvent
+      );
+    };
+  }, [appendReadReceiptDebugEvent, showReadReceiptDebugPanel]);
 
   useEffect(() => {
     setRoomReadGuard((context) => {
@@ -935,7 +1004,7 @@ export function WorkTalkApp() {
     if (lastVisibleReadKeyRef.current === readKey) return;
     lastVisibleReadKeyRef.current = readKey;
 
-    console.error("READ RECEIPT FIRING", {
+    const readReceiptDebugEvent = {
       roomId: selectedRoomId,
       selectedRoomId,
       readAllowed: readAllowedRef.current,
@@ -945,6 +1014,12 @@ export function WorkTalkApp() {
       confirmedDeepLinkOpenedRef: confirmedDeepLinkOpenedRef.current,
       callReason: "conversation:visible-message-panel",
       stack: new Error().stack,
+    };
+
+    console.error("READ RECEIPT FIRING", readReceiptDebugEvent);
+    appendReadReceiptDebugEvent({
+      ...readReceiptDebugEvent,
+      source: "WorkTalkApp:auto-read-effect",
     });
 
     void markRoomRead(
@@ -958,6 +1033,7 @@ export function WorkTalkApp() {
     });
   }, [
     activeSection,
+    appendReadReceiptDebugEvent,
     markRoomRead,
     messageTailKey,
     messages,
@@ -3614,6 +3690,72 @@ export function WorkTalkApp() {
             <iframe src={previewPdf.url} title={previewPdf.file.original_name} />
           </section>
         </div>
+      )}
+
+      {showReadReceiptDebugPanel && (
+        <section
+          aria-label="READ RECEIPT DEBUG"
+          style={{
+            position: "fixed",
+            left: isNarrowLayoutNow ? 76 : 88,
+            right: 12,
+            bottom: 12,
+            zIndex: 10000,
+            maxHeight: "38vh",
+            overflowY: "auto",
+            padding: "10px 12px",
+            border: "1px solid rgba(96, 239, 203, 0.45)",
+            borderRadius: 14,
+            background: "rgba(5, 17, 25, 0.92)",
+            boxShadow: "0 16px 40px rgba(0, 0, 0, 0.28)",
+            color: "#dffcf5",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: 11,
+            lineHeight: 1.45,
+            pointerEvents: "auto",
+          }}
+        >
+          <strong style={{ display: "block", marginBottom: 6 }}>
+            READ RECEIPT DEBUG · last read receipt event
+          </strong>
+          {readReceiptDebugEvents.length === 0 ? (
+            <div style={{ color: "rgba(223, 252, 245, 0.68)" }}>
+              waiting for READ RECEIPT FIRING...
+            </div>
+          ) : (
+            readReceiptDebugEvents.map((event, index) => (
+              <div
+                key={`${event.timestamp}-${index}`}
+                style={{
+                  paddingTop: index === 0 ? 0 : 8,
+                  marginTop: index === 0 ? 0 : 8,
+                  borderTop:
+                    index === 0
+                      ? "none"
+                      : "1px solid rgba(223, 252, 245, 0.18)",
+                }}
+              >
+                <div>
+                  <b>#{index + 1}</b> {event.timestamp} ·{" "}
+                  {event.source || "unknown"}
+                </div>
+                <div>roomId: {event.roomId ?? "null"}</div>
+                <div>selectedRoomId: {event.selectedRoomId ?? "null"}</div>
+                <div>callReason: {event.callReason}</div>
+                <div>
+                  userOpenedRoomRef: {String(event.userOpenedRoomRef)}
+                </div>
+                <div>
+                  confirmedDeepLinkOpenedRef:{" "}
+                  {String(event.confirmedDeepLinkOpenedRef)}
+                </div>
+                <div>isMobileListView: {String(event.isMobileListView)}</div>
+                <div>readAllowed: {String(event.readAllowed)}</div>
+              </div>
+            ))
+          )}
+        </section>
       )}
 
       {errorMessage && (
