@@ -40,6 +40,7 @@ type RoomReadGuardDecision = {
   reason: string;
   viewMode?: string;
   mobileView?: string;
+  readAllowed?: boolean;
   fromPushDeepLink?: boolean;
   pendingDeepLinkRoomId?: number | null;
   mobileConversationOpen?: boolean;

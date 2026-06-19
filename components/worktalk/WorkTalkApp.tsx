@@ -479,6 +479,15 @@ export function WorkTalkApp() {
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
   const lastVisibleReadKeyRef = useRef("");
+  const activeSectionRef = useRef<WorkTalkSection>(activeSection);
+  const selectedRoomIdUiRef = useRef<number | null>(selectedRoomId);
+  const mobileConversationOpenRef = useRef(mobileConversationOpen);
+  const pendingDeepLinkRoomIdRef = useRef<number | null>(pendingDeepLinkRoomId);
+  const serviceWorkerDeepLinkRef = useRef<WorkTalkDeepLink | null>(
+    serviceWorkerDeepLink
+  );
+  const isMobileListViewRef = useRef(false);
+  const readAllowedRef = useRef(false);
   const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollTimersRef = useRef<number[]>([]);
   const {
@@ -492,21 +501,69 @@ export function WorkTalkApp() {
     unsubscribe: unsubscribeFromPush,
   } = useWorkTalkPush(Boolean(currentProfile) && !isNexusDesktopApp);
 
+  const isNarrowLayoutNow =
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 760px)").matches;
+  const isActualMobileListView =
+    isNarrowLayoutNow && activeSection === "chat" && !mobileConversationOpen;
+  const isActualConversationView =
+    activeSection === "chat" &&
+    Boolean(selectedRoomId && selectedRoom) &&
+    !pendingDeepLinkRoomId &&
+    !serviceWorkerDeepLink &&
+    (!isNarrowLayoutNow || mobileConversationOpen);
+
+  const forceMobileListModeReset = useCallback(
+    (reason: string) => {
+      console.warn("[WorkTalk read guard] forceMobileListModeReset called", {
+        resetReason: reason,
+        activeSection: activeSectionRef.current,
+        selectedRoomRef: selectedRoomIdUiRef.current,
+        pendingDeepLinkRoomId: pendingDeepLinkRoomIdRef.current,
+        isMobileListViewRef: isMobileListViewRef.current,
+        readAllowedRef: readAllowedRef.current,
+      });
+      readAllowedRef.current = false;
+      isMobileListViewRef.current = true;
+      lastVisibleReadKeyRef.current = "";
+      clearSelectedRoom(reason);
+      setPendingDeepLinkRoomId(null);
+      setServiceWorkerDeepLink(null);
+      deepLinkHandledRef.current = false;
+    },
+    [clearSelectedRoom]
+  );
+
+  useEffect(() => {
+    activeSectionRef.current = activeSection;
+    selectedRoomIdUiRef.current = selectedRoomId;
+    mobileConversationOpenRef.current = mobileConversationOpen;
+    pendingDeepLinkRoomIdRef.current = pendingDeepLinkRoomId;
+    serviceWorkerDeepLinkRef.current = serviceWorkerDeepLink;
+    isMobileListViewRef.current = isActualMobileListView;
+    readAllowedRef.current = isActualConversationView;
+  }, [
+    activeSection,
+    isActualConversationView,
+    isActualMobileListView,
+    mobileConversationOpen,
+    pendingDeepLinkRoomId,
+    selectedRoomId,
+    serviceWorkerDeepLink,
+  ]);
+
   useEffect(() => {
     setRoomReadGuard((context) => {
-      const isNarrowLayout =
-        typeof window !== "undefined" &&
-        window.matchMedia("(max-width: 760px)").matches;
-      const isMobileListView =
-        isNarrowLayout && activeSection === "chat" && !mobileConversationOpen;
+      const isMobileListView = isMobileListViewRef.current;
+      const readAllowed = readAllowedRef.current;
       const fromPushDeepLink = Boolean(
-        pendingDeepLinkRoomId || serviceWorkerDeepLink
+        pendingDeepLinkRoomIdRef.current || serviceWorkerDeepLinkRef.current
       );
       const isConversationView =
-        activeSection === "chat" &&
-        selectedRoomId === context.roomId &&
+        activeSectionRef.current === "chat" &&
+        selectedRoomIdUiRef.current === context.roomId &&
         !isMobileListView &&
-        (!isNarrowLayout || mobileConversationOpen);
+        readAllowed;
       const isMessageListMounted = Boolean(messageEndRef.current);
       const isDocumentVisible =
         context.documentVisibilityState === "visible" ||
@@ -516,11 +573,11 @@ export function WorkTalkApp() {
       if (!isDocumentVisible) reason = "document not visible";
       else if (isMobileListView) reason = "mobile chat list view";
       else if (fromPushDeepLink) reason = "pending push deep link";
-      else if (selectedRoomId !== context.roomId) reason = "room mismatch";
-      else if (activeSection !== "chat") reason = "not chat section";
-      else if (isNarrowLayout && !mobileConversationOpen) {
-        reason = "mobile conversation closed";
-      } else if (!isMessageListMounted) {
+      else if (selectedRoomIdUiRef.current !== context.roomId) {
+        reason = "room mismatch";
+      } else if (activeSectionRef.current !== "chat") reason = "not chat section";
+      else if (!readAllowed) reason = "readAllowedRef false";
+      else if (!isMessageListMounted) {
         reason = "message list not mounted";
       }
 
@@ -530,32 +587,23 @@ export function WorkTalkApp() {
           !isMobileListView &&
           !fromPushDeepLink &&
           isConversationView &&
-          isMessageListMounted,
+          isMessageListMounted &&
+          readAllowed,
         reason,
-        viewMode: activeSection,
+        viewMode: activeSectionRef.current,
         fromPushDeepLink,
-        pendingDeepLinkRoomId,
-        mobileConversationOpen,
+        pendingDeepLinkRoomId: pendingDeepLinkRoomIdRef.current,
+        mobileConversationOpen: mobileConversationOpenRef.current,
         mobileView: isMobileListView ? "list" : "detail",
+        readAllowed,
       };
     });
 
     return () => setRoomReadGuard(null);
-  }, [
-    activeSection,
-    mobileConversationOpen,
-    pendingDeepLinkRoomId,
-    selectedRoomId,
-    serviceWorkerDeepLink,
-    setRoomReadGuard,
-  ]);
+  }, [setRoomReadGuard]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    const isNarrowLayout = window.matchMedia("(max-width: 760px)").matches;
-    const isMobileChatList =
-      isNarrowLayout && activeSection === "chat" && !mobileConversationOpen;
 
     console.log("[WorkTalk read guard] rendered view mode", {
       activeSection,
@@ -563,10 +611,17 @@ export function WorkTalkApp() {
       mobileConversationOpen,
       pendingDeepLinkRoomId,
       messagePanelMounted: Boolean(messageEndRef.current),
-      mobileView: isMobileChatList ? "list" : "detail",
+      mobileView: isActualMobileListView ? "list" : "detail",
+      isMobileListViewRef: isMobileListViewRef.current,
+      readAllowedRef: readAllowedRef.current,
     });
 
-    if (!isMobileChatList || !selectedRoomId) return;
+    if (
+      !isActualMobileListView ||
+      (!selectedRoomId && !pendingDeepLinkRoomId && !readAllowedRef.current)
+    ) {
+      return;
+    }
 
     console.warn("[WorkTalk read guard] push fallback reset called", {
       selectedRoomId,
@@ -575,16 +630,15 @@ export function WorkTalkApp() {
       mobileConversationOpen,
     });
     const resetTimer = window.setTimeout(() => {
-      clearSelectedRoom("mobile chat list rendered");
-      lastVisibleReadKeyRef.current = "";
-      setPendingDeepLinkRoomId(null);
-      setServiceWorkerDeepLink(null);
-      deepLinkHandledRef.current = false;
+      forceMobileListModeReset(
+        pendingDeepLinkRoomId ? "push_open_list_fallback" : "normal_list"
+      );
     }, 0);
     return () => window.clearTimeout(resetTimer);
   }, [
     activeSection,
-    clearSelectedRoom,
+    forceMobileListModeReset,
+    isActualMobileListView,
     mobileConversationOpen,
     pendingDeepLinkRoomId,
     selectedRoomId,
@@ -784,6 +838,7 @@ export function WorkTalkApp() {
     const isNarrowLayout =
       typeof window !== "undefined" &&
       window.matchMedia("(max-width: 760px)").matches;
+    const isMobileListView = isMobileListViewRef.current;
     const fromPushDeepLink = Boolean(
       pendingDeepLinkRoomId || serviceWorkerDeepLink
     );
@@ -792,6 +847,9 @@ export function WorkTalkApp() {
     const isMessageListMounted = Boolean(messageEndRef.current);
     const isConversationVisible =
       activeSection === "chat" &&
+      selectedRoom.id === selectedRoomId &&
+      !isMobileListView &&
+      readAllowedRef.current &&
       (!isNarrowLayout || mobileConversationOpen) &&
       isMessageListMounted &&
       !fromPushDeepLink &&
@@ -807,8 +865,11 @@ export function WorkTalkApp() {
       documentVisibilityState:
         typeof document === "undefined" ? "unknown" : document.visibilityState,
       isNarrowLayout,
+      isMobileListView,
       isMessageListMounted,
       isConversationVisible,
+      isMobileListViewRef: isMobileListViewRef.current,
+      readAllowedRef: readAllowedRef.current,
     };
 
     if (!isConversationVisible) {
@@ -1828,6 +1889,7 @@ export function WorkTalkApp() {
             onClick={() => {
               setActiveSection("chat");
               setMobileConversationOpen(false);
+              forceMobileListModeReset("menu_switch");
             }}
           >
             <WorkTalkIcon name="chat" />
