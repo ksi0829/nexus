@@ -48,8 +48,8 @@ type RoomReadGuard = (
 ) => RoomReadGuardDecision;
 
 const defaultRoomReadGuard: RoomReadGuard = () => ({
-  allowed: true,
-  reason: "default allow",
+  allowed: false,
+  reason: "read guard not installed",
 });
 
 function isMissingWorkTalkTable(message?: string) {
@@ -505,16 +505,23 @@ export function useWorkTalk() {
         documentVisibilityState,
       });
 
-      console.log("[WorkTalk read guard] markAsRead called", {
+      const logPayload = {
         callReason: reason,
         roomId,
         targetMessageId,
         selectedRoomId,
         documentVisibilityState,
         ...guardDecision,
-      });
+      };
 
-      if (!guardDecision.allowed) return false;
+      console.log("[WorkTalk read guard] markAsRead called", logPayload);
+
+      if (!guardDecision.allowed) {
+        console.warn("[WorkTalk read guard] markAsRead blocked", logPayload);
+        return false;
+      }
+
+      console.log("[WorkTalk read guard] markAsRead updating DB", logPayload);
 
       await supabase.rpc("worktalk_mark_room_read", {
         target_room_id: roomId,
@@ -692,13 +699,6 @@ export function useWorkTalk() {
       });
       setFocusedMessageId(focusMessageId || null);
       pendingFocusMessageIdRef.current = null;
-      const lastMessageId = nextMessages.at(-1)?.id || null;
-
-      await markRoomRead(
-        roomId,
-        lastMessageId,
-        focusMessageId ? "loadMessages:focus" : "loadMessages:room"
-      );
     } catch (error) {
       if (requestId !== messageRequestIdRef.current) return;
       console.log("[WorkTalk realtime debug] loadMessages:error", {
@@ -712,7 +712,7 @@ export function useWorkTalk() {
         setLoadingMessages(false);
       }
     }
-  }, [markRoomRead]);
+  }, []);
 
   const loadRoomNotice = useCallback(async (roomId: number | null) => {
     if (!roomId) {
@@ -1795,11 +1795,6 @@ export function useWorkTalk() {
 
             if (message.room_id === activeRoomId) {
               scheduleMessageRefresh(message.room_id, 80);
-              void markRoomRead(
-                message.room_id,
-                message.id,
-                "realtime:message-insert"
-              );
             }
 
             scheduleRoomRefresh(activeRoomId);
@@ -1982,7 +1977,6 @@ export function useWorkTalk() {
     currentProfile,
     loadMessages,
     loadRoomNotice,
-    markRoomRead,
     scheduleMessageRefresh,
     scheduleRoomRefresh,
     setupState,
@@ -2031,6 +2025,7 @@ export function useWorkTalk() {
     clearLatestNotification,
     selectRoom,
     clearFocusedMessage: () => setFocusedMessageId(null),
+    markRoomRead,
     searchWorkTalk,
     sendMessage,
     sendReplyMessage,

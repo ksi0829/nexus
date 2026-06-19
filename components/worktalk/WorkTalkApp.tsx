@@ -371,6 +371,7 @@ export function WorkTalkApp() {
     clearLatestNotification,
     selectRoom,
     clearFocusedMessage,
+    markRoomRead,
     searchWorkTalk,
     sendMessage,
     sendReplyMessage,
@@ -476,6 +477,7 @@ export function WorkTalkApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
+  const lastVisibleReadKeyRef = useRef("");
   const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollTimersRef = useRef<number[]>([]);
   const {
@@ -725,6 +727,75 @@ export function WorkTalkApp() {
         : [],
     [selectedRoom]
   );
+
+  useEffect(() => {
+    if (!selectedRoomId || !selectedRoom || messages.length === 0) return;
+
+    const latestMessage = messages.at(-1);
+    if (!latestMessage) return;
+
+    const isNarrowLayout =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 760px)").matches;
+    const fromPushDeepLink = Boolean(
+      pendingDeepLinkRoomId || serviceWorkerDeepLink
+    );
+    const isDocumentVisible =
+      typeof document === "undefined" || document.visibilityState === "visible";
+    const isMessageListMounted = Boolean(messageEndRef.current);
+    const isConversationVisible =
+      activeSection === "chat" &&
+      (!isNarrowLayout || mobileConversationOpen) &&
+      isMessageListMounted &&
+      !fromPushDeepLink &&
+      isDocumentVisible;
+
+    const logPayload = {
+      roomId: selectedRoomId,
+      latestMessageId: latestMessage.id,
+      activeSection,
+      mobileConversationOpen,
+      pendingDeepLinkRoomId,
+      fromPushDeepLink,
+      documentVisibilityState:
+        typeof document === "undefined" ? "unknown" : document.visibilityState,
+      isNarrowLayout,
+      isMessageListMounted,
+      isConversationVisible,
+    };
+
+    if (!isConversationVisible) {
+      console.warn(
+        "[WorkTalk read guard] visible message panel not ready",
+        logPayload
+      );
+      return;
+    }
+
+    const readKey = `${selectedRoomId}:${latestMessage.id}`;
+    if (lastVisibleReadKeyRef.current === readKey) return;
+    lastVisibleReadKeyRef.current = readKey;
+
+    void markRoomRead(
+      selectedRoomId,
+      latestMessage.id,
+      "conversation:visible-message-panel"
+    ).then((marked) => {
+      if (!marked && lastVisibleReadKeyRef.current === readKey) {
+        lastVisibleReadKeyRef.current = "";
+      }
+    });
+  }, [
+    activeSection,
+    markRoomRead,
+    messageTailKey,
+    messages,
+    mobileConversationOpen,
+    pendingDeepLinkRoomId,
+    selectedRoom,
+    selectedRoomId,
+    serviceWorkerDeepLink,
+  ]);
 
   useEffect(() => {
     if (!memberListOpen || selectedRoom?.room_type !== "approval") {
