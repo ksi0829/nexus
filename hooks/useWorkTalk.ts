@@ -28,6 +28,29 @@ type RoomSummaryRow = RoomRow & {
   latest_message: RoomSummaryMessage | string | null;
   unread_count: number | string | null;
 };
+type RoomReadGuardContext = {
+  roomId: number;
+  targetMessageId: number | null;
+  reason: string;
+  selectedRoomId: number | null;
+  documentVisibilityState: DocumentVisibilityState | "unknown";
+};
+type RoomReadGuardDecision = {
+  allowed: boolean;
+  reason: string;
+  viewMode?: string;
+  fromPushDeepLink?: boolean;
+  pendingDeepLinkRoomId?: number | null;
+  mobileConversationOpen?: boolean;
+};
+type RoomReadGuard = (
+  context: RoomReadGuardContext
+) => RoomReadGuardDecision;
+
+const defaultRoomReadGuard: RoomReadGuard = () => ({
+  allowed: true,
+  reason: "default allow",
+});
 
 function isMissingWorkTalkTable(message?: string) {
   return Boolean(
@@ -134,8 +157,9 @@ export function useWorkTalk() {
   const roomRefreshTimerRef = useRef<number | null>(null);
   const messageRefreshTimerRef = useRef<number | null>(null);
   const pendingFocusMessageIdRef = useRef<number | null>(null);
-  const allowAutomaticRoomSelectionRef = useRef(true);
+  const allowAutomaticRoomSelectionRef = useRef(false);
   const lastDeliveredNotificationIdRef = useRef<number | null>(null);
+  const roomReadGuardRef = useRef<RoomReadGuard>(defaultRoomReadGuard);
 
   const selectedRoom = useMemo(
     () => rooms.find((room) => room.id === selectedRoomId) || null,
@@ -462,6 +486,79 @@ export function useWorkTalk() {
     }
   }, [currentProfile?.id, profiles]);
 
+  const setRoomReadGuard = useCallback((guard: RoomReadGuard | null) => {
+    roomReadGuardRef.current = guard || defaultRoomReadGuard;
+  }, []);
+
+  const markRoomRead = useCallback(
+    async (roomId: number, targetMessageId: number | null, reason: string) => {
+      const documentVisibilityState =
+        typeof document === "undefined"
+          ? "unknown"
+          : document.visibilityState;
+      const selectedRoomId = selectedRoomIdRef.current;
+      const guardDecision = roomReadGuardRef.current({
+        roomId,
+        targetMessageId,
+        reason,
+        selectedRoomId,
+        documentVisibilityState,
+      });
+
+      console.log("[WorkTalk read guard] markAsRead called", {
+        callReason: reason,
+        roomId,
+        targetMessageId,
+        selectedRoomId,
+        documentVisibilityState,
+        ...guardDecision,
+      });
+
+      if (!guardDecision.allowed) return false;
+
+      await supabase.rpc("worktalk_mark_room_read", {
+        target_room_id: roomId,
+        target_message_id: targetMessageId,
+      });
+
+      const readAt = new Date().toISOString();
+      setRooms((current) =>
+        current.map((room) =>
+          room.id === roomId
+            ? {
+                ...room,
+                unreadCount: 0,
+                members: room.members.map((member) =>
+                  member.user_id === currentProfile?.id
+                    ? {
+                        ...member,
+                        last_read_message_id:
+                          targetMessageId ?? member.last_read_message_id,
+                        last_read_at: readAt,
+                      }
+                    : member
+                ),
+              }
+            : room
+        )
+      );
+      setNotifications((current) =>
+        current.map((notification) =>
+          notification.room_id === roomId &&
+          (!targetMessageId || notification.message_id <= targetMessageId)
+            ? {
+                ...notification,
+                read_at: notification.read_at || readAt,
+              }
+            : notification
+        )
+      );
+
+      return true;
+    },
+    [currentProfile?.id]
+  );
+
   const loadMessages = useCallback(async (
     roomId: number,
     focusMessageId?: number | null
@@ -597,41 +694,10 @@ export function useWorkTalk() {
       pendingFocusMessageIdRef.current = null;
       const lastMessageId = nextMessages.at(-1)?.id || null;
 
-      await supabase.rpc("worktalk_mark_room_read", {
-        target_room_id: roomId,
-        target_message_id: lastMessageId,
-      });
-
-      setRooms((current) =>
-        current.map((room) =>
-          room.id === roomId
-            ? {
-                ...room,
-                unreadCount: 0,
-                members: room.members.map((member) =>
-                  member.user_id === currentProfile?.id
-                    ? {
-                        ...member,
-                        last_read_message_id:
-                          lastMessageId ?? member.last_read_message_id,
-                        last_read_at: new Date().toISOString(),
-                      }
-                    : member
-                ),
-              }
-            : room
-        )
-      );
-      setNotifications((current) =>
-        current.map((notification) =>
-          notification.room_id === roomId &&
-          (!lastMessageId || notification.message_id <= lastMessageId)
-            ? {
-                ...notification,
-                read_at: notification.read_at || new Date().toISOString(),
-              }
-            : notification
-        )
+      await markRoomRead(
+        roomId,
+        lastMessageId,
+        focusMessageId ? "loadMessages:focus" : "loadMessages:room"
       );
     } catch (error) {
       if (requestId !== messageRequestIdRef.current) return;
@@ -646,7 +712,7 @@ export function useWorkTalk() {
         setLoadingMessages(false);
       }
     }
-  }, [currentProfile?.id]);
+  }, [markRoomRead]);
 
   const loadRoomNotice = useCallback(async (roomId: number | null) => {
     if (!roomId) {
@@ -1729,10 +1795,11 @@ export function useWorkTalk() {
 
             if (message.room_id === activeRoomId) {
               scheduleMessageRefresh(message.room_id, 80);
-              void supabase.rpc("worktalk_mark_room_read", {
-                target_room_id: message.room_id,
-                target_message_id: message.id,
-              });
+              void markRoomRead(
+                message.room_id,
+                message.id,
+                "realtime:message-insert"
+              );
             }
 
             scheduleRoomRefresh(activeRoomId);
@@ -1915,6 +1982,7 @@ export function useWorkTalk() {
     currentProfile,
     loadMessages,
     loadRoomNotice,
+    markRoomRead,
     scheduleMessageRefresh,
     scheduleRoomRefresh,
     setupState,
@@ -1985,6 +2053,7 @@ export function useWorkTalk() {
     setRoomNotice,
     clearRoomNotice,
     transferOwnerAndLeave,
+    setRoomReadGuard,
     reload: () => loadRooms(selectedRoomIdRef.current),
   };
 }

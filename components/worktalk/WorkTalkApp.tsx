@@ -393,6 +393,7 @@ export function WorkTalkApp() {
     setRoomNotice,
     clearRoomNotice,
     transferOwnerAndLeave,
+    setRoomReadGuard,
     reload,
   } = useWorkTalk();
   const [activeSection, setActiveSection] = useState<WorkTalkSection>(() => {
@@ -487,6 +488,58 @@ export function WorkTalkApp() {
     subscribe: subscribeToPush,
     unsubscribe: unsubscribeFromPush,
   } = useWorkTalkPush(Boolean(currentProfile) && !isNexusDesktopApp);
+
+  useEffect(() => {
+    setRoomReadGuard((context) => {
+      const isNarrowLayout =
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 760px)").matches;
+      const fromPushDeepLink = Boolean(
+        pendingDeepLinkRoomId || serviceWorkerDeepLink
+      );
+      const isConversationView =
+        activeSection === "chat" &&
+        selectedRoomId === context.roomId &&
+        (!isNarrowLayout || mobileConversationOpen);
+      const isMessageListMounted = Boolean(messageEndRef.current);
+      const isDocumentVisible =
+        context.documentVisibilityState === "visible" ||
+        context.documentVisibilityState === "unknown";
+
+      let reason = "message view visible";
+      if (!isDocumentVisible) reason = "document not visible";
+      else if (fromPushDeepLink) reason = "pending push deep link";
+      else if (selectedRoomId !== context.roomId) reason = "room mismatch";
+      else if (activeSection !== "chat") reason = "not chat section";
+      else if (isNarrowLayout && !mobileConversationOpen) {
+        reason = "mobile conversation closed";
+      } else if (!isMessageListMounted) {
+        reason = "message list not mounted";
+      }
+
+      return {
+        allowed:
+          isDocumentVisible &&
+          !fromPushDeepLink &&
+          isConversationView &&
+          isMessageListMounted,
+        reason,
+        viewMode: activeSection,
+        fromPushDeepLink,
+        pendingDeepLinkRoomId,
+        mobileConversationOpen,
+      };
+    });
+
+    return () => setRoomReadGuard(null);
+  }, [
+    activeSection,
+    mobileConversationOpen,
+    pendingDeepLinkRoomId,
+    selectedRoomId,
+    serviceWorkerDeepLink,
+    setRoomReadGuard,
+  ]);
 
   useEffect(() => {
     const imageFiles = messages

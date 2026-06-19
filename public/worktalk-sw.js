@@ -117,6 +117,23 @@ self.addEventListener("notificationclick", (event) => {
             if ("focus" in activeClient) {
               logNotificationClick("focus called", { url: activeClient.url });
               activeClient = await activeClient.focus();
+              logNotificationClick("focus result", {
+                url: activeClient.url,
+                visibilityState: activeClient.visibilityState,
+                focused: activeClient.focused,
+              });
+              if (
+                activeClient.visibilityState &&
+                activeClient.visibilityState !== "visible"
+              ) {
+                logNotificationClick("openWindow called", {
+                  targetUrl,
+                  fallback: "focus did not foreground",
+                  visibilityState: activeClient.visibilityState,
+                });
+                await self.clients.openWindow(targetUrl);
+                return;
+              }
             }
 
             if ("postMessage" in activeClient) {
