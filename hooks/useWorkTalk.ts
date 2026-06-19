@@ -39,6 +39,7 @@ type RoomReadGuardDecision = {
   allowed: boolean;
   reason: string;
   viewMode?: string;
+  mobileView?: string;
   fromPushDeepLink?: boolean;
   pendingDeepLinkRoomId?: number | null;
   mobileConversationOpen?: boolean;
@@ -814,6 +815,22 @@ export function useWorkTalk() {
     setLoadingMessages(true);
     setSelectedRoomId(roomId);
   }, [loadMessages]);
+
+  const clearSelectedRoom = useCallback((reason = "manual") => {
+    console.warn("[WorkTalk read guard] clearSelectedRoom", {
+      reason,
+      selectedRoomId: selectedRoomIdRef.current,
+    });
+    allowAutomaticRoomSelectionRef.current = false;
+    selectedRoomIdRef.current = null;
+    pendingFocusMessageIdRef.current = null;
+    messageRequestIdRef.current += 1;
+    setSelectedRoomId(null);
+    setMessages([]);
+    setFocusedMessageId(null);
+    setRoomNoticeState(null);
+    setLoadingMessages(false);
+  }, []);
 
   const searchWorkTalk = useCallback(
     async (
@@ -2024,6 +2041,7 @@ export function useWorkTalk() {
     latestNotification,
     clearLatestNotification,
     selectRoom,
+    clearSelectedRoom,
     clearFocusedMessage: () => setFocusedMessageId(null),
     markRoomRead,
     searchWorkTalk,
