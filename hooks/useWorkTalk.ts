@@ -576,6 +576,18 @@ export function useWorkTalk() {
 
       console.log("[WorkTalk read guard] markAsRead updating DB", logPayload);
 
+      console.error("READ RECEIPT FIRING", {
+        roomId,
+        selectedRoomId,
+        readAllowed: guardDecision.readAllowed ?? null,
+        mobileConversationOpen: guardDecision.mobileConversationOpen ?? null,
+        isMobileListView: guardDecision.mobileView === "list",
+        userOpenedRoomRef: null,
+        confirmedDeepLinkOpenedRef: null,
+        callReason: reason,
+        stack: new Error().stack,
+      });
+
       await supabase.rpc("worktalk_mark_room_read", {
         target_room_id: roomId,
         target_message_id: targetMessageId,

@@ -935,6 +935,18 @@ export function WorkTalkApp() {
     if (lastVisibleReadKeyRef.current === readKey) return;
     lastVisibleReadKeyRef.current = readKey;
 
+    console.error("READ RECEIPT FIRING", {
+      roomId: selectedRoomId,
+      selectedRoomId,
+      readAllowed: readAllowedRef.current,
+      mobileConversationOpen,
+      isMobileListView,
+      userOpenedRoomRef: userOpenedRoomRef.current,
+      confirmedDeepLinkOpenedRef: confirmedDeepLinkOpenedRef.current,
+      callReason: "conversation:visible-message-panel",
+      stack: new Error().stack,
+    });
+
     void markRoomRead(
       selectedRoomId,
       latestMessage.id,
