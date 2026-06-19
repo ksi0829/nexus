@@ -533,6 +533,9 @@ export function WorkTalkApp() {
     window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches;
   const isActualMobileListView =
     isNarrowLayoutNow && activeSection === "chat" && !mobileConversationOpen;
+  const hasPendingDeepLinkTarget = Boolean(
+    pendingDeepLinkRoomId || serviceWorkerDeepLink
+  );
   const isActualConversationView =
     activeSection === "chat" &&
     Boolean(selectedRoomId && selectedRoom) &&
@@ -574,14 +577,20 @@ export function WorkTalkApp() {
   );
 
   useEffect(() => {
-    if (isActualMobileListView) {
+    if (isActualMobileListView && !hasPendingDeepLinkTarget) {
       setRoomSelectionRestoreBlocked(true, "mobile_list_before_loadRooms");
       return;
     }
 
-    setRoomSelectionRestoreBlocked(false, "conversation_or_non_mobile_list");
+    setRoomSelectionRestoreBlocked(
+      false,
+      hasPendingDeepLinkTarget
+        ? "pending_deep_link"
+        : "conversation_or_non_mobile_list"
+    );
   }, [
     activeSection,
+    hasPendingDeepLinkTarget,
     isActualMobileListView,
     mobileConversationOpen,
     pendingDeepLinkRoomId,
@@ -728,6 +737,7 @@ export function WorkTalkApp() {
 
     if (
       !isActualMobileListView ||
+      hasPendingDeepLinkTarget ||
       (!selectedRoomId && !pendingDeepLinkRoomId && !readAllowedRef.current)
     ) {
       return;
@@ -742,6 +752,7 @@ export function WorkTalkApp() {
   }, [
     activeSection,
     forceMobileListModeReset,
+    hasPendingDeepLinkTarget,
     isActualMobileListView,
     mobileConversationOpen,
     pendingDeepLinkRoomId,
@@ -1206,6 +1217,7 @@ export function WorkTalkApp() {
       }
 
       deepLinkHandledRef.current = false;
+      setRoomSelectionRestoreBlocked(false, "service_worker_deep_link");
       setServiceWorkerDeepLink(deepLink);
       setPendingDeepLinkRoomId(deepLink.roomId);
       setActiveSection("chat");
@@ -1222,7 +1234,7 @@ export function WorkTalkApp() {
         handleServiceWorkerMessage
       );
     };
-  }, []);
+  }, [setRoomSelectionRestoreBlocked]);
 
   useEffect(() => {
     const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();
@@ -1240,9 +1252,11 @@ export function WorkTalkApp() {
       rawRoom: deepLink.rawRoom,
       rawMessage: deepLink.rawMessage,
     });
+    setRoomSelectionRestoreBlocked(false, "pending_deep_link");
 
     if (pendingDeepLinkRoomId !== deepLink.roomId) {
       const pendingTimeoutId = window.setTimeout(() => {
+        setRoomSelectionRestoreBlocked(false, "pending_deep_link");
         setPendingDeepLinkRoomId(deepLink.roomId);
         setActiveSection("chat");
         setMobileConversationOpen(true);
@@ -1292,6 +1306,13 @@ export function WorkTalkApp() {
         roomId: deepLink.roomId,
         roomsCount: rooms.length,
       });
+      if (rooms.length > 0) {
+        const fallbackTimeoutId = window.setTimeout(() => {
+          forceMobileListModeReset("push_open_list_fallback");
+          window.history.replaceState({}, "", "/worktalk");
+        }, 0);
+        return () => window.clearTimeout(fallbackTimeoutId);
+      }
       return;
     }
 
@@ -1301,6 +1322,7 @@ export function WorkTalkApp() {
       setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
+      setRoomSelectionRestoreBlocked(false, "confirmed_deep_link");
       logWorkTalkDeepLink("selectRoom called", {
         roomId: deepLink.roomId,
         messageId: deepLink.messageId ?? null,
@@ -1318,11 +1340,13 @@ export function WorkTalkApp() {
     return () => window.clearTimeout(timeoutId);
   }, [
     currentProfile,
+    forceMobileListModeReset,
     pendingDeepLinkRoomId,
     rooms,
     scheduleBottomScroll,
     selectRoom,
     serviceWorkerDeepLink,
+    setRoomSelectionRestoreBlocked,
     setupState,
   ]);
 
