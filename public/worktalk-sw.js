@@ -1,4 +1,32 @@
 const WORKTALK_URL = "/worktalk";
+const WORKTALK_DEEP_LINK_MESSAGE = "WORKTALK_DEEP_LINK";
+
+function toNullableString(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return String(value);
+}
+
+function logNotificationClick(step, payload = {}) {
+  console.log("[WorkTalk SW notificationclick]", step, payload);
+}
+
+function buildWorkTalkTarget(data = {}) {
+  const roomId = toNullableString(data.roomId ?? data.room ?? data.room_id);
+  const messageId = toNullableString(
+    data.messageId ?? data.message ?? data.message_id
+  );
+  const fallbackPath = roomId
+    ? `/worktalk?roomId=${encodeURIComponent(roomId)}${
+        messageId ? `&messageId=${encodeURIComponent(messageId)}` : ""
+      }`
+    : WORKTALK_URL;
+  const targetUrl = new URL(
+    data.targetUrl || data.url || fallbackPath,
+    self.location.origin
+  ).href;
+
+  return { targetUrl, roomId, messageId };
+}
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -20,6 +48,7 @@ self.addEventListener("push", (event) => {
     };
   }
 
+  const { targetUrl, roomId, messageId } = buildWorkTalkTarget(payload);
   const title = payload.title || "NEXUS";
   const options = {
     body: payload.body || "새 알림이 도착했습니다.",
@@ -28,7 +57,12 @@ self.addEventListener("push", (event) => {
     tag: payload.tag || `worktalk-${Date.now()}`,
     renotify: true,
     data: {
-      url: payload.url || WORKTALK_URL,
+      targetUrl,
+      url: targetUrl,
+      roomId,
+      room: roomId,
+      messageId,
+      message: messageId,
     },
   };
 
@@ -47,24 +81,95 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(
-    event.notification.data?.url || WORKTALK_URL,
-    self.location.origin
-  ).href;
+  const notificationData = event.notification.data || {};
+  const { targetUrl, roomId, messageId } = buildWorkTalkTarget(
+    notificationData
+  );
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then(async (clients) => {
-        for (const client of clients) {
-          if ("navigate" in client) {
-            await client.navigate(targetUrl);
+    (async () => {
+      logNotificationClick("notification data", notificationData);
+      logNotificationClick("targetUrl", { targetUrl, roomId, messageId });
+
+      try {
+        const clients = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        const appClients = clients.filter((client) => {
+          try {
+            return new URL(client.url).origin === self.location.origin;
+          } catch {
+            return false;
           }
-          if ("focus" in client) {
-            return client.focus();
+        });
+
+        logNotificationClick("matched clients count", {
+          total: clients.length,
+          sameOrigin: appClients.length,
+        });
+
+        for (const client of appClients) {
+          logNotificationClick("client url", { url: client.url });
+          try {
+            let activeClient = client;
+
+            if ("focus" in activeClient) {
+              logNotificationClick("focus called", { url: activeClient.url });
+              activeClient = await activeClient.focus();
+            }
+
+            if ("postMessage" in activeClient) {
+              activeClient.postMessage({
+                type: WORKTALK_DEEP_LINK_MESSAGE,
+                targetUrl,
+                url: targetUrl,
+                roomId,
+                room: roomId,
+                messageId,
+                message: messageId,
+              });
+            }
+
+            const activeUrl = new URL(activeClient.url);
+            const isWorkTalk =
+              activeUrl.origin === self.location.origin &&
+              activeUrl.pathname.startsWith("/worktalk");
+
+            if (!isWorkTalk && "navigate" in activeClient) {
+              logNotificationClick("navigate called", {
+                from: activeClient.url,
+                to: targetUrl,
+              });
+              const navigatedClient = await activeClient.navigate(targetUrl);
+              if (navigatedClient && "focus" in navigatedClient) {
+                logNotificationClick("focus called", {
+                  url: navigatedClient.url,
+                  afterNavigate: true,
+                });
+                await navigatedClient.focus();
+              }
+            }
+
+            return;
+          } catch (error) {
+            logNotificationClick("error", {
+              branch: "existing client",
+              message: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        return self.clients.openWindow(targetUrl);
-      })
+
+        logNotificationClick("openWindow called", { targetUrl });
+        await self.clients.openWindow(targetUrl);
+      } catch (error) {
+        logNotificationClick("error", {
+          branch: "open window fallback",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        logNotificationClick("openWindow called", { targetUrl, fallback: true });
+        await self.clients.openWindow(targetUrl);
+      }
+    })()
   );
 });

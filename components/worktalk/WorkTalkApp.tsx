@@ -106,9 +106,10 @@ function parsePositiveInt(value: string | null) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function readWorkTalkDeepLink(): WorkTalkDeepLink | null {
-  if (typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.search);
+function readWorkTalkDeepLinkFromParams(
+  params: URLSearchParams,
+  sourceUrl: string
+): WorkTalkDeepLink | null {
   const rawRoom = params.get("room") ?? params.get("roomId");
   const rawMessage = params.get("message") ?? params.get("messageId");
   const roomId = parsePositiveInt(rawRoom);
@@ -117,10 +118,31 @@ function readWorkTalkDeepLink(): WorkTalkDeepLink | null {
   return {
     roomId,
     messageId: messageId ?? undefined,
-    sourceUrl: `${window.location.pathname}${window.location.search}`,
+    sourceUrl,
     rawRoom,
     rawMessage,
   };
+}
+
+function readWorkTalkDeepLinkFromUrl(targetUrl: string | null) {
+  if (typeof window === "undefined" || !targetUrl) return null;
+  try {
+    const url = new URL(targetUrl, window.location.origin);
+    return readWorkTalkDeepLinkFromParams(
+      url.searchParams,
+      `${url.pathname}${url.search}`
+    );
+  } catch {
+    return null;
+  }
+}
+
+function readWorkTalkDeepLink(): WorkTalkDeepLink | null {
+  if (typeof window === "undefined") return null;
+  return readWorkTalkDeepLinkFromParams(
+    new URLSearchParams(window.location.search),
+    `${window.location.pathname}${window.location.search}`
+  );
 }
 
 function logWorkTalkDeepLink(event: string, payload: Record<string, unknown>) {
@@ -418,6 +440,8 @@ export function WorkTalkApp() {
   const [pendingDeepLinkRoomId, setPendingDeepLinkRoomId] = useState(
     () => readWorkTalkDeepLink()?.roomId ?? null
   );
+  const [serviceWorkerDeepLink, setServiceWorkerDeepLink] =
+    useState<WorkTalkDeepLink | null>(null);
   const [popupMode, setPopupMode] = useState(false);
   const [highlightedRoomId, setHighlightedRoomId] = useState<number | null>(null);
   const [createMode, setCreateMode] = useState<CreateMode>(null);
@@ -773,7 +797,91 @@ export function WorkTalkApp() {
   );
 
   useEffect(() => {
-    const deepLink = readWorkTalkDeepLink();
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const data = event.data as
+        | {
+            type?: string;
+            targetUrl?: string;
+            url?: string;
+            roomId?: string | number | null;
+            room?: string | number | null;
+            messageId?: string | number | null;
+            message?: string | number | null;
+          }
+        | null;
+
+      if (!data || data.type !== "WORKTALK_DEEP_LINK") return;
+
+      const targetUrl = data.targetUrl || data.url || null;
+      let deepLink = readWorkTalkDeepLinkFromUrl(targetUrl);
+
+      if (!deepLink) {
+        const rawRoom =
+          data.roomId !== undefined && data.roomId !== null
+            ? String(data.roomId)
+            : data.room !== undefined && data.room !== null
+              ? String(data.room)
+              : null;
+        const rawMessage =
+          data.messageId !== undefined && data.messageId !== null
+            ? String(data.messageId)
+            : data.message !== undefined && data.message !== null
+              ? String(data.message)
+              : null;
+        const roomId = parsePositiveInt(rawRoom);
+        const messageId = parsePositiveInt(rawMessage);
+
+        if (roomId) {
+          deepLink = {
+            roomId,
+            messageId: messageId ?? undefined,
+            sourceUrl: targetUrl || "/worktalk",
+            rawRoom,
+            rawMessage,
+          };
+        }
+      }
+
+      logWorkTalkDeepLink("postMessage deep link", {
+        targetUrl,
+        roomId: deepLink?.roomId ?? null,
+        messageId: deepLink?.messageId ?? null,
+        rawData: data,
+      });
+
+      if (!deepLink) {
+        logWorkTalkDeepLink("fallback reason", {
+          reason: "invalid service worker deep link",
+          targetUrl,
+        });
+        return;
+      }
+
+      deepLinkHandledRef.current = false;
+      setServiceWorkerDeepLink(deepLink);
+      setPendingDeepLinkRoomId(deepLink.roomId);
+      setActiveSection("chat");
+      setMobileConversationOpen(true);
+    };
+
+    navigator.serviceWorker.addEventListener(
+      "message",
+      handleServiceWorkerMessage
+    );
+    return () => {
+      navigator.serviceWorker.removeEventListener(
+        "message",
+        handleServiceWorkerMessage
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();
 
     if (!deepLink) {
       return;
@@ -857,6 +965,7 @@ export function WorkTalkApp() {
         deepLink.roomId,
         deepLink.messageId
       );
+      setServiceWorkerDeepLink(null);
       window.history.replaceState({}, "", "/worktalk");
       if (!deepLink.messageId) {
         scheduleBottomScroll("auto", { extraSettle: true });
@@ -869,6 +978,7 @@ export function WorkTalkApp() {
     rooms,
     scheduleBottomScroll,
     selectRoom,
+    serviceWorkerDeepLink,
     setupState,
   ]);
 
