@@ -479,6 +479,8 @@ export function WorkTalkApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
+  const userOpenedRoomRef = useRef(false);
+  const confirmedDeepLinkOpenedRef = useRef(false);
   const lastVisibleReadKeyRef = useRef("");
   const activeSectionRef = useRef<WorkTalkSection>(activeSection);
   const selectedRoomIdUiRef = useRef<number | null>(selectedRoomId);
@@ -526,6 +528,8 @@ export function WorkTalkApp() {
       });
       readAllowedRef.current = false;
       isMobileListViewRef.current = true;
+      userOpenedRoomRef.current = false;
+      confirmedDeepLinkOpenedRef.current = false;
       lastVisibleReadKeyRef.current = "";
       setRoomSelectionRestoreBlocked(true, reason);
       clearSelectedRoom(reason);
@@ -569,6 +573,10 @@ export function WorkTalkApp() {
     serviceWorkerDeepLinkRef.current = serviceWorkerDeepLink;
     isMobileListViewRef.current = isActualMobileListView;
     readAllowedRef.current = isActualConversationView;
+    if (isActualMobileListView) {
+      userOpenedRoomRef.current = false;
+      confirmedDeepLinkOpenedRef.current = false;
+    }
   }, [
     activeSection,
     isActualConversationView,
@@ -872,6 +880,8 @@ export function WorkTalkApp() {
     const isDocumentVisible =
       typeof document === "undefined" || document.visibilityState === "visible";
     const isMessageListMounted = Boolean(messageEndRef.current);
+    const hasConfirmedOpen =
+      userOpenedRoomRef.current || confirmedDeepLinkOpenedRef.current;
     const isConversationVisible =
       activeSection === "chat" &&
       selectedRoom.id === selectedRoomId &&
@@ -880,7 +890,8 @@ export function WorkTalkApp() {
       (!isNarrowLayout || mobileConversationOpen) &&
       isMessageListMounted &&
       !fromPushDeepLink &&
-      isDocumentVisible;
+      isDocumentVisible &&
+      hasConfirmedOpen;
 
     const logPayload = {
       roomId: selectedRoomId,
@@ -897,7 +908,20 @@ export function WorkTalkApp() {
       isConversationVisible,
       isMobileListViewRef: isMobileListViewRef.current,
       readAllowedRef: readAllowedRef.current,
+      userOpenedRoomRef: userOpenedRoomRef.current,
+      confirmedDeepLinkOpenedRef: confirmedDeepLinkOpenedRef.current,
+      hasConfirmedOpen,
     };
+
+    console.log(
+      "[WorkTalk read guard] conversation visible effect decision",
+      logPayload
+    );
+
+    if (!hasConfirmedOpen) {
+      console.warn("[WorkTalk read guard] auto read blocked: no user open", logPayload);
+      return;
+    }
 
     if (!isConversationVisible) {
       console.warn(
@@ -1048,6 +1072,11 @@ export function WorkTalkApp() {
     async (notification: WorkTalkNotification) => {
       await markNotificationRead(notification.id);
       setActiveSection("chat");
+      userOpenedRoomRef.current = true;
+      console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
+        roomId: notification.room_id,
+        source: "notification_click",
+      });
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
       scheduleBottomScroll("auto", { extraSettle: true });
@@ -1216,6 +1245,11 @@ export function WorkTalkApp() {
       setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
+      confirmedDeepLinkOpenedRef.current = true;
+      console.warn("[WorkTalk read guard] confirmedDeepLinkOpened set true", {
+        roomId: deepLink.roomId,
+        messageId: deepLink.messageId ?? null,
+      });
       logWorkTalkDeepLink("selectRoom called", {
         roomId: deepLink.roomId,
         messageId: deepLink.messageId ?? null,
@@ -1472,6 +1506,13 @@ export function WorkTalkApp() {
       }
     }
 
+    userOpenedRoomRef.current = true;
+    console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
+      roomId,
+      focusMessageId: focusMessageId ?? null,
+      source: "openRoom",
+    });
+
     if (roomId === selectedRoomId) {
       if (focusMessageId) {
         selectRoom(roomId, focusMessageId);
@@ -1501,6 +1542,12 @@ export function WorkTalkApp() {
     setMessageSearch("");
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
+    userOpenedRoomRef.current = true;
+    console.warn("[WorkTalk read guard] userOpenedRoomRef set true", {
+      roomId: result.room_id,
+      focusMessageId: result.message_id ?? null,
+      source: "search_result",
+    });
     selectRoom(result.room_id, result.message_id || undefined);
     window.setTimeout(() => {
       const target = result.message_id
