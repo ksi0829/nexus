@@ -93,9 +93,42 @@ const ALLOWED_EXTENSIONS = new Set([
 const FILE_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.xlsx,.xls,.csv,.docx,.doc,.pptx,.ppt,.dwg,.dxf,.zip";
 
+type WorkTalkDeepLink = {
+  roomId: number;
+  messageId?: number;
+  sourceUrl: string;
+  rawRoom: string | null;
+  rawMessage: string | null;
+};
+
+function parsePositiveInt(value: string | null) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function readWorkTalkDeepLink(): WorkTalkDeepLink | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const rawRoom = params.get("room") ?? params.get("roomId");
+  const rawMessage = params.get("message") ?? params.get("messageId");
+  const roomId = parsePositiveInt(rawRoom);
+  if (!roomId) return null;
+  const messageId = parsePositiveInt(rawMessage);
+  return {
+    roomId,
+    messageId: messageId ?? undefined,
+    sourceUrl: `${window.location.pathname}${window.location.search}`,
+    rawRoom,
+    rawMessage,
+  };
+}
+
+function logWorkTalkDeepLink(event: string, payload: Record<string, unknown>) {
+  console.log("[WorkTalk deep link]", event, payload);
+}
+
 function hasWorkTalkRoomParam() {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has("room");
+  return Boolean(readWorkTalkDeepLink());
 }
 
 function getCurrentWorkTalkPath() {
@@ -381,6 +414,9 @@ export function WorkTalkApp() {
   const [dragActive, setDragActive] = useState(false);
   const [mobileConversationOpen, setMobileConversationOpen] = useState(
     () => hasWorkTalkRoomParam()
+  );
+  const [pendingDeepLinkRoomId, setPendingDeepLinkRoomId] = useState(
+    () => readWorkTalkDeepLink()?.roomId ?? null
   );
   const [popupMode, setPopupMode] = useState(false);
   const [highlightedRoomId, setHighlightedRoomId] = useState<number | null>(null);
@@ -737,34 +773,111 @@ export function WorkTalkApp() {
   );
 
   useEffect(() => {
-    if (deepLinkHandledRef.current || !currentProfile || setupState !== "ready") {
+    const deepLink = readWorkTalkDeepLink();
+
+    if (!deepLink) {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const roomId = Number(params.get("room"));
-    const messageId = Number(params.get("message"));
+    logWorkTalkDeepLink("push deep link url", {
+      url: deepLink.sourceUrl,
+    });
+    logWorkTalkDeepLink("query roomId", {
+      roomId: deepLink.roomId,
+      messageId: deepLink.messageId ?? null,
+      rawRoom: deepLink.rawRoom,
+      rawMessage: deepLink.rawMessage,
+    });
 
-    if (!Number.isSafeInteger(roomId) || roomId <= 0) return;
+    if (pendingDeepLinkRoomId !== deepLink.roomId) {
+      const pendingTimeoutId = window.setTimeout(() => {
+        setPendingDeepLinkRoomId(deepLink.roomId);
+        setActiveSection("chat");
+        setMobileConversationOpen(true);
+      }, 0);
+      return () => window.clearTimeout(pendingTimeoutId);
+    }
 
-    if (!rooms.some((room) => room.id === roomId)) return;
+    if (deepLinkHandledRef.current) {
+      logWorkTalkDeepLink("fallback reason", {
+        reason: "already handled",
+        roomId: deepLink.roomId,
+      });
+      return;
+    }
+
+    if (!currentProfile) {
+      logWorkTalkDeepLink("fallback reason", {
+        reason: "waiting currentProfile",
+        roomId: deepLink.roomId,
+      });
+      return;
+    }
+
+    if (setupState !== "ready") {
+      logWorkTalkDeepLink("fallback reason", {
+        reason: "waiting setup ready",
+        setupState,
+        roomId: deepLink.roomId,
+      });
+      return;
+    }
+
+    const targetRoom = rooms.find((room) => room.id === deepLink.roomId);
+    logWorkTalkDeepLink("rooms loaded count", {
+      count: rooms.length,
+      roomId: deepLink.roomId,
+    });
+    logWorkTalkDeepLink("target room found", {
+      found: Boolean(targetRoom),
+      roomId: deepLink.roomId,
+      title: targetRoom ? getRoomTitle(targetRoom, currentProfile.id) : null,
+    });
+
+    if (!targetRoom) {
+      logWorkTalkDeepLink("fallback reason", {
+        reason: rooms.length === 0 ? "waiting rooms" : "target room not in rooms",
+        roomId: deepLink.roomId,
+        roomsCount: rooms.length,
+      });
+      return;
+    }
 
     deepLinkHandledRef.current = true;
 
     const timeoutId = window.setTimeout(() => {
+      setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
+      logWorkTalkDeepLink("selectRoom called", {
+        roomId: deepLink.roomId,
+        messageId: deepLink.messageId ?? null,
+      });
       selectRoom(
-        roomId,
-        Number.isSafeInteger(messageId) && messageId > 0 ? messageId : undefined
+        deepLink.roomId,
+        deepLink.messageId
       );
       window.history.replaceState({}, "", "/worktalk");
-      if (!(Number.isSafeInteger(messageId) && messageId > 0)) {
+      if (!deepLink.messageId) {
         scheduleBottomScroll("auto", { extraSettle: true });
       }
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentProfile, rooms, scheduleBottomScroll, selectRoom, setupState]);
+  }, [
+    currentProfile,
+    pendingDeepLinkRoomId,
+    rooms,
+    scheduleBottomScroll,
+    selectRoom,
+    setupState,
+  ]);
+
+  useEffect(() => {
+    logWorkTalkDeepLink("selectedRoom id", {
+      selectedRoomId,
+      pendingDeepLinkRoomId,
+    });
+  }, [pendingDeepLinkRoomId, selectedRoomId]);
 
   useEffect(() => {
     if (searchMode === "room") return;
@@ -2136,6 +2249,12 @@ export function WorkTalkApp() {
               <p>조직 목록에서 직원을 선택하면 상세 정보를 확인할 수 있습니다.</p>
             </div>
           )
+        ) : activeSection === "chat" && pendingDeepLinkRoomId ? (
+          <div className={styles.welcomePane}>
+            <WorkTalkIcon name="chat" />
+            <strong>대화방을 여는 중입니다</strong>
+            <p>푸시 알림으로 요청한 대화방을 불러오고 있습니다.</p>
+          </div>
         ) : selectedRoom ? (
           <>
             <header className={styles.conversationHeader}>
