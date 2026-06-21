@@ -56,6 +56,7 @@ self.addEventListener("push", (event) => {
     badge: "/nexus-icon-192.png",
     tag: payload.tag || `worktalk-${Date.now()}`,
     renotify: true,
+    vibrate: [180, 80, 180],
     data: {
       targetUrl,
       url: targetUrl,

@@ -49,6 +49,10 @@ type RoomReadGuardDecision = {
 type RoomReadGuard = (
   context: RoomReadGuardContext
 ) => RoomReadGuardDecision;
+type LoadRoomsOptions = {
+  background?: boolean;
+  reason?: string;
+};
 
 const defaultRoomReadGuard: RoomReadGuard = () => ({
   allowed: false,
@@ -61,6 +65,19 @@ function isMissingWorkTalkTable(message?: string) {
       (message.includes("worktalk_rooms") ||
         message.includes("worktalk_room_members") ||
         message.includes("schema cache"))
+  );
+}
+
+function isTransientFetchError(message?: string) {
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("load failed") ||
+    normalized.includes("timeout") ||
+    normalized.includes("timed out")
   );
 }
 
@@ -122,19 +139,34 @@ function sortRoomMembersByName(members: WorkTalkRoomMember[]) {
 }
 
 async function requestPushDelivery(roomId: number) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) return;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
 
-  await fetch("/api/worktalk/push", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ roomId }),
-  });
+    const response = await fetch("/api/worktalk/push", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ roomId }),
+    });
+
+    if (!response.ok) {
+      console.warn("[WorkTalk stability] Push delivery failed", {
+        roomId,
+        status: response.status,
+      });
+    }
+  } catch (error) {
+    console.warn("[WorkTalk stability] Fetch Failed", {
+      scope: "push_delivery",
+      roomId,
+      error: formatWorkTalkError(error),
+    });
+  }
 }
 
 export function useWorkTalk() {
@@ -154,6 +186,7 @@ export function useWorkTalk() {
   const [notificationsReady, setNotificationsReady] = useState(false);
   const [latestNotification, setLatestNotification] =
     useState<WorkTalkNotification | null>(null);
+  const setupStateRef = useRef<WorkTalkSetupState>("loading");
   const selectedRoomIdRef = useRef<number | null>(null);
   const messageRequestIdRef = useRef(0);
   const roomRequestIdRef = useRef(0);
@@ -169,6 +202,10 @@ export function useWorkTalk() {
     () => rooms.find((room) => room.id === selectedRoomId) || null,
     [rooms, selectedRoomId]
   );
+
+  useEffect(() => {
+    setupStateRef.current = setupState;
+  }, [setupState]);
 
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
@@ -257,7 +294,10 @@ export function useWorkTalk() {
     setLatestNotification(newRows[0] || null);
   }, []);
 
-  const loadRooms = useCallback(async (preferredRoomId?: number | null) => {
+  const loadRooms = useCallback(async (
+    preferredRoomId?: number | null,
+    options: LoadRoomsOptions = {}
+  ) => {
     const requestId = ++roomRequestIdRef.current;
     setLoadingRooms(true);
 
@@ -497,6 +537,17 @@ export function useWorkTalk() {
     } catch (error) {
       if (requestId !== roomRequestIdRef.current) return;
       const message = formatWorkTalkError(error);
+      const transient = isTransientFetchError(message);
+      if (transient && (options.background || setupStateRef.current === "ready")) {
+        console.warn("[WorkTalk stability] Fetch Failed", {
+          scope: "loadRooms",
+          reason: options.reason || "unknown",
+          preferredRoomId: preferredRoomId || null,
+          selectedRoomId: selectedRoomIdRef.current,
+          message,
+        });
+        return;
+      }
       if (isMissingWorkTalkTable(message)) {
         setSetupState("migration-required");
       } else {
@@ -721,6 +772,13 @@ export function useWorkTalk() {
         return;
       }
       setMessages(nextMessages);
+      console.info("[WorkTalk performance] UI Updated", {
+        scope: "messages",
+        roomId,
+        requestId,
+        messageCount: nextMessages.length,
+        lastMessageId: nextMessages.at(-1)?.id || null,
+      });
       console.log("[WorkTalk realtime debug] loadMessages:applied", {
         roomId,
         requestId,
@@ -737,7 +795,18 @@ export function useWorkTalk() {
         requestId,
         error,
       });
-      setErrorMessage(formatWorkTalkError(error));
+      const message = formatWorkTalkError(error);
+      if (isTransientFetchError(message)) {
+        console.warn("[WorkTalk stability] Fetch Failed", {
+          scope: "loadMessages",
+          roomId,
+          requestId,
+          selectedRoomId: selectedRoomIdRef.current,
+          message,
+        });
+      } else {
+        setErrorMessage(message);
+      }
     } finally {
       if (requestId === messageRequestIdRef.current) {
         setLoadingMessages(false);
@@ -800,10 +869,16 @@ export function useWorkTalk() {
       roomRefreshTimerRef.current = window.setTimeout(() => {
         roomRefreshTimerRef.current = null;
         if (blockRoomSelectionRestoreRef.current) {
-          void loadRooms(null);
+          void loadRooms(null, {
+            background: true,
+            reason: "scheduled_room_refresh_blocked",
+          });
           return;
         }
-        void loadRooms(preferredRoomId ?? selectedRoomIdRef.current);
+        void loadRooms(preferredRoomId ?? selectedRoomIdRef.current, {
+          background: true,
+          reason: "scheduled_room_refresh",
+        });
       }, 800);
     },
     [loadRooms]
@@ -977,26 +1052,47 @@ export function useWorkTalk() {
       const targetRoomId = selectedRoomIdRef.current;
       if (!targetRoomId || !body.trim() || sending) return false;
 
-      setSending(true);
-      const { error } = await supabase.rpc("worktalk_send_message", {
-        target_room_id: targetRoomId,
-        message_body: body.trim(),
+      const startedAt = performance.now();
+      console.info("[WorkTalk performance] Message Send Start", {
+        roomId: targetRoomId,
+        bodyLength: body.trim().length,
       });
-      setSending(false);
+      setSending(true);
+      try {
+        const { error } = await supabase.rpc("worktalk_send_message", {
+          target_room_id: targetRoomId,
+          message_body: body.trim(),
+        });
 
-      if (error) {
-        setErrorMessage(error.message);
+        if (error) {
+          setErrorMessage(error.message);
+          return false;
+        }
+
+        console.info("[WorkTalk performance] Message Insert Success", {
+          roomId: targetRoomId,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+        void requestPushDelivery(targetRoomId);
+        if (selectedRoomIdRef.current === targetRoomId) {
+          scheduleMessageRefresh(targetRoomId, 40);
+        }
+        scheduleRoomRefresh(selectedRoomIdRef.current ?? targetRoomId);
+        return true;
+      } catch (error) {
+        const message = formatWorkTalkError(error);
+        console.warn("[WorkTalk stability] Fetch Failed", {
+          scope: "sendMessage",
+          roomId: targetRoomId,
+          message,
+        });
+        setErrorMessage(message);
         return false;
+      } finally {
+        setSending(false);
       }
-
-      void requestPushDelivery(targetRoomId);
-      if (selectedRoomIdRef.current === targetRoomId) {
-        await loadMessages(targetRoomId);
-      }
-      await loadRooms(selectedRoomIdRef.current);
-      return true;
     },
-    [loadMessages, loadRooms, sending]
+    [scheduleMessageRefresh, scheduleRoomRefresh, sending]
   );
 
   const sendReplyMessage = useCallback(
@@ -1559,7 +1655,7 @@ export function useWorkTalk() {
 
   useEffect(() => {
     if (!currentProfile || profiles.length === 0) return;
-    void loadRooms();
+    void loadRooms(null, { reason: "initial_load" });
     void loadNotifications();
   }, [currentProfile, loadNotifications, loadRooms, profiles.length]);
 
@@ -1863,6 +1959,13 @@ export function useWorkTalk() {
               senderId: message.sender_id,
               matchesActiveRoom: message.room_id === activeRoomId,
             });
+            console.info("[WorkTalk performance] Realtime Event Received", {
+              scope: "message",
+              messageId: message.id,
+              roomId: message.room_id,
+              activeRoomId,
+              matchesActiveRoom: message.room_id === activeRoomId,
+            });
 
             if (message.room_id === activeRoomId) {
               scheduleMessageRefresh(message.room_id, 80);
@@ -1889,6 +1992,14 @@ export function useWorkTalk() {
           (payload) => {
             const roomId = Number((payload.new as { room_id?: number }).room_id);
             console.log("[WorkTalk realtime debug] files:INSERT", {
+              fileId: (payload.new as { id?: number }).id,
+              roomId,
+              messageId: (payload.new as { message_id?: number }).message_id,
+              activeRoomId: selectedRoomIdRef.current,
+              matchesActiveRoom: roomId === selectedRoomIdRef.current,
+            });
+            console.info("[WorkTalk performance] Realtime Event Received", {
+              scope: "file",
               fileId: (payload.new as { id?: number }).id,
               roomId,
               messageId: (payload.new as { message_id?: number }).message_id,
@@ -1923,6 +2034,12 @@ export function useWorkTalk() {
               type: notification.notification_type,
               activeRoomId: selectedRoomIdRef.current,
               matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
+            });
+            console.info("[WorkTalk lifecycle] Push Received", {
+              notificationId: notification.id,
+              roomId: notification.room_id,
+              messageId: notification.message_id,
+              type: notification.notification_type,
             });
             setNotifications((current) =>
               current.some((item) => item.id === notification.id)
@@ -2056,21 +2173,38 @@ export function useWorkTalk() {
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;
 
-    const refresh = () => {
+    const refresh = (reason = "foreground_refresh") => {
       if (document.visibilityState === "visible") {
-        void loadRooms(selectedRoomIdRef.current);
+        console.info("[WorkTalk lifecycle] App Visible", {
+          reason,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+        void loadRooms(selectedRoomIdRef.current, {
+          background: true,
+          reason,
+        });
       }
     };
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") {
+        refresh("visibilitychange_visible");
+      } else {
+        console.info("[WorkTalk lifecycle] App Hidden", {
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+      }
     };
-    const intervalId = window.setInterval(refresh, 30000);
-    window.addEventListener("focus", refresh);
+    const intervalId = window.setInterval(
+      () => refresh("periodic_visible_refresh"),
+      30000
+    );
+    const handleFocus = () => refresh("window_focus");
+    window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [currentProfile, loadRooms, setupState]);

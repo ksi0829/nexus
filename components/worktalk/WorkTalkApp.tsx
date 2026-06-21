@@ -408,7 +408,44 @@ function formatDebugRect(rect: DOMRect | null) {
 export function WorkTalkApp() {
   const router = useRouter();
   useEffect(() => {
+    console.info("[WorkTalk lifecycle] App Mounted");
     restoreDocumentWindowPlacement();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const viewport = window.visualViewport;
+    const root = document.documentElement;
+
+    const updateViewportMetrics = () => {
+      const viewportHeight = viewport?.height || window.innerHeight;
+      const viewportOffsetTop = viewport?.offsetTop || 0;
+      const keyboardInset = Math.max(
+        0,
+        window.innerHeight - viewportHeight - viewportOffsetTop
+      );
+      root.style.setProperty(
+        "--worktalk-visual-viewport-height",
+        `${Math.round(viewportHeight)}px`
+      );
+      root.style.setProperty(
+        "--worktalk-keyboard-inset",
+        `${Math.round(keyboardInset)}px`
+      );
+    };
+
+    updateViewportMetrics();
+    viewport?.addEventListener("resize", updateViewportMetrics);
+    viewport?.addEventListener("scroll", updateViewportMetrics);
+    window.addEventListener("resize", updateViewportMetrics);
+
+    return () => {
+      viewport?.removeEventListener("resize", updateViewportMetrics);
+      viewport?.removeEventListener("scroll", updateViewportMetrics);
+      window.removeEventListener("resize", updateViewportMetrics);
+      root.style.removeProperty("--worktalk-visual-viewport-height");
+      root.style.removeProperty("--worktalk-keyboard-inset");
+    };
   }, []);
 
   const {
@@ -589,6 +626,7 @@ export function WorkTalkApp() {
   );
   const isMobileListViewRef = useRef(false);
   const readAllowedRef = useRef(false);
+  const lastVibratedNotificationIdRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollTimersRef = useRef<number[]>([]);
   const {
@@ -1661,29 +1699,44 @@ export function WorkTalkApp() {
     if (!currentProfile) return;
 
     const syncPresence = async () => {
-      const visible =
-        document.visibilityState === "visible" && document.hasFocus();
-      await workTalkSupabase.from("chat_presence").upsert(
-        {
-          user_id: currentProfile.id,
-          visible,
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
+      try {
+        const visible =
+          document.visibilityState === "visible" && document.hasFocus();
+        const { error } = await workTalkSupabase.from("chat_presence").upsert(
+          {
+            user_id: currentProfile.id,
+            visible,
+            last_seen_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+        if (error) throw error;
+      } catch (error) {
+        console.warn("[WorkTalk stability] Fetch Failed", {
+          scope: "presence_sync",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     };
     const loadPresence = async () => {
-      const { data, error } = await workTalkSupabase
-        .from("chat_presence")
-        .select("user_id,visible,last_seen_at");
-      if (error) return;
-      setOnlineUserIds(
-        new Set(
-          ((data || []) as PresenceRow[])
-            .filter(isOnlinePresence)
-            .map((presence) => presence.user_id)
-        )
-      );
+      try {
+        const { data, error } = await workTalkSupabase
+          .from("chat_presence")
+          .select("user_id,visible,last_seen_at");
+        if (error) throw error;
+        setOnlineUserIds(
+          new Set(
+            ((data || []) as PresenceRow[])
+              .filter(isOnlinePresence)
+              .map((presence) => presence.user_id)
+          )
+        );
+      } catch (error) {
+        console.warn("[WorkTalk stability] Fetch Failed", {
+          scope: "presence_load",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     };
 
     void syncPresence();
@@ -1693,6 +1746,15 @@ export function WorkTalkApp() {
       if (document.visibilityState === "visible") void loadPresence();
     }, 60_000);
     const handleVisibility = () => {
+      console.info(
+        `[WorkTalk lifecycle] ${
+          document.visibilityState === "visible" ? "App Visible" : "App Hidden"
+        }`,
+        {
+          activeSection,
+          selectedRoomId,
+        }
+      );
       void syncPresence();
       void loadPresence();
       if (
@@ -1756,6 +1818,18 @@ export function WorkTalkApp() {
         !document.hasFocus() ||
         activeSection !== "chat" ||
         selectedRoomId !== latestNotification.room_id);
+
+    if (lastVibratedNotificationIdRef.current !== latestNotification.id) {
+      const vibrate = (
+        navigator as Navigator & {
+          vibrate?: (pattern: number | number[]) => boolean;
+        }
+      ).vibrate;
+      if (typeof vibrate === "function") {
+        lastVibratedNotificationIdRef.current = latestNotification.id;
+        vibrate.call(navigator, [140, 60, 140]);
+      }
+    }
 
     if (shouldShowBrowserNotification) {
       try {
