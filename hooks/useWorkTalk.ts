@@ -53,6 +53,25 @@ type LoadRoomsOptions = {
   background?: boolean;
   reason?: string;
 };
+type WorkTalkRealtimeDebugStatus = {
+  lastEvent: string;
+  payloadRoomId: number | null;
+  payloadMessageId: number | null;
+  activeRoomId: number | null;
+  selectedRoomId: number | null;
+  chatRoomId: number | null;
+  payloadMatchesCurrentRoom: boolean | null;
+  payloadMatchesSelectedRoom: boolean | null;
+  payloadMatchesChatRoom: boolean | null;
+  roomPreviewUpdated: boolean | null;
+  currentMessagesRefreshAttempted: boolean | null;
+  currentMessagesAppendAttempted: boolean | null;
+  currentMessagesAppendSkippedReason: string;
+  messagesFetchRoomId: number | null;
+  messagesFetchCount: number | null;
+  messagesFetchStatus: string;
+  timestamp: string;
+};
 
 const defaultRoomReadGuard: RoomReadGuard = () => ({
   allowed: false,
@@ -186,6 +205,26 @@ export function useWorkTalk() {
   const [notificationsReady, setNotificationsReady] = useState(false);
   const [latestNotification, setLatestNotification] =
     useState<WorkTalkNotification | null>(null);
+  const [realtimeDebugStatus, setRealtimeDebugStatus] =
+    useState<WorkTalkRealtimeDebugStatus>({
+      lastEvent: "waiting",
+      payloadRoomId: null,
+      payloadMessageId: null,
+      activeRoomId: null,
+      selectedRoomId: null,
+      chatRoomId: null,
+      payloadMatchesCurrentRoom: null,
+      payloadMatchesSelectedRoom: null,
+      payloadMatchesChatRoom: null,
+      roomPreviewUpdated: null,
+      currentMessagesRefreshAttempted: null,
+      currentMessagesAppendAttempted: null,
+      currentMessagesAppendSkippedReason: "waiting",
+      messagesFetchRoomId: null,
+      messagesFetchCount: null,
+      messagesFetchStatus: "waiting",
+      timestamp: "",
+    });
   const setupStateRef = useRef<WorkTalkSetupState>("loading");
   const selectedRoomIdRef = useRef<number | null>(null);
   const messageRequestIdRef = useRef(0);
@@ -659,6 +698,16 @@ export function useWorkTalk() {
       requestId,
       selectedRoomId: selectedRoomIdRef.current,
     });
+    setRealtimeDebugStatus((current) => ({
+      ...current,
+      lastEvent: "loadMessages:start",
+      activeRoomId: selectedRoomIdRef.current,
+      selectedRoomId: selectedRoomIdRef.current,
+      chatRoomId: selectedRoomIdRef.current,
+      messagesFetchRoomId: roomId,
+      messagesFetchStatus: "loading",
+      timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+    }));
     setLoadingMessages(true);
 
     try {
@@ -769,6 +818,21 @@ export function useWorkTalk() {
           selectedRoomId: selectedRoomIdRef.current,
           messageCount: nextMessages.length,
         });
+        setRealtimeDebugStatus((current) => ({
+          ...current,
+          lastEvent: "loadMessages:ignored",
+          activeRoomId: selectedRoomIdRef.current,
+          selectedRoomId: selectedRoomIdRef.current,
+          chatRoomId: selectedRoomIdRef.current,
+          messagesFetchRoomId: roomId,
+          messagesFetchCount: nextMessages.length,
+          messagesFetchStatus: "ignored_stale_or_room_changed",
+          currentMessagesAppendSkippedReason:
+            selectedRoomIdRef.current !== roomId
+              ? "selected_room_changed_before_apply"
+              : "stale_message_request",
+          timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+        }));
         return;
       }
       setMessages(nextMessages);
@@ -786,6 +850,18 @@ export function useWorkTalk() {
         lastMessageId: nextMessages.at(-1)?.id || null,
         fileCount: files.length,
       });
+      setRealtimeDebugStatus((current) => ({
+        ...current,
+        lastEvent: "loadMessages:applied",
+        activeRoomId: selectedRoomIdRef.current,
+        selectedRoomId: selectedRoomIdRef.current,
+        chatRoomId: selectedRoomIdRef.current,
+        messagesFetchRoomId: roomId,
+        messagesFetchCount: nextMessages.length,
+        messagesFetchStatus: "applied",
+        currentMessagesAppendSkippedReason: "none",
+        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+      }));
       setFocusedMessageId(focusMessageId || null);
       pendingFocusMessageIdRef.current = null;
     } catch (error) {
@@ -795,6 +871,17 @@ export function useWorkTalk() {
         requestId,
         error,
       });
+      setRealtimeDebugStatus((current) => ({
+        ...current,
+        lastEvent: "loadMessages:error",
+        activeRoomId: selectedRoomIdRef.current,
+        selectedRoomId: selectedRoomIdRef.current,
+        chatRoomId: selectedRoomIdRef.current,
+        messagesFetchRoomId: roomId,
+        messagesFetchStatus: "error",
+        currentMessagesAppendSkippedReason: formatWorkTalkError(error),
+        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+      }));
       const message = formatWorkTalkError(error);
       if (isTransientFetchError(message)) {
         console.warn("[WorkTalk stability] Fetch Failed", {
@@ -897,12 +984,26 @@ export function useWorkTalk() {
 
       messageRefreshTimerRef.current = window.setTimeout(() => {
         messageRefreshTimerRef.current = null;
+        const willLoad = selectedRoomIdRef.current === roomId;
         console.log("[WorkTalk realtime debug] scheduleMessageRefresh:fire", {
           roomId,
           selectedRoomId: selectedRoomIdRef.current,
-          willLoad: selectedRoomIdRef.current === roomId,
+          willLoad,
         });
-        if (selectedRoomIdRef.current === roomId) {
+        setRealtimeDebugStatus((current) => ({
+          ...current,
+          lastEvent: "scheduleMessageRefresh:fire",
+          activeRoomId: selectedRoomIdRef.current,
+          selectedRoomId: selectedRoomIdRef.current,
+          chatRoomId: selectedRoomIdRef.current,
+          currentMessagesRefreshAttempted: willLoad,
+          currentMessagesAppendAttempted: false,
+          currentMessagesAppendSkippedReason: willLoad
+            ? "refetch_current_room"
+            : "selected_room_mismatch_on_refresh_fire",
+          timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+        }));
+        if (willLoad) {
           void loadMessages(roomId);
         }
       }, delay);
@@ -1966,6 +2067,26 @@ export function useWorkTalk() {
               activeRoomId,
               matchesActiveRoom: message.room_id === activeRoomId,
             });
+            setRealtimeDebugStatus((current) => ({
+              ...current,
+              lastEvent: "messages:INSERT",
+              payloadRoomId: message.room_id,
+              payloadMessageId: message.id,
+              activeRoomId,
+              selectedRoomId: activeRoomId,
+              chatRoomId: activeRoomId,
+              payloadMatchesCurrentRoom: message.room_id === activeRoomId,
+              payloadMatchesSelectedRoom: message.room_id === activeRoomId,
+              payloadMatchesChatRoom: message.room_id === activeRoomId,
+              roomPreviewUpdated: true,
+              currentMessagesRefreshAttempted: message.room_id === activeRoomId,
+              currentMessagesAppendAttempted: false,
+              currentMessagesAppendSkippedReason:
+                message.room_id === activeRoomId
+                  ? "refetch_scheduled_for_current_room"
+                  : "payload_room_mismatch_or_no_active_room",
+              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+            }));
 
             if (message.room_id === activeRoomId) {
               scheduleMessageRefresh(message.room_id, 80);
@@ -2006,6 +2127,27 @@ export function useWorkTalk() {
               activeRoomId: selectedRoomIdRef.current,
               matchesActiveRoom: roomId === selectedRoomIdRef.current,
             });
+            setRealtimeDebugStatus((current) => ({
+              ...current,
+              lastEvent: "files:INSERT",
+              payloadRoomId: roomId || null,
+              payloadMessageId:
+                (payload.new as { message_id?: number }).message_id ?? null,
+              activeRoomId: selectedRoomIdRef.current,
+              selectedRoomId: selectedRoomIdRef.current,
+              chatRoomId: selectedRoomIdRef.current,
+              payloadMatchesCurrentRoom: roomId === selectedRoomIdRef.current,
+              payloadMatchesSelectedRoom: roomId === selectedRoomIdRef.current,
+              payloadMatchesChatRoom: roomId === selectedRoomIdRef.current,
+              roomPreviewUpdated: null,
+              currentMessagesRefreshAttempted: roomId === selectedRoomIdRef.current,
+              currentMessagesAppendAttempted: false,
+              currentMessagesAppendSkippedReason:
+                roomId === selectedRoomIdRef.current
+                  ? "refetch_scheduled_for_current_file"
+                  : "file_room_mismatch_or_no_active_room",
+              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+            }));
             if (roomId && roomId === selectedRoomIdRef.current) {
               scheduleMessageRefresh(roomId, 120);
             }
@@ -2041,6 +2183,30 @@ export function useWorkTalk() {
               messageId: notification.message_id,
               type: notification.notification_type,
             });
+            setRealtimeDebugStatus((current) => ({
+              ...current,
+              lastEvent: "notifications:INSERT",
+              payloadRoomId: notification.room_id,
+              payloadMessageId: notification.message_id,
+              activeRoomId: selectedRoomIdRef.current,
+              selectedRoomId: selectedRoomIdRef.current,
+              chatRoomId: selectedRoomIdRef.current,
+              payloadMatchesCurrentRoom:
+                notification.room_id === selectedRoomIdRef.current,
+              payloadMatchesSelectedRoom:
+                notification.room_id === selectedRoomIdRef.current,
+              payloadMatchesChatRoom:
+                notification.room_id === selectedRoomIdRef.current,
+              roomPreviewUpdated: true,
+              currentMessagesRefreshAttempted:
+                notification.room_id === selectedRoomIdRef.current,
+              currentMessagesAppendAttempted: false,
+              currentMessagesAppendSkippedReason:
+                notification.room_id === selectedRoomIdRef.current
+                  ? "refetch_scheduled_for_current_notification"
+                  : "notification_room_mismatch_or_no_active_room",
+              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+            }));
             setNotifications((current) =>
               current.some((item) => item.id === notification.id)
                 ? current
@@ -2227,6 +2393,7 @@ export function useWorkTalk() {
     notifications,
     notificationsReady,
     latestNotification,
+    realtimeDebugStatus,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,

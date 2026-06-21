@@ -466,6 +466,7 @@ export function WorkTalkApp() {
     notifications,
     notificationsReady,
     latestNotification,
+    realtimeDebugStatus,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,
@@ -1818,6 +1819,15 @@ export function WorkTalkApp() {
         !document.hasFocus() ||
         activeSection !== "chat" ||
         selectedRoomId !== latestNotification.room_id);
+    const notificationTargetsCurrentRoom =
+      activeSection === "chat" &&
+      selectedRoomId === latestNotification.room_id &&
+      Boolean(selectedRoom);
+
+    if (notificationTargetsCurrentRoom && latestNotification.message_id) {
+      selectRoom(latestNotification.room_id, latestNotification.message_id);
+      scheduleBottomScroll("auto", { extraSettle: true });
+    }
 
     if (lastVibratedNotificationIdRef.current !== latestNotification.id) {
       const vibrate = (
@@ -1859,7 +1869,10 @@ export function WorkTalkApp() {
     isNexusDesktopApp,
     latestNotification,
     openNotification,
+    scheduleBottomScroll,
     selectedRoomId,
+    selectedRoom,
+    selectRoom,
   ]);
 
   function openRoom(roomId: number, focusMessageId?: number | null) {
@@ -2304,7 +2317,11 @@ export function WorkTalkApp() {
   }
 
   return (
-    <main className={`${styles.app} ${popupMode ? styles.popupApp : ""}`}>
+    <main
+      className={`${styles.app} ${popupMode ? styles.popupApp : ""} ${
+        mobileConversationOpen ? styles.mobileConversationActive : ""
+      }`}
+    >
       <aside className={styles.serviceRail}>
         <button
           type="button"
@@ -4096,6 +4113,72 @@ export function WorkTalkApp() {
             <div>
               deepLinkOpenBlockedReason:{" "}
               {deepLinkDebugStatus.deepLinkOpenBlockedReason}
+            </div>
+          </div>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
+              REALTIME MESSAGE DEBUG
+            </strong>
+            <div>timestamp: {realtimeDebugStatus.timestamp || "waiting"}</div>
+            <div>lastEvent: {realtimeDebugStatus.lastEvent}</div>
+            <div>
+              payload.room_id: {realtimeDebugStatus.payloadRoomId ?? "null"}
+            </div>
+            <div>
+              payload.message_id:{" "}
+              {realtimeDebugStatus.payloadMessageId ?? "null"}
+            </div>
+            <div>
+              selectedRoomId: {realtimeDebugStatus.selectedRoomId ?? "null"}
+            </div>
+            <div>
+              currentRoomId: {deepLinkDebugStatus.currentRoomId ?? "null"}
+            </div>
+            <div>chatRoomId: {realtimeDebugStatus.chatRoomId ?? "null"}</div>
+            <div>
+              payload.room_id === currentRoomId:{" "}
+              {String(realtimeDebugStatus.payloadMatchesCurrentRoom)}
+            </div>
+            <div>
+              payload.room_id === selectedRoomId:{" "}
+              {String(realtimeDebugStatus.payloadMatchesSelectedRoom)}
+            </div>
+            <div>
+              payload.room_id === chatRoomId:{" "}
+              {String(realtimeDebugStatus.payloadMatchesChatRoom)}
+            </div>
+            <div>
+              room preview updated:{" "}
+              {String(realtimeDebugStatus.roomPreviewUpdated)}
+            </div>
+            <div>
+              current messages refresh attempted:{" "}
+              {String(realtimeDebugStatus.currentMessagesRefreshAttempted)}
+            </div>
+            <div>
+              current messages append attempted:{" "}
+              {String(realtimeDebugStatus.currentMessagesAppendAttempted)}
+            </div>
+            <div>
+              current messages append skipped reason:{" "}
+              {realtimeDebugStatus.currentMessagesAppendSkippedReason}
+            </div>
+            <div>
+              messages fetch room:{" "}
+              {realtimeDebugStatus.messagesFetchRoomId ?? "null"}
+            </div>
+            <div>
+              messages fetch status: {realtimeDebugStatus.messagesFetchStatus}
+            </div>
+            <div>
+              messages fetch count:{" "}
+              {realtimeDebugStatus.messagesFetchCount ?? "null"}
             </div>
           </div>
           {readReceiptDebugEvents.length === 0 ? (

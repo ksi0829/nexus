@@ -2886,9 +2886,17 @@
     min-height: var(--worktalk-visual-viewport-height, 100svh);
   }
 
+  .app.mobileConversationActive:not(.popupApp) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .serviceRail {
     display: flex;
     padding-inline: 8px;
+  }
+
+  .app.mobileConversationActive:not(.popupApp) .serviceRail {
+    display: none;
   }
 
   .roomPane,
