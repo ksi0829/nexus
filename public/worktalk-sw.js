@@ -51,6 +51,24 @@ function buildWorkTalkTarget(data = {}) {
   return { targetUrl, roomId, messageId };
 }
 
+function appendPushDebugToTargetUrl(targetUrl, debug = {}, roomId = null) {
+  try {
+    const url = new URL(targetUrl, self.location.origin);
+    if (debug.event) url.searchParams.set("swPushDebug", debug.event);
+    if (debug.vibrationRequested === true) {
+      url.searchParams.set("swVibration", "triggered");
+    } else if (debug.vibrationRequested === false) {
+      url.searchParams.set("swVibration", "skipped");
+    }
+    if (debug.reason) url.searchParams.set("swReason", debug.reason);
+    if (debug.timestamp) url.searchParams.set("swTimestamp", debug.timestamp);
+    if (roomId) url.searchParams.set("swRoom", roomId);
+    return url.href;
+  } catch {
+    return targetUrl;
+  }
+}
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
@@ -71,7 +89,7 @@ self.addEventListener("push", (event) => {
     };
   }
 
-  const { targetUrl, roomId, messageId } = buildWorkTalkTarget(payload);
+  let { targetUrl, roomId, messageId } = buildWorkTalkTarget(payload);
   const title = payload.title || "NEXUS";
   const receivedAt = new Date().toISOString();
   const swDebug = {
@@ -134,6 +152,13 @@ self.addEventListener("push", (event) => {
           vibrationRequested: true,
           timestamp: new Date().toISOString(),
         };
+        targetUrl = appendPushDebugToTargetUrl(
+          targetUrl,
+          options.data.swDebug,
+          roomId
+        );
+        options.data.targetUrl = targetUrl;
+        options.data.url = targetUrl;
         return self.registration
           .showNotification(title, options)
           .then(() =>

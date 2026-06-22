@@ -68,6 +68,17 @@ type WorkTalkUxDebugEvent = {
   viewport?: string;
   visualViewport?: string;
   orientation?: "portrait" | "landscape" | "unknown";
+  portraitLockActive?: boolean | null;
+  rootLandscapeLock?: string | null;
+  appClassName?: string | null;
+  appTransform?: string | null;
+  appWidth?: string | null;
+  appHeight?: string | null;
+  appRect?: string | null;
+  appPosition?: string | null;
+  appTop?: string | null;
+  appLeft?: string | null;
+  appDisplay?: string | null;
   timestamp: string;
 };
 type DeepLinkDebugStatus = {
@@ -424,6 +435,7 @@ function formatDebugRect(rect: DOMRect | null) {
 
 export function WorkTalkApp() {
   const router = useRouter();
+  const appRootRef = useRef<HTMLElement>(null);
   const [isTouchLandscapeLocked, setIsTouchLandscapeLocked] = useState(false);
   useEffect(() => {
     console.info("[WorkTalk lifecycle] App Mounted");
@@ -440,11 +452,9 @@ export function WorkTalkApp() {
       const viewportOffsetTop = viewport?.offsetTop || 0;
       const viewportWidth = viewport?.width || window.innerWidth;
       const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-      const hasNoHover = window.matchMedia("(hover: none)").matches;
       const isLandscape = window.matchMedia("(orientation: landscape)").matches;
       const shouldLockPortrait =
         isTouchDevice &&
-        hasNoHover &&
         isLandscape &&
         window.innerWidth > window.innerHeight;
       const keyboardInset = Math.max(
@@ -897,6 +907,8 @@ export function WorkTalkApp() {
 
     const recordViewport = () => {
       const visualViewport = window.visualViewport;
+      const appElement = appRootRef.current;
+      const appStyle = appElement ? window.getComputedStyle(appElement) : null;
       appendUxDebugEvent({
         scope: "orientation",
         event: "viewport",
@@ -912,6 +924,18 @@ export function WorkTalkApp() {
             )}`
           : "null",
         documentVisibility: document.visibilityState,
+        portraitLockActive: isTouchLandscapeLocked,
+        rootLandscapeLock:
+          document.documentElement.dataset.worktalkLandscapeLock || "false",
+        appClassName: appElement?.className || "null",
+        appTransform: appStyle?.transform || "null",
+        appWidth: appStyle?.width || "null",
+        appHeight: appStyle?.height || "null",
+        appPosition: appStyle?.position || "null",
+        appTop: appStyle?.top || "null",
+        appLeft: appStyle?.left || "null",
+        appDisplay: appStyle?.display || "null",
+        appRect: appElement ? formatDebugRect(appElement.getBoundingClientRect()) : "null",
       });
     };
 
@@ -925,7 +949,7 @@ export function WorkTalkApp() {
       window.removeEventListener("orientationchange", recordViewport);
       window.visualViewport?.removeEventListener("resize", recordViewport);
     };
-  }, [appendUxDebugEvent, showReadReceiptDebugPanel]);
+  }, [appendUxDebugEvent, isTouchLandscapeLocked, showReadReceiptDebugPanel]);
 
   useEffect(() => {
     if (confirmedDeepLinkOpenedRef.current) return;
@@ -1462,6 +1486,48 @@ export function WorkTalkApp() {
     },
     [markNotificationRead, scheduleBottomScroll, selectRoom]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const swPushDebug = params.get("swPushDebug");
+    const swVibration = params.get("swVibration");
+    const swReason = params.get("swReason");
+    const swTimestamp = params.get("swTimestamp");
+    const swRoom = parsePositiveInt(params.get("swRoom"));
+
+    if (!swPushDebug && !swVibration) return;
+
+    appendUxDebugEvent({
+      scope: "notification",
+      event: swPushDebug || "service worker notification",
+      reason: swReason || "service worker url debug",
+      roomId: swRoom,
+      activeRoomId: selectedRoomIdUiRef.current,
+      visible: document.visibilityState === "visible",
+      focused: document.hasFocus(),
+      documentVisibility: document.visibilityState,
+      timestamp: swTimestamp || undefined,
+    });
+
+    appendUxDebugEvent({
+      scope: "vibration",
+      event:
+        swVibration === "triggered"
+          ? "vibration triggered"
+          : swVibration === "skipped"
+            ? "vibration skipped"
+            : "vibration unknown",
+      reason: swReason || "service worker url debug",
+      roomId: swRoom,
+      activeRoomId: selectedRoomIdUiRef.current,
+      visible: document.visibilityState === "visible",
+      focused: document.hasFocus(),
+      documentVisibility: document.visibilityState,
+      timestamp: swTimestamp || undefined,
+    });
+  }, [appendUxDebugEvent]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
@@ -2611,6 +2677,7 @@ export function WorkTalkApp() {
 
   return (
     <main
+      ref={appRootRef}
       className={`${styles.app} ${popupMode ? styles.popupApp : ""} ${
         mobileConversationOpen ? styles.mobileConversationActive : ""
       } ${isTouchLandscapeLocked ? styles.portraitLocked : ""
@@ -4532,6 +4599,25 @@ export function WorkTalkApp() {
                   <div>orientation: {event.orientation || "null"}</div>
                   <div>viewport: {event.viewport || "null"}</div>
                   <div>visualViewport: {event.visualViewport || "null"}</div>
+                  <div>
+                    portraitLockActive: {String(event.portraitLockActive)}
+                  </div>
+                  <div>
+                    rootLandscapeLock: {event.rootLandscapeLock || "null"}
+                  </div>
+                  <div>appClassName: {event.appClassName || "null"}</div>
+                  <div>appDisplay: {event.appDisplay || "null"}</div>
+                  <div>appPosition: {event.appPosition || "null"}</div>
+                  <div>
+                    appTop/Left: {event.appTop || "null"} /{" "}
+                    {event.appLeft || "null"}
+                  </div>
+                  <div>
+                    appSize: {event.appWidth || "null"} x{" "}
+                    {event.appHeight || "null"}
+                  </div>
+                  <div>appTransform: {event.appTransform || "null"}</div>
+                  <div>appRect: {event.appRect || "null"}</div>
                   <div>roomId: {event.roomId ?? "null"}</div>
                   <div>activeRoomId: {event.activeRoomId ?? "null"}</div>
                   <div>
