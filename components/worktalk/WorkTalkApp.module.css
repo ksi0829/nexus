@@ -2976,16 +2976,38 @@
 }
 
 @media (pointer: coarse) and (hover: none) and (orientation: landscape) {
+  :global(html),
+  :global(body) {
+    overflow: hidden;
+    background: #07121b;
+  }
+
   .app:not(.popupApp) {
-    width: min(430px, 100vw);
-    height: var(--worktalk-visual-viewport-height, 100svh);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: var(--worktalk-visual-viewport-height, 100svh);
+    height: 100vw;
     min-height: 0;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
+    overflow: hidden;
     box-shadow: 0 0 0 1px rgb(17 24 32 / 8%);
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center;
   }
 
   .app.mobileConversationActive:not(.popupApp) {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app:not(.popupApp) .roomPane,
+  .app:not(.popupApp) .conversationPane {
+    height: 100vw;
+  }
+
+  .app:not(.popupApp) .conversationPane.mobileVisible {
+    height: 100vw;
   }
 
   .popupApp {

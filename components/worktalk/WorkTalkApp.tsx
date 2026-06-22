@@ -3,6 +3,8 @@
 import {
   DragEvent,
   FormEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -52,6 +54,20 @@ type ReadReceiptDebugEvent = {
   timestamp: string;
   source?: string;
   stack?: string;
+};
+type WorkTalkUxDebugEvent = {
+  scope: "orientation" | "input" | "notification" | "vibration";
+  event: string;
+  reason?: string;
+  roomId?: number | null;
+  activeRoomId?: number | null;
+  visible?: boolean | null;
+  focused?: boolean | null;
+  inputFocused?: boolean | null;
+  viewport?: string;
+  visualViewport?: string;
+  orientation?: "portrait" | "landscape" | "unknown";
+  timestamp: string;
 };
 type DeepLinkDebugStatus = {
   pendingDeepLinkRoomId: number | null;
@@ -577,6 +593,9 @@ export function WorkTalkApp() {
   const [readReceiptDebugEvents, setReadReceiptDebugEvents] = useState<
     ReadReceiptDebugEvent[]
   >([]);
+  const [uxDebugEvents, setUxDebugEvents] = useState<WorkTalkUxDebugEvent[]>(
+    []
+  );
   const [deepLinkDebugStatus, setDeepLinkDebugStatus] =
     useState<DeepLinkDebugStatus>({
       pendingDeepLinkRoomId: null,
@@ -695,6 +714,21 @@ export function WorkTalkApp() {
       );
     },
     []
+  );
+  const appendUxDebugEvent = useCallback(
+    (event: Omit<WorkTalkUxDebugEvent, "timestamp"> & { timestamp?: string }) => {
+      if (!showReadReceiptDebugPanel) return;
+      const timestamp =
+        event.timestamp ||
+        new Date().toLocaleTimeString("ko-KR", {
+          hour12: false,
+        });
+
+      setUxDebugEvents((current) =>
+        [{ ...event, timestamp }, ...current].slice(0, 10)
+      );
+    },
+    [showReadReceiptDebugPanel]
   );
   const updateDeepLinkDebugStatus = useCallback(
     (patch: Partial<DeepLinkDebugStatus>) => {
@@ -828,6 +862,40 @@ export function WorkTalkApp() {
     showReadReceiptDebugPanel,
     updateDeepLinkDebugStatus,
   ]);
+
+  useEffect(() => {
+    if (!showReadReceiptDebugPanel) return;
+
+    const recordViewport = () => {
+      const visualViewport = window.visualViewport;
+      appendUxDebugEvent({
+        scope: "orientation",
+        event: "viewport",
+        orientation: window.matchMedia("(orientation: landscape)").matches
+          ? "landscape"
+          : window.matchMedia("(orientation: portrait)").matches
+            ? "portrait"
+            : "unknown",
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        visualViewport: visualViewport
+          ? `${Math.round(visualViewport.width)}x${Math.round(
+              visualViewport.height
+            )}`
+          : "null",
+      });
+    };
+
+    recordViewport();
+    window.addEventListener("resize", recordViewport);
+    window.addEventListener("orientationchange", recordViewport);
+    window.visualViewport?.addEventListener("resize", recordViewport);
+
+    return () => {
+      window.removeEventListener("resize", recordViewport);
+      window.removeEventListener("orientationchange", recordViewport);
+      window.visualViewport?.removeEventListener("resize", recordViewport);
+    };
+  }, [appendUxDebugEvent, showReadReceiptDebugPanel]);
 
   useEffect(() => {
     if (confirmedDeepLinkOpenedRef.current) return;
@@ -1835,9 +1903,27 @@ export function WorkTalkApp() {
         console.info("[WorkTalk notification] notification skipped: active room open", {
           roomId: latestNotification.room_id,
         });
+        appendUxDebugEvent({
+          scope: "notification",
+          event: "notification skipped",
+          reason: "active room open",
+          roomId: latestNotification.room_id,
+          activeRoomId: selectedRoomId,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+        });
         clearLatestNotification();
         return;
       }
+      appendUxDebugEvent({
+        scope: "notification",
+        event: "notification shown",
+        reason: "desktop app notification",
+        roomId: latestNotification.room_id,
+        activeRoomId: selectedRoomId,
+        visible: document.visibilityState === "visible",
+        focused: document.hasFocus(),
+      });
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({
           type: "notification",
@@ -1860,19 +1946,33 @@ export function WorkTalkApp() {
       !activeRoomIsVisible;
 
     if (lastVibratedNotificationIdRef.current !== latestNotification.id) {
-      const vibrate = (
-        navigator as Navigator & {
-          vibrate?: (pattern: number | number[]) => boolean;
-        }
-      ).vibrate;
-      if (typeof vibrate === "function") {
-        lastVibratedNotificationIdRef.current = latestNotification.id;
-        vibrate.call(navigator, [140, 60, 140]);
-      }
+      lastVibratedNotificationIdRef.current = latestNotification.id;
+      appendUxDebugEvent({
+        scope: "vibration",
+        event: "vibration skipped",
+        reason: activeRoomIsVisible
+          ? "active room open"
+          : document.visibilityState === "visible" && document.hasFocus()
+            ? "foreground"
+            : "page notification handled without navigator.vibrate",
+        roomId: latestNotification.room_id,
+        activeRoomId: selectedRoomId,
+        visible: document.visibilityState === "visible",
+        focused: document.hasFocus(),
+      });
     }
 
     if (shouldShowBrowserNotification) {
       try {
+        appendUxDebugEvent({
+          scope: "notification",
+          event: "notification shown",
+          reason: "browser notification",
+          roomId: latestNotification.room_id,
+          activeRoomId: selectedRoomId,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+        });
         const browserNotification = new Notification(latestNotification.title, {
           body:
             latestNotification.body.length > 90
@@ -1889,10 +1989,21 @@ export function WorkTalkApp() {
       } catch {
         // The in-app notification remains available if the browser rejects this alert.
       }
+    } else {
+      appendUxDebugEvent({
+        scope: "notification",
+        event: "notification skipped",
+        reason: activeRoomIsVisible ? "active room open" : "in-app only",
+        roomId: latestNotification.room_id,
+        activeRoomId: selectedRoomId,
+        visible: document.visibilityState === "visible",
+        focused: document.hasFocus(),
+      });
     }
 
     clearLatestNotification();
   }, [
+    appendUxDebugEvent,
     activeSection,
     browserNotificationPermission,
     clearLatestNotification,
@@ -2133,6 +2244,29 @@ export function WorkTalkApp() {
     openRoom(roomId);
   }
 
+  function preserveComposerFocusOnPointer(
+    event:
+      | ReactPointerEvent<HTMLButtonElement>
+      | ReactMouseEvent<HTMLButtonElement>
+  ) {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia("(pointer: coarse)").matches
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    messageInputRef.current?.focus({ preventScroll: true });
+    appendUxDebugEvent({
+      scope: "input",
+      event: "send button pointer focus preserved",
+      inputFocused: document.activeElement === messageInputRef.current,
+      visible: document.visibilityState === "visible",
+      focused: document.hasFocus(),
+    });
+  }
+
   async function submitMessage(event: FormEvent) {
     event.preventDefault();
     if (sending) return;
@@ -2194,10 +2328,16 @@ export function WorkTalkApp() {
       scheduleBottomScroll();
       if (shouldKeepComposerFocused) {
         window.requestAnimationFrame(() => {
-          messageInputRef.current?.focus({ preventScroll: true });
-          window.setTimeout(() => {
+          if (document.activeElement !== messageInputRef.current) {
             messageInputRef.current?.focus({ preventScroll: true });
-          }, 80);
+            appendUxDebugEvent({
+              scope: "input",
+              event: "input focus restored after send",
+              inputFocused: document.activeElement === messageInputRef.current,
+              visible: document.visibilityState === "visible",
+              focused: document.hasFocus(),
+            });
+          }
         });
       }
     }
@@ -3585,6 +3725,24 @@ export function WorkTalkApp() {
                   ref={messageInputRef}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onFocus={() =>
+                    appendUxDebugEvent({
+                      scope: "input",
+                      event: "input focus",
+                      inputFocused: true,
+                      visible: document.visibilityState === "visible",
+                      focused: document.hasFocus(),
+                    })
+                  }
+                  onBlur={() =>
+                    appendUxDebugEvent({
+                      scope: "input",
+                      event: "input blur",
+                      inputFocused: false,
+                      visible: document.visibilityState === "visible",
+                      focused: document.hasFocus(),
+                    })
+                  }
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&
@@ -3600,6 +3758,9 @@ export function WorkTalkApp() {
                 />
                 <button
                   type="submit"
+                  tabIndex={-1}
+                  onPointerDown={preserveComposerFocusOnPointer}
+                  onMouseDown={preserveComposerFocusOnPointer}
                   disabled={
                     (!draft.trim() && pendingFiles.length === 0) || sending
                   }
@@ -4231,6 +4392,50 @@ export function WorkTalkApp() {
               messages fetch count:{" "}
               {realtimeDebugStatus.messagesFetchCount ?? "null"}
             </div>
+          </div>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
+              MOBILE UX DEBUG
+            </strong>
+            {uxDebugEvents.length === 0 ? (
+              <div style={{ color: "rgba(223, 252, 245, 0.68)" }}>
+                waiting for orientation / input / notification / vibration...
+              </div>
+            ) : (
+              uxDebugEvents.map((event, index) => (
+                <div
+                  key={`${event.timestamp}-${event.scope}-${index}`}
+                  style={{
+                    paddingTop: index === 0 ? 0 : 7,
+                    marginTop: index === 0 ? 0 : 7,
+                    borderTop:
+                      index === 0
+                        ? "none"
+                        : "1px solid rgba(223, 252, 245, 0.14)",
+                  }}
+                >
+                  <div>
+                    <b>#{index + 1}</b> {event.timestamp} · {event.scope} ·{" "}
+                    {event.event}
+                  </div>
+                  {event.reason && <div>reason: {event.reason}</div>}
+                  <div>orientation: {event.orientation || "null"}</div>
+                  <div>viewport: {event.viewport || "null"}</div>
+                  <div>visualViewport: {event.visualViewport || "null"}</div>
+                  <div>roomId: {event.roomId ?? "null"}</div>
+                  <div>activeRoomId: {event.activeRoomId ?? "null"}</div>
+                  <div>visible: {String(event.visible)}</div>
+                  <div>focused: {String(event.focused)}</div>
+                  <div>inputFocused: {String(event.inputFocused)}</div>
+                </div>
+              ))
+            )}
           </div>
           {readReceiptDebugEvents.length === 0 ? (
             <div style={{ color: "rgba(223, 252, 245, 0.68)" }}>

@@ -501,10 +501,8 @@ internal class NexusWindow : Form
             webView.Source == null ? string.Empty : webView.Source.AbsoluteUri;
         bool isLoginPage =
             currentUrl.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0;
-        bool isAuthenticated =
-            authenticatedState.HasValue ? authenticatedState.Value : !isLoginPage;
 
-        if (!isAuthenticated || isLoginPage)
+        if (isLoginPage)
         {
             allowClose = true;
             applicationContext.ExitFromLogin();
