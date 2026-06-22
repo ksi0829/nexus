@@ -1876,6 +1876,9 @@ export function WorkTalkApp() {
   ]);
 
   function openRoom(roomId: number, focusMessageId?: number | null) {
+    const normalizedRoomId = Number(roomId);
+    if (!Number.isFinite(normalizedRoomId)) return;
+
     if (!popupMode) {
       const popupWidth = 520;
       const popupHeight = 780;
@@ -1888,14 +1891,19 @@ export function WorkTalkApp() {
         Math.round(window.screenY + (window.outerHeight - popupHeight) / 2)
       );
       const focusParam = focusMessageId ? `&message=${focusMessageId}` : "";
+      const popupName = `nexus-worktalk-room-${normalizedRoomId}`;
       const popup = window.open(
-        `/worktalk?room=${roomId}${focusParam}&popup=1`,
-        "_blank",
+        `/worktalk?room=${normalizedRoomId}${focusParam}&popup=1`,
+        popupName,
         `popup=yes,width=${popupWidth},height=${popupHeight},left=${popupLeft},top=${popupTop},resizable=yes,scrollbars=no`
       );
       if (popup) {
-        popup.resizeTo(popupWidth, popupHeight);
-        popup.moveTo(popupLeft, popupTop);
+        try {
+          popup.resizeTo(popupWidth, popupHeight);
+          popup.moveTo(popupLeft, popupTop);
+        } catch {
+          // Some browsers block moving/resizing reused windows; focusing is enough.
+        }
         popup.focus();
         return;
       }
@@ -1903,14 +1911,14 @@ export function WorkTalkApp() {
 
     userOpenedRoomRef.current = true;
 
-    if (roomId === selectedRoomId) {
+    if (normalizedRoomId === selectedRoomId) {
       if (focusMessageId) {
-        selectRoom(roomId, focusMessageId);
+        selectRoom(normalizedRoomId, focusMessageId);
       }
       setMobileConversationOpen(true);
       return;
     }
-    selectRoom(roomId, focusMessageId || undefined);
+    selectRoom(normalizedRoomId, focusMessageId || undefined);
     setDraft("");
     setReplyTarget(null);
     setMessageMenu(null);

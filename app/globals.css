@@ -67,6 +67,39 @@ button {
   line-height: 1.2;
 }
 
+@media (pointer: coarse) and (hover: none) and (orientation: landscape) {
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    background:
+      radial-gradient(circle at 20% 20%, rgb(47 163 107 / 18%), transparent 32%),
+      linear-gradient(135deg, #071721 0%, #0d2f2b 100%);
+  }
+
+  body::after {
+    content: "NEXUS는 세로 화면에 최적화되어 있습니다.\A기기를 세로로 돌려주세요.";
+    white-space: pre-line;
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: 2147483647;
+    width: min(420px, calc(100vw - 48px));
+    transform: translate(-50%, -50%);
+    padding: 28px 24px;
+    border: 1px solid rgb(255 255 255 / 14%);
+    border-radius: 28px;
+    background: rgb(255 255 255 / 94%);
+    box-shadow: 0 24px 80px rgb(0 0 0 / 32%);
+    color: #10202b;
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.65;
+    text-align: center;
+  }
+}
+
 .app-shell-content > main {
   min-height: auto !important;
   background: transparent !important;
