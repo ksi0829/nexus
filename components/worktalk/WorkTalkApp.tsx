@@ -68,7 +68,9 @@ type WorkTalkUxDebugEvent = {
   viewport?: string;
   visualViewport?: string;
   orientation?: "portrait" | "landscape" | "unknown";
+  orientationAngle?: number | null;
   portraitLockActive?: boolean | null;
+  portraitLockRotation?: string | null;
   rootLandscapeLock?: string | null;
   appClassName?: string | null;
   appTransform?: string | null;
@@ -453,6 +455,17 @@ export function WorkTalkApp() {
       const viewportWidth = viewport?.width || window.innerWidth;
       const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
       const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+      const orientationAngle =
+        typeof screen !== "undefined" &&
+        "orientation" in screen &&
+        typeof screen.orientation?.angle === "number"
+          ? screen.orientation.angle
+          : typeof window.orientation === "number"
+            ? window.orientation
+            : 0;
+      const normalizedAngle = ((orientationAngle % 360) + 360) % 360;
+      const portraitLockRotation =
+        normalizedAngle === 270 || orientationAngle === -90 ? "-90deg" : "90deg";
       const shouldLockPortrait =
         isTouchDevice &&
         isLandscape &&
@@ -472,6 +485,10 @@ export function WorkTalkApp() {
         `${Math.round(Math.max(window.innerWidth, window.innerHeight))}px`
       );
       root.style.setProperty(
+        "--worktalk-portrait-lock-rotation",
+        portraitLockRotation
+      );
+      root.style.setProperty(
         "--worktalk-visual-viewport-height",
         `${Math.round(viewportHeight)}px`
       );
@@ -489,17 +506,22 @@ export function WorkTalkApp() {
     viewport?.addEventListener("resize", updateViewportMetrics);
     viewport?.addEventListener("scroll", updateViewportMetrics);
     window.addEventListener("resize", updateViewportMetrics);
+    window.addEventListener("orientationchange", updateViewportMetrics);
+    screen.orientation?.addEventListener?.("change", updateViewportMetrics);
 
     return () => {
       viewport?.removeEventListener("resize", updateViewportMetrics);
       viewport?.removeEventListener("scroll", updateViewportMetrics);
       window.removeEventListener("resize", updateViewportMetrics);
+      window.removeEventListener("orientationchange", updateViewportMetrics);
+      screen.orientation?.removeEventListener?.("change", updateViewportMetrics);
       root.removeAttribute("data-worktalk-landscape-lock");
       root.style.removeProperty("--worktalk-visual-viewport-height");
       root.style.removeProperty("--worktalk-visual-viewport-width");
       root.style.removeProperty("--worktalk-keyboard-inset");
       root.style.removeProperty("--worktalk-portrait-lock-width");
       root.style.removeProperty("--worktalk-portrait-lock-height");
+      root.style.removeProperty("--worktalk-portrait-lock-rotation");
     };
   }, []);
 
@@ -756,7 +778,6 @@ export function WorkTalkApp() {
   );
   const appendUxDebugEvent = useCallback(
     (event: Omit<WorkTalkUxDebugEvent, "timestamp"> & { timestamp?: string }) => {
-      if (!showReadReceiptDebugPanel) return;
       const timestamp =
         event.timestamp ||
         new Date().toLocaleTimeString("ko-KR", {
@@ -767,7 +788,7 @@ export function WorkTalkApp() {
         [{ ...event, timestamp }, ...current].slice(0, 10)
       );
     },
-    [showReadReceiptDebugPanel]
+    []
   );
   const updateDeepLinkDebugStatus = useCallback(
     (patch: Partial<DeepLinkDebugStatus>) => {
@@ -909,6 +930,14 @@ export function WorkTalkApp() {
       const visualViewport = window.visualViewport;
       const appElement = appRootRef.current;
       const appStyle = appElement ? window.getComputedStyle(appElement) : null;
+      const orientationAngle =
+        typeof screen !== "undefined" &&
+        "orientation" in screen &&
+        typeof screen.orientation?.angle === "number"
+          ? screen.orientation.angle
+          : typeof window.orientation === "number"
+            ? window.orientation
+            : null;
       appendUxDebugEvent({
         scope: "orientation",
         event: "viewport",
@@ -917,6 +946,7 @@ export function WorkTalkApp() {
           : window.matchMedia("(orientation: portrait)").matches
             ? "portrait"
             : "unknown",
+        orientationAngle,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         visualViewport: visualViewport
           ? `${Math.round(visualViewport.width)}x${Math.round(
@@ -925,6 +955,10 @@ export function WorkTalkApp() {
           : "null",
         documentVisibility: document.visibilityState,
         portraitLockActive: isTouchLandscapeLocked,
+        portraitLockRotation:
+          document.documentElement.style.getPropertyValue(
+            "--worktalk-portrait-lock-rotation"
+          ) || "null",
         rootLandscapeLock:
           document.documentElement.dataset.worktalkLandscapeLock || "false",
         appClassName: appElement?.className || "null",
@@ -4597,10 +4631,17 @@ export function WorkTalkApp() {
                   </div>
                   {event.reason && <div>reason: {event.reason}</div>}
                   <div>orientation: {event.orientation || "null"}</div>
+                  <div>
+                    orientationAngle: {event.orientationAngle ?? "null"}
+                  </div>
                   <div>viewport: {event.viewport || "null"}</div>
                   <div>visualViewport: {event.visualViewport || "null"}</div>
                   <div>
                     portraitLockActive: {String(event.portraitLockActive)}
+                  </div>
+                  <div>
+                    portraitLockRotation:{" "}
+                    {event.portraitLockRotation || "null"}
                   </div>
                   <div>
                     rootLandscapeLock: {event.rootLandscapeLock || "null"}

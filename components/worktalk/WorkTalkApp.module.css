@@ -3000,7 +3000,8 @@
   margin: 0 !important;
   overflow: hidden !important;
   box-shadow: 0 0 0 1px rgb(17 24 32 / 8%);
-  transform: translate(-50%, -50%) rotate(90deg) !important;
+  transform: translate(-50%, -50%)
+    rotate(var(--worktalk-portrait-lock-rotation, 90deg)) !important;
   transform-origin: center !important;
 }
 
@@ -3035,7 +3036,8 @@
     margin: 0;
     overflow: hidden;
     box-shadow: 0 0 0 1px rgb(17 24 32 / 8%);
-    transform: translate(-50%, -50%) rotate(90deg);
+    transform: translate(-50%, -50%)
+      rotate(var(--worktalk-portrait-lock-rotation, 90deg));
     transform-origin: center;
   }
 
