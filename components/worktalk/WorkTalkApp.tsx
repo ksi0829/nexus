@@ -64,6 +64,7 @@ type WorkTalkUxDebugEvent = {
   visible?: boolean | null;
   focused?: boolean | null;
   inputFocused?: boolean | null;
+  documentVisibility?: string;
   viewport?: string;
   visualViewport?: string;
   orientation?: "portrait" | "landscape" | "unknown";
@@ -423,6 +424,7 @@ function formatDebugRect(rect: DOMRect | null) {
 
 export function WorkTalkApp() {
   const router = useRouter();
+  const [isTouchLandscapeLocked, setIsTouchLandscapeLocked] = useState(false);
   useEffect(() => {
     console.info("[WorkTalk lifecycle] App Mounted");
     restoreDocumentWindowPlacement();
@@ -436,13 +438,36 @@ export function WorkTalkApp() {
     const updateViewportMetrics = () => {
       const viewportHeight = viewport?.height || window.innerHeight;
       const viewportOffsetTop = viewport?.offsetTop || 0;
+      const viewportWidth = viewport?.width || window.innerWidth;
+      const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+      const hasNoHover = window.matchMedia("(hover: none)").matches;
+      const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+      const shouldLockPortrait =
+        isTouchDevice &&
+        hasNoHover &&
+        isLandscape &&
+        window.innerWidth > window.innerHeight;
       const keyboardInset = Math.max(
         0,
         window.innerHeight - viewportHeight - viewportOffsetTop
       );
+      setIsTouchLandscapeLocked(shouldLockPortrait);
+      root.dataset.worktalkLandscapeLock = shouldLockPortrait ? "true" : "false";
+      root.style.setProperty(
+        "--worktalk-portrait-lock-width",
+        `${Math.round(Math.min(window.innerWidth, window.innerHeight))}px`
+      );
+      root.style.setProperty(
+        "--worktalk-portrait-lock-height",
+        `${Math.round(Math.max(window.innerWidth, window.innerHeight))}px`
+      );
       root.style.setProperty(
         "--worktalk-visual-viewport-height",
         `${Math.round(viewportHeight)}px`
+      );
+      root.style.setProperty(
+        "--worktalk-visual-viewport-width",
+        `${Math.round(viewportWidth)}px`
       );
       root.style.setProperty(
         "--worktalk-keyboard-inset",
@@ -459,8 +484,12 @@ export function WorkTalkApp() {
       viewport?.removeEventListener("resize", updateViewportMetrics);
       viewport?.removeEventListener("scroll", updateViewportMetrics);
       window.removeEventListener("resize", updateViewportMetrics);
+      root.removeAttribute("data-worktalk-landscape-lock");
       root.style.removeProperty("--worktalk-visual-viewport-height");
+      root.style.removeProperty("--worktalk-visual-viewport-width");
       root.style.removeProperty("--worktalk-keyboard-inset");
+      root.style.removeProperty("--worktalk-portrait-lock-width");
+      root.style.removeProperty("--worktalk-portrait-lock-height");
     };
   }, []);
 
@@ -882,6 +911,7 @@ export function WorkTalkApp() {
               visualViewport.height
             )}`
           : "null",
+        documentVisibility: document.visibilityState,
       });
     };
 
@@ -1448,13 +1478,82 @@ export function WorkTalkApp() {
             room?: string | number | null;
             messageId?: string | number | null;
             message?: string | number | null;
+            scope?: "notification" | "vibration";
+            event?: string;
+            reason?: string;
+            visible?: boolean | null;
+            focused?: boolean | null;
+            documentVisibility?: string;
+            swDebug?: {
+              event?: string;
+              reason?: string;
+              vibrationRequested?: boolean;
+              timestamp?: string;
+            };
           }
         | null;
 
-      if (!data || data.type !== "WORKTALK_DEEP_LINK") return;
+      if (!data) return;
+
+      if (data.type === "WORKTALK_PUSH_DEBUG") {
+        const rawRoom =
+          data.roomId !== undefined && data.roomId !== null
+            ? String(data.roomId)
+            : data.room !== undefined && data.room !== null
+              ? String(data.room)
+              : null;
+        appendUxDebugEvent({
+          scope: data.scope || "notification",
+          event: data.event || "service worker push",
+          reason: data.reason,
+          roomId: parsePositiveInt(rawRoom),
+          activeRoomId: selectedRoomIdUiRef.current,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+          documentVisibility: document.visibilityState,
+        });
+        return;
+      }
+
+      if (data.type !== "WORKTALK_DEEP_LINK") return;
 
       const targetUrl = data.targetUrl || data.url || null;
       let deepLink = readWorkTalkDeepLinkFromUrl(targetUrl);
+      if (data.swDebug) {
+        const rawRoom =
+          data.roomId !== undefined && data.roomId !== null
+            ? String(data.roomId)
+            : data.room !== undefined && data.room !== null
+              ? String(data.room)
+              : null;
+        const roomId = parsePositiveInt(rawRoom);
+        appendUxDebugEvent({
+          scope: "notification",
+          event: data.swDebug.event || "notification clicked",
+          reason: data.swDebug.reason || "service worker deep link",
+          roomId,
+          activeRoomId: selectedRoomIdUiRef.current,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+          documentVisibility: document.visibilityState,
+          timestamp: data.swDebug.timestamp,
+        });
+        appendUxDebugEvent({
+          scope: "vibration",
+          event: data.swDebug.vibrationRequested
+            ? "vibration triggered"
+            : "vibration skipped",
+          reason: data.swDebug.vibrationRequested
+            ? "background push notification"
+            : data.swDebug.reason || "service worker notification",
+          roomId,
+          activeRoomId: selectedRoomIdUiRef.current,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+          documentVisibility: document.visibilityState,
+          timestamp: data.swDebug.timestamp,
+        });
+      }
 
       if (!deepLink) {
         const rawRoom =
@@ -1525,7 +1624,11 @@ export function WorkTalkApp() {
         handleServiceWorkerMessage
       );
     };
-  }, [setRoomSelectionRestoreBlocked, updateDeepLinkDebugStatus]);
+  }, [
+    appendUxDebugEvent,
+    setRoomSelectionRestoreBlocked,
+    updateDeepLinkDebugStatus,
+  ]);
 
   useEffect(() => {
     const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();
@@ -2510,6 +2613,7 @@ export function WorkTalkApp() {
     <main
       className={`${styles.app} ${popupMode ? styles.popupApp : ""} ${
         mobileConversationOpen ? styles.mobileConversationActive : ""
+      } ${isTouchLandscapeLocked ? styles.portraitLocked : ""
       }`}
     >
       <aside className={styles.serviceRail}>
@@ -4430,6 +4534,10 @@ export function WorkTalkApp() {
                   <div>visualViewport: {event.visualViewport || "null"}</div>
                   <div>roomId: {event.roomId ?? "null"}</div>
                   <div>activeRoomId: {event.activeRoomId ?? "null"}</div>
+                  <div>
+                    document.visibilityState:{" "}
+                    {event.documentVisibility || "null"}
+                  </div>
                   <div>visible: {String(event.visible)}</div>
                   <div>focused: {String(event.focused)}</div>
                   <div>inputFocused: {String(event.inputFocused)}</div>

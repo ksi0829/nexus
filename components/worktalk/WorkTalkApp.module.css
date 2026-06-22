@@ -2975,6 +2975,40 @@
   }
 }
 
+:global(html[data-worktalk-landscape-lock="true"]),
+:global(html[data-worktalk-landscape-lock="true"] body) {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #07121b;
+}
+
+.app.portraitLocked:not(.popupApp) {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: var(--worktalk-portrait-lock-height, 100svh) !important;
+  height: var(--worktalk-portrait-lock-width, 100vw) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  box-shadow: 0 0 0 1px rgb(17 24 32 / 8%);
+  transform: translate(-50%, -50%) rotate(90deg) !important;
+  transform-origin: center !important;
+}
+
+.app.portraitLocked:not(.popupApp).mobileConversationActive {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.app.portraitLocked:not(.popupApp) .roomPane,
+.app.portraitLocked:not(.popupApp) .conversationPane,
+.app.portraitLocked:not(.popupApp) .conversationPane.mobileVisible {
+  height: var(--worktalk-portrait-lock-width, 100vw) !important;
+}
+
 @media (pointer: coarse) and (hover: none) and (orientation: landscape) {
   :global(html),
   :global(body) {
