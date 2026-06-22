@@ -2975,6 +2975,32 @@
   }
 }
 
+@media (pointer: coarse) and (hover: none) and (orientation: landscape) {
+  .app:not(.popupApp) {
+    width: min(430px, 100vw);
+    height: var(--worktalk-visual-viewport-height, 100svh);
+    min-height: 0;
+    margin: 0 auto;
+    box-shadow: 0 0 0 1px rgb(17 24 32 / 8%);
+  }
+
+  .app.mobileConversationActive:not(.popupApp) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .popupApp {
+    width: min(430px, 100vw);
+    height: var(--worktalk-visual-viewport-height, 100svh);
+    min-height: 0;
+    margin: 0 auto;
+  }
+
+  .popupApp .conversationPane {
+    width: 100% !important;
+    height: var(--worktalk-visual-viewport-height, 100svh) !important;
+  }
+}
+
 @media (max-width: 520px) {
   .app {
     display: grid;

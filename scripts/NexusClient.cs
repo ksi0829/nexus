@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
@@ -38,6 +39,7 @@ internal sealed class NexusApplicationContext : ApplicationContext
     private readonly NotifyIcon trayIcon;
     private readonly NexusWindow mainWindow;
     private readonly Timer notificationPollTimer;
+    private readonly List<NexusWindow> chatWindows = new List<NexusWindow>();
     private bool exiting;
     private bool trayNoticeShown;
 
@@ -87,8 +89,45 @@ internal sealed class NexusApplicationContext : ApplicationContext
         }
     }
 
-    internal void ShowNotification(string title, string body)
+    internal void RegisterChatWindow(NexusWindow window)
     {
+        if (!chatWindows.Contains(window))
+        {
+            chatWindows.Add(window);
+        }
+    }
+
+    internal void UnregisterChatWindow(NexusWindow window)
+    {
+        chatWindows.Remove(window);
+    }
+
+    internal bool HasActiveChatWindow(int roomId)
+    {
+        foreach (NexusWindow window in chatWindows.ToArray())
+        {
+            if (window.IsDisposed)
+            {
+                chatWindows.Remove(window);
+                continue;
+            }
+
+            if (window.IsActiveChatRoom(roomId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal void ShowNotification(string title, string body, int? roomId)
+    {
+        if (roomId.HasValue && HasActiveChatWindow(roomId.Value))
+        {
+            return;
+        }
+
         trayIcon.ShowBalloonTip(
             5000,
             string.IsNullOrWhiteSpace(title) ? "NEXUS 새 알림" : title,
@@ -144,6 +183,8 @@ internal class NexusWindow : Form
     private readonly bool mainWindow;
     private bool allowClose;
     private bool initialized;
+    private bool? authenticatedState;
+    private int? activeRoomId;
 
     internal NexusWindow(
         NexusApplicationContext applicationContext,
@@ -170,6 +211,18 @@ internal class NexusWindow : Form
 
         Shown += async delegate { await InitializeWebView(url); };
         FormClosing += HandleFormClosing;
+        FormClosed += delegate
+        {
+            if (!mainWindow)
+            {
+                applicationContext.UnregisterChatWindow(this);
+            }
+        };
+
+        if (!mainWindow)
+        {
+            applicationContext.RegisterChatWindow(this);
+        }
     }
 
     internal void AllowClose()
@@ -225,6 +278,7 @@ internal class NexusWindow : Form
             webView.CoreWebView2.PermissionRequested += HandlePermissionRequested;
             webView.CoreWebView2.WebMessageReceived += HandleWebMessageReceived;
             webView.CoreWebView2.NewWindowRequested += HandleNewWindowRequested;
+            webView.CoreWebView2.SourceChanged += HandleSourceChanged;
             webView.Source = new Uri(url);
         }
         catch (Exception error)
@@ -245,8 +299,6 @@ internal class NexusWindow : Form
         CoreWebView2WebMessageReceivedEventArgs eventArgs
     )
     {
-        if (!mainWindow) return;
-
         try
         {
             string message = eventArgs.TryGetWebMessageAsString();
@@ -256,12 +308,26 @@ internal class NexusWindow : Form
 
             object typeValue;
             if (
-                !payload.TryGetValue("type", out typeValue) ||
-                !string.Equals(
-                    Convert.ToString(typeValue),
-                    "notification",
-                    StringComparison.Ordinal
-                )
+                !payload.TryGetValue("type", out typeValue)
+            )
+            {
+                return;
+            }
+
+            string type = Convert.ToString(typeValue);
+            if (string.Equals(type, "auth-state", StringComparison.Ordinal))
+            {
+                object authenticatedValue;
+                if (payload.TryGetValue("authenticated", out authenticatedValue))
+                {
+                    authenticatedState = Convert.ToBoolean(authenticatedValue);
+                }
+                return;
+            }
+
+            if (
+                !mainWindow ||
+                !string.Equals(type, "notification", StringComparison.Ordinal)
             )
             {
                 return;
@@ -269,17 +335,25 @@ internal class NexusWindow : Form
 
             object titleValue;
             object bodyValue;
+            object roomValue;
             payload.TryGetValue("title", out titleValue);
             payload.TryGetValue("body", out bodyValue);
+            payload.TryGetValue("roomId", out roomValue);
             applicationContext.ShowNotification(
                 Convert.ToString(titleValue),
-                Convert.ToString(bodyValue)
+                Convert.ToString(bodyValue),
+                TryParseInteger(roomValue)
             );
         }
         catch
         {
             // Invalid web messages are ignored.
         }
+    }
+
+    private void HandleSourceChanged(object sender, CoreWebView2SourceChangedEventArgs eventArgs)
+    {
+        UpdateActiveRoomId();
     }
 
     private void HandlePermissionRequested(
@@ -331,6 +405,86 @@ internal class NexusWindow : Form
         }
     }
 
+    internal bool IsActiveChatRoom(int roomId)
+    {
+        return
+            !mainWindow &&
+            activeRoomId.HasValue &&
+            activeRoomId.Value == roomId &&
+            Visible &&
+            WindowState != FormWindowState.Minimized &&
+            (ContainsFocus || Focused || ActiveForm == this);
+    }
+
+    private void UpdateActiveRoomId()
+    {
+        string source = string.Empty;
+        if (webView.Source != null)
+        {
+            source = webView.Source.AbsoluteUri;
+        }
+        else if (webView.CoreWebView2 != null)
+        {
+            source = webView.CoreWebView2.Source;
+        }
+
+        activeRoomId = ExtractRoomId(source);
+    }
+
+    private static int? ExtractRoomId(string source)
+    {
+        Uri uri;
+        if (
+            string.IsNullOrWhiteSpace(source) ||
+            !Uri.TryCreate(source, UriKind.Absolute, out uri) ||
+            uri.AbsolutePath.IndexOf("/worktalk", StringComparison.OrdinalIgnoreCase) < 0
+        )
+        {
+            return null;
+        }
+
+        string query = uri.Query;
+        if (query.StartsWith("?", StringComparison.Ordinal))
+        {
+            query = query.Substring(1);
+        }
+
+        foreach (string part in query.Split('&'))
+        {
+            if (string.IsNullOrWhiteSpace(part)) continue;
+            string[] pair = part.Split(new[] { '=' }, 2);
+            string key = Uri.UnescapeDataString(pair[0]);
+            if (
+                !string.Equals(key, "room", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(key, "roomId", StringComparison.OrdinalIgnoreCase)
+            )
+            {
+                continue;
+            }
+
+            string value = pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : string.Empty;
+            int roomId;
+            if (int.TryParse(value, out roomId))
+            {
+                return roomId;
+            }
+        }
+
+        return null;
+    }
+
+    private static int? TryParseInteger(object value)
+    {
+        if (value == null) return null;
+        int parsed;
+        if (int.TryParse(Convert.ToString(value), out parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
     private void HandleFormClosing(object sender, FormClosingEventArgs eventArgs)
     {
         if (allowClose || applicationContext.IsExiting)
@@ -347,8 +501,10 @@ internal class NexusWindow : Form
             webView.Source == null ? string.Empty : webView.Source.AbsoluteUri;
         bool isLoginPage =
             currentUrl.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool isAuthenticated =
+            authenticatedState.HasValue ? authenticatedState.Value : !isLoginPage;
 
-        if (isLoginPage)
+        if (!isAuthenticated || isLoginPage)
         {
             allowClose = true;
             applicationContext.ExitFromLogin();

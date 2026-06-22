@@ -610,6 +610,7 @@ export function WorkTalkApp() {
       timestamp: "",
     });
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
   const roomPaneRef = useRef<HTMLElement>(null);
@@ -1031,6 +1032,11 @@ export function WorkTalkApp() {
   }
 
   async function handleLogout() {
+    if (isNexusDesktopApp) {
+      (window as NexusDesktopWindow).chrome?.webview?.postMessage(
+        JSON.stringify({ type: "auth-state", authenticated: false })
+      );
+    }
     await createSupabaseBrowser().auth.signOut();
     localStorage.removeItem("role");
     localStorage.removeItem("team");
@@ -1797,9 +1803,41 @@ export function WorkTalkApp() {
   }, []);
 
   useEffect(() => {
+    if (!isNexusDesktopApp) return;
+    if (setupState === "loading") return;
+    (window as NexusDesktopWindow).chrome?.webview?.postMessage(
+      JSON.stringify({
+        type: "auth-state",
+        authenticated: Boolean(currentProfile),
+      })
+    );
+  }, [currentProfile, isNexusDesktopApp, setupState]);
+
+  useEffect(() => {
     if (!latestNotification) return;
 
+    const notificationTargetsCurrentRoom =
+      activeSection === "chat" &&
+      selectedRoomId === latestNotification.room_id &&
+      Boolean(selectedRoom);
+    const activeRoomIsVisible =
+      notificationTargetsCurrentRoom &&
+      document.visibilityState === "visible" &&
+      document.hasFocus();
+
+    if (notificationTargetsCurrentRoom && latestNotification.message_id) {
+      selectRoom(latestNotification.room_id, latestNotification.message_id);
+      scheduleBottomScroll("auto", { extraSettle: true });
+    }
+
     if (isNexusDesktopApp) {
+      if (activeRoomIsVisible) {
+        console.info("[WorkTalk notification] notification skipped: active room open", {
+          roomId: latestNotification.room_id,
+        });
+        clearLatestNotification();
+        return;
+      }
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({
           type: "notification",
@@ -1818,16 +1856,8 @@ export function WorkTalkApp() {
       (document.visibilityState !== "visible" ||
         !document.hasFocus() ||
         activeSection !== "chat" ||
-        selectedRoomId !== latestNotification.room_id);
-    const notificationTargetsCurrentRoom =
-      activeSection === "chat" &&
-      selectedRoomId === latestNotification.room_id &&
-      Boolean(selectedRoom);
-
-    if (notificationTargetsCurrentRoom && latestNotification.message_id) {
-      selectRoom(latestNotification.room_id, latestNotification.message_id);
-      scheduleBottomScroll("auto", { extraSettle: true });
-    }
+        selectedRoomId !== latestNotification.room_id) &&
+      !activeRoomIsVisible;
 
     if (lastVibratedNotificationIdRef.current !== latestNotification.id) {
       const vibrate = (
@@ -2105,8 +2135,12 @@ export function WorkTalkApp() {
 
   async function submitMessage(event: FormEvent) {
     event.preventDefault();
+    if (sending) return;
     let nextBody = draft.trim();
     if (!nextBody && pendingFiles.length === 0) return;
+    const shouldKeepComposerFocused =
+      typeof window !== "undefined" &&
+      window.matchMedia("(pointer: coarse)").matches;
 
     const isApprovalCommand =
       selectedRoom?.room_type === "approval" &&
@@ -2158,6 +2192,14 @@ export function WorkTalkApp() {
       setPendingFiles([]);
       setFileError("");
       scheduleBottomScroll();
+      if (shouldKeepComposerFocused) {
+        window.requestAnimationFrame(() => {
+          messageInputRef.current?.focus({ preventScroll: true });
+          window.setTimeout(() => {
+            messageInputRef.current?.focus({ preventScroll: true });
+          }, 80);
+        });
+      }
     }
   }
 
@@ -3540,6 +3582,7 @@ export function WorkTalkApp() {
               </div>
               <div className={styles.composerInput}>
                 <textarea
+                  ref={messageInputRef}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
