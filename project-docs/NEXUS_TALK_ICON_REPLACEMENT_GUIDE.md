@@ -89,9 +89,9 @@ These are still present in `public`. Do not use them for new branding unless a c
 
 Current icon references:
 
-- `/nexus-talk-icon-192.png?v=5`
-- `/nexus-talk-icon-512.png?v=5`
-- `/maskable-icon.png?v=5`
+- `/nexus-talk-icon-192.png?v=6`
+- `/nexus-talk-icon-512.png?v=6`
+- `/maskable-icon.png?v=6`
 
 Also confirms:
 
@@ -104,18 +104,18 @@ Also confirms:
 When replacing icons:
 
 1. Keep the same filenames if possible.
-2. Increase the query version, e.g. `?v=5`, to break browser/PWA cache.
+2. Increase the query version, e.g. `?v=6`, to break browser/PWA cache.
 3. Confirm maskable icon uses `purpose: "maskable"`.
 
 ### `app/layout.tsx`
 
 Current favicon / Apple icon references:
 
-- `/favicon-16x16.png?v=5`
-- `/favicon-32x32.png?v=5`
-- `/icon.png?v=5`
-- `/favicon.ico?v=5`
-- `/apple-icon.png?v=5`
+- `/favicon-16x16.png?v=6`
+- `/favicon-32x32.png?v=6`
+- `/icon.png?v=6`
+- `/favicon.ico?v=6`
+- `/apple-icon.png?v=6`
 
 When replacing icons:
 
@@ -128,8 +128,8 @@ When replacing icons:
 
 Current notification references:
 
-- `/notification-icon.png?v=5`
-- `/notification-badge.png?v=5`
+- `/notification-icon.png?v=6`
+- `/notification-badge.png?v=6`
 
 When replacing push icons:
 
@@ -143,15 +143,15 @@ When replacing push icons:
 Current active logo references:
 
 - `components/nexus/NexusNavigation.tsx`
-  - `/nexus-talk-icon-192.png?v=5`
+  - `/nexus-talk-icon-192.png?v=6`
 - `components/worktalk/WorkTalkApp.tsx`
-  - `/nexus-talk-icon-192.png?v=5`
-  - `/notification-icon.png?v=5`
-  - `/notification-badge.png?v=5`
+  - `/nexus-talk-icon-192.png?v=6`
+  - `/notification-icon.png?v=6`
+  - `/notification-badge.png?v=6`
 - `app/login/page.tsx`
-  - `/nexus-talk-icon-512.png?v=5`
+  - `/nexus-talk-icon-512.png?v=6`
 - `app/_components/BrandLogo.tsx`
-  - `/nexus-talk-icon-192.png?v=5`
+  - `/nexus-talk-icon-192.png?v=6`
 
 When replacing app icons:
 
@@ -218,4 +218,4 @@ Previous active icon references used:
 
 Current icon replacement uses:
 
-- `?v=5`
+- `?v=6`

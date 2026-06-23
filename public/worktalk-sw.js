@@ -145,8 +145,8 @@ self.addEventListener("push", (event) => {
   };
   const options = {
     body: payload.body || "새 알림이 도착했습니다.",
-    icon: "/notification-icon.png?v=5",
-    badge: "/notification-badge.png?v=5",
+    icon: "/notification-icon.png?v=6",
+    badge: "/notification-badge.png?v=6",
     tag: payload.tag || `worktalk-${Date.now()}`,
     renotify: true,
     silent: false,

@@ -152,7 +152,7 @@ export default function LoginPage() {
       <section className={styles.shell}>
         <div className={styles.formPanel}>
           <Image
-            src="/nexus-talk-icon-512.png?v=5"
+            src="/nexus-talk-icon-192.png?v=6"
             alt="NEXUS TALK"
             width={180}
             height={180}

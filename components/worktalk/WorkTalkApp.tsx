@@ -2273,8 +2273,8 @@ export function WorkTalkApp() {
             latestNotification.body.length > 90
               ? `${latestNotification.body.slice(0, 90)}...`
               : latestNotification.body,
-          icon: "/notification-icon.png?v=5",
-          badge: "/notification-badge.png?v=5",
+          icon: "/notification-icon.png?v=6",
+          badge: "/notification-badge.png?v=6",
           tag: `worktalk-notification-${latestNotification.id}`,
         });
         browserNotification.onclick = () => {
@@ -2818,7 +2818,7 @@ export function WorkTalkApp() {
           aria-label="NEXUS 홈으로 이동"
           title="NEXUS 홈"
         >
-          <Image src="/nexus-talk-icon-192.png?v=5" alt="" width={42} height={42} priority />
+          <Image src="/nexus-talk-icon-192.png?v=6" alt="" width={42} height={42} priority />
         </button>
         <nav className={styles.serviceNav} aria-label="NEXUS 메뉴">
           <button

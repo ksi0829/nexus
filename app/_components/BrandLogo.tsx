@@ -54,7 +54,7 @@ export function BrandLogo({
       }}
     >
       <img
-        src="/nexus-talk-icon-192.png?v=5"
+        src="/nexus-talk-icon-192.png?v=6"
         alt="NEXUS TALK"
         style={{
           display: "block",

@@ -9,12 +9,12 @@ export const metadata: Metadata = {
   description: "NEXUS TALK messenger, documents, approvals, and worklog platform.",
   icons: {
     icon: [
-      { url: "/favicon-16x16.png?v=5", sizes: "16x16", type: "image/png" },
-      { url: "/favicon-32x32.png?v=5", sizes: "32x32", type: "image/png" },
-      { url: "/icon.png?v=5", sizes: "512x512", type: "image/png" },
+      { url: "/favicon-16x16.png?v=6", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png?v=6", sizes: "32x32", type: "image/png" },
+      { url: "/icon.png?v=6", sizes: "512x512", type: "image/png" },
     ],
-    shortcut: "/favicon.ico?v=5",
-    apple: "/apple-icon.png?v=5",
+    shortcut: "/favicon.ico?v=6",
+    apple: "/apple-icon.png?v=6",
   },
   appleWebApp: {
     capable: true,

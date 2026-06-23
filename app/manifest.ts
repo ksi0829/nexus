@@ -14,17 +14,17 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "ko",
     icons: [
       {
-        src: "/nexus-talk-icon-192.png?v=5",
+        src: "/nexus-talk-icon-192.png?v=6",
         sizes: "192x192",
         type: "image/png",
       },
       {
-        src: "/nexus-talk-icon-512.png?v=5",
+        src: "/nexus-talk-icon-512.png?v=6",
         sizes: "512x512",
         type: "image/png",
       },
       {
-        src: "/maskable-icon.png?v=5",
+        src: "/maskable-icon.png?v=6",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
