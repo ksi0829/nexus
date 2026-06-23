@@ -1778,6 +1778,50 @@ export function WorkTalkApp() {
     updateDeepLinkDebugStatus,
   ]);
 
+  const syncWorkTalkClientStateToServiceWorker = useCallback(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+    const controller = navigator.serviceWorker.controller;
+    if (!controller) return;
+
+    const activeRoomId = selectedRoomIdUiRef.current;
+    const conversationOpen =
+      activeSection === "chat" &&
+      Boolean(activeRoomId) &&
+      (!isNarrowLayoutNow || mobileConversationOpen);
+
+    controller.postMessage({
+      type: "WORKTALK_CLIENT_STATE",
+      activeRoomId,
+      activeSection,
+      conversationOpen,
+      visible: document.visibilityState === "visible",
+      focused: document.hasFocus(),
+      timestamp: Date.now(),
+    });
+  }, [activeSection, isNarrowLayoutNow, mobileConversationOpen]);
+
+  useEffect(() => {
+    syncWorkTalkClientStateToServiceWorker();
+
+    const handleStateChange = () => syncWorkTalkClientStateToServiceWorker();
+    const syncIntervalId = window.setInterval(
+      () => syncWorkTalkClientStateToServiceWorker(),
+      5_000
+    );
+    document.addEventListener("visibilitychange", handleStateChange);
+    window.addEventListener("focus", handleStateChange);
+    window.addEventListener("blur", handleStateChange);
+
+    return () => {
+      window.clearInterval(syncIntervalId);
+      document.removeEventListener("visibilitychange", handleStateChange);
+      window.removeEventListener("focus", handleStateChange);
+      window.removeEventListener("blur", handleStateChange);
+    };
+  }, [selectedRoomId, syncWorkTalkClientStateToServiceWorker]);
+
   useEffect(() => {
     const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();
 

@@ -1,7 +1,10 @@
 const WORKTALK_URL = "/worktalk";
 const WORKTALK_DEEP_LINK_MESSAGE = "WORKTALK_DEEP_LINK";
 const WORKTALK_PUSH_DEBUG_MESSAGE = "WORKTALK_PUSH_DEBUG";
+const WORKTALK_CLIENT_STATE_MESSAGE = "WORKTALK_CLIENT_STATE";
 const WORKTALK_VIBRATION_PATTERN = [240, 120, 240];
+const WORKTALK_ACTIVE_CLIENT_TTL_MS = 8_000;
+const worktalkClientStates = new Map();
 
 function toNullableString(value) {
   if (value === undefined || value === null || value === "") return null;
@@ -69,12 +72,52 @@ function appendPushDebugToTargetUrl(targetUrl, debug = {}, roomId = null) {
   }
 }
 
+function isActiveRoomClientVisible(roomId) {
+  if (!roomId) return false;
+  const now = Date.now();
+  const targetRoomId = String(roomId);
+
+  for (const [clientId, state] of worktalkClientStates.entries()) {
+    if (!state || now - state.updatedAt > WORKTALK_ACTIVE_CLIENT_TTL_MS) {
+      worktalkClientStates.delete(clientId);
+      continue;
+    }
+
+    if (
+      state.visible === true &&
+      state.focused === true &&
+      state.activeSection === "chat" &&
+      state.conversationOpen === true &&
+      String(state.activeRoomId || "") === targetRoomId
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (data.type !== WORKTALK_CLIENT_STATE_MESSAGE) return;
+
+  const clientId = event.source?.id || data.clientId || "unknown";
+  worktalkClientStates.set(clientId, {
+    activeRoomId: toNullableString(data.activeRoomId),
+    activeSection: toNullableString(data.activeSection),
+    conversationOpen: data.conversationOpen === true,
+    visible: data.visible === true,
+    focused: data.focused === true,
+    updatedAt: Date.now(),
+  });
 });
 
 self.addEventListener("push", (event) => {
@@ -131,15 +174,13 @@ self.addEventListener("push", (event) => {
           messageId,
         }).then(() => clients);
       })
-      .then((clients) => {
-        const hasVisibleClient = clients.some(
-          (client) => client.visibilityState === "visible"
-        );
-        if (hasVisibleClient) {
+      .then(() => {
+        const hasActiveRoomClient = isActiveRoomClientVisible(roomId);
+        if (hasActiveRoomClient) {
           return broadcastPushDebug({
             scope: "vibration",
             event: "vibration skipped",
-            reason: "visible client",
+            reason: "active room visible client",
             roomId,
             messageId,
           });
