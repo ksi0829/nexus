@@ -38,7 +38,7 @@ export function NexusNavigation({ active }: NexusNavigationProps) {
         aria-label="NEXUS 홈"
         title="NEXUS 홈"
       >
-        <Image src="/nexus-icon-v2-192.png" alt="" width={42} height={42} priority />
+        <Image src="/nexus-talk-icon-192.png?v=5" alt="" width={42} height={42} priority />
       </button>
       <nav className={styles.nav}>
         <button

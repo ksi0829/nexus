@@ -85,7 +85,7 @@ export async function createNexusWorklogPdf(input: WorklogPdfInput) {
     <article style="box-sizing:border-box;width:794px;min-height:1123px;padding:58px 54px;background:#fff;color:#111;font-family:Pretendard,'Malgun Gothic',sans-serif">
       <header style="display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:18px;border-bottom:3px solid #183c35">
         <div>
-          <div style="font-size:12px;letter-spacing:3px;color:#16755f;font-weight:800">ZETA NEXUS</div>
+          <div style="font-size:12px;letter-spacing:3px;color:#101828;font-weight:800">NEXUS TALK</div>
           <h1 style="margin:8px 0 0;font-size:30px;letter-spacing:8px">업 무 일 지</h1>
         </div>
         <div style="text-align:right;font-size:13px;line-height:1.8">

@@ -152,8 +152,8 @@ export default function LoginPage() {
       <section className={styles.shell}>
         <div className={styles.formPanel}>
           <Image
-            src="/nexus-icon-v2-512.png"
-            alt="NEXUS"
+            src="/nexus-talk-icon-512.png?v=5"
+            alt="NEXUS TALK"
             width={180}
             height={180}
             className={styles.mobileLogo}
@@ -197,7 +197,7 @@ export default function LoginPage() {
               {loading ? "연결 중..." : "NEXUS 시작하기"}
             </button>
           </form>
-          <div className={styles.footer}>ZETA NEXUS · CONNECT EVERYTHING</div>
+          <div className={styles.footer}>NEXUS TALK · CONNECT EVERYTHING</div>
         </div>
       </section>
     </main>

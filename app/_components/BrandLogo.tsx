@@ -54,13 +54,14 @@ export function BrandLogo({
       }}
     >
       <img
-        src="/brand/zeta-logo.png"
-        alt="ZETA"
+        src="/nexus-talk-icon-192.png?v=5"
+        alt="NEXUS TALK"
         style={{
           display: "block",
           width: config.width,
           height: "auto",
           objectFit: "contain",
+          borderRadius: 18,
           ...imageStyle,
         }}
       />
