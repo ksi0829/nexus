@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import styles from "./page.module.css";
@@ -151,13 +150,12 @@ export default function LoginPage() {
     <main className={styles.page}>
       <section className={styles.shell}>
         <div className={styles.formPanel}>
-          <Image
+          <img
             src="/nexus-talk-icon-192.png?v=6"
             alt="NEXUS TALK"
             width={180}
             height={180}
             className={styles.mobileLogo}
-            priority
           />
           <span className={styles.eyebrow}>WELCOME TO NEXUS</span>
           <h1 className={styles.title}>업무를 시작하세요</h1>

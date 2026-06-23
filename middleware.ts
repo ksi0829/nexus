@@ -11,7 +11,13 @@ export async function middleware(req: NextRequest) {
     pathname === "/worktalk-sw.js" ||
     pathname === "/icon.png" ||
     pathname === "/apple-icon.png" ||
+    pathname === "/maskable-icon.png" ||
+    pathname === "/nexus.ico" ||
+    pathname === "/nexus-talk-splash.png" ||
     pathname === "/nexus-symbol.png" ||
+    pathname.startsWith("/favicon-") ||
+    pathname.startsWith("/notification-") ||
+    pathname.startsWith("/nexus-talk-icon-") ||
     pathname.startsWith("/worktalk-icon-") ||
     pathname.startsWith("/nexus-icon-");
 
