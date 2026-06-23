@@ -751,6 +751,11 @@ export function WorkTalkApp() {
   } / ${conversationRenderBranch}`;
   const showReadReceiptDebugPanel =
     process.env.NODE_ENV === "development" || currentProfile?.role === "admin";
+  const pushUxDebugEvents = uxDebugEvents
+    .filter(
+      (event) => event.scope === "notification" || event.scope === "vibration"
+    )
+    .slice(0, 10);
 
   const appendReadReceiptDebugEvent = useCallback(
     (event: Omit<ReadReceiptDebugEvent, "timestamp"> & { timestamp?: string }) => {
@@ -775,7 +780,7 @@ export function WorkTalkApp() {
         });
 
       setUxDebugEvents((current) =>
-        [{ ...event, timestamp }, ...current].slice(0, 10)
+        [{ ...event, timestamp }, ...current].slice(0, 30)
       );
     },
     []
@@ -4640,6 +4645,50 @@ export function WorkTalkApp() {
               messages fetch count:{" "}
               {realtimeDebugStatus.messagesFetchCount ?? "null"}
             </div>
+          </div>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
+              PUSH / VIBRATION DEBUG
+            </strong>
+            {pushUxDebugEvents.length === 0 ? (
+              <div style={{ color: "rgba(223, 252, 245, 0.68)" }}>
+                waiting for service worker notification / vibration events...
+              </div>
+            ) : (
+              pushUxDebugEvents.map((event, index) => (
+                <div
+                  key={`push-${event.timestamp}-${event.scope}-${index}`}
+                  style={{
+                    paddingTop: index === 0 ? 0 : 7,
+                    marginTop: index === 0 ? 0 : 7,
+                    borderTop:
+                      index === 0
+                        ? "none"
+                        : "1px solid rgba(223, 252, 245, 0.14)",
+                  }}
+                >
+                  <div>
+                    <b>#{index + 1}</b> {event.timestamp} · {event.scope} ·{" "}
+                    {event.event}
+                  </div>
+                  <div>reason: {event.reason || "null"}</div>
+                  <div>roomId: {event.roomId ?? "null"}</div>
+                  <div>activeRoomId: {event.activeRoomId ?? "null"}</div>
+                  <div>
+                    document.visibilityState:{" "}
+                    {event.documentVisibility || "null"}
+                  </div>
+                  <div>visible: {String(event.visible)}</div>
+                  <div>focused: {String(event.focused)}</div>
+                </div>
+              ))
+            )}
           </div>
           <div
             style={{

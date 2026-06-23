@@ -263,10 +263,14 @@ self.addEventListener("notificationclick", (event) => {
               activeUrl.origin === self.location.origin &&
               activeUrl.pathname.startsWith("/worktalk");
 
-            if (!isWorkTalk && "navigate" in activeClient) {
+            if (
+              "navigate" in activeClient &&
+              (!isWorkTalk || activeClient.url !== targetUrl)
+            ) {
               logNotificationClick("navigate called", {
                 from: activeClient.url,
                 to: targetUrl,
+                isWorkTalk,
               });
               const navigatedClient = await activeClient.navigate(targetUrl);
               if (navigatedClient && "focus" in navigatedClient) {
