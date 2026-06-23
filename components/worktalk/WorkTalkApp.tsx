@@ -455,21 +455,11 @@ export function WorkTalkApp() {
       const viewportWidth = viewport?.width || window.innerWidth;
       const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
       const isLandscape = window.matchMedia("(orientation: landscape)").matches;
-      const orientationAngle =
-        typeof screen !== "undefined" &&
-        "orientation" in screen &&
-        typeof screen.orientation?.angle === "number"
-          ? screen.orientation.angle
-          : typeof window.orientation === "number"
-            ? window.orientation
-            : 0;
-      const normalizedAngle = ((orientationAngle % 360) + 360) % 360;
-      const portraitLockRotation =
-        normalizedAngle === 270 || orientationAngle === -90 ? "-90deg" : "90deg";
       const shouldLockPortrait =
         isTouchDevice &&
         isLandscape &&
         window.innerWidth > window.innerHeight;
+      const portraitLockRotation = shouldLockPortrait ? "90deg" : "0deg";
       const keyboardInset = Math.max(
         0,
         window.innerHeight - viewportHeight - viewportOffsetTop
@@ -790,6 +780,59 @@ export function WorkTalkApp() {
     },
     []
   );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof screen === "undefined") return;
+    const orientation = screen.orientation as
+      | (ScreenOrientation & {
+          lock?: (orientation: "portrait-primary") => Promise<void>;
+        })
+      | undefined;
+    const lockOrientation = orientation?.lock;
+    if (typeof lockOrientation !== "function") return;
+
+    let attempted = false;
+
+    const requestNativePortraitLock = async (reason: string) => {
+      if (attempted) return;
+      attempted = true;
+      if (!window.matchMedia("(pointer: coarse)").matches) return;
+
+      try {
+        await lockOrientation.call(orientation, "portrait-primary");
+        appendUxDebugEvent({
+          scope: "orientation",
+          event: "native portrait lock requested",
+          reason,
+          orientation: window.matchMedia("(orientation: landscape)").matches
+            ? "landscape"
+            : "portrait",
+        });
+      } catch (error) {
+        appendUxDebugEvent({
+          scope: "orientation",
+          event: "native portrait lock unavailable",
+          reason:
+            error instanceof Error
+              ? `${reason}: ${error.name || error.message}`
+              : reason,
+          orientation: window.matchMedia("(orientation: landscape)").matches
+            ? "landscape"
+            : "portrait",
+        });
+      }
+    };
+
+    requestNativePortraitLock("app mount");
+    const handleFirstPointer = () => {
+      attempted = false;
+      requestNativePortraitLock("first user gesture");
+    };
+    window.addEventListener("pointerdown", handleFirstPointer, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", handleFirstPointer);
+    };
+  }, [appendUxDebugEvent]);
   const updateDeepLinkDebugStatus = useCallback(
     (patch: Partial<DeepLinkDebugStatus>) => {
       setDeepLinkDebugStatus((current) => ({

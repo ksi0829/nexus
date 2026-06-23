@@ -177,8 +177,22 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const notificationData = event.notification.data || {};
-  const { targetUrl, roomId, messageId } = buildWorkTalkTarget(
+  const builtTarget = buildWorkTalkTarget(
     notificationData
+  );
+  const roomId = builtTarget.roomId;
+  const messageId = builtTarget.messageId;
+  const clickDebug = {
+    ...(notificationData.swDebug || {}),
+    event: "notification clicked",
+    reason: notificationData.swDebug?.reason || "notification click",
+    vibrationRequested: notificationData.swDebug?.vibrationRequested,
+    timestamp: new Date().toISOString(),
+  };
+  const targetUrl = appendPushDebugToTargetUrl(
+    builtTarget.targetUrl,
+    clickDebug,
+    roomId
   );
 
   event.waitUntil(
@@ -240,7 +254,7 @@ self.addEventListener("notificationclick", (event) => {
                 room: roomId,
                 messageId,
                 message: messageId,
-                swDebug: notificationData.swDebug,
+                swDebug: clickDebug,
               });
             }
 
