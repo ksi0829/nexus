@@ -88,7 +88,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sent: 0, removed: 0 });
   }
 
-  const recipientIds = [...new Set(notifications.map((item) => item.user_id))];
+  const deliveryNotifications = [
+    ...new Map(
+      notifications.map((notification) => [
+        `${notification.user_id}:${notification.message_id}`,
+        notification,
+      ])
+    ).values(),
+  ];
+  const recipientIds = [
+    ...new Set(deliveryNotifications.map((item) => item.user_id)),
+  ];
   const { data: subscriptionRows, error: subscriptionError } = await admin
     .from("worktalk_push_subscriptions")
     .select("id,user_id,endpoint,p256dh,auth")
@@ -102,7 +112,14 @@ export async function POST(request: NextRequest) {
   }
 
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-  const subscriptions = (subscriptionRows || []) as SubscriptionRow[];
+  const subscriptions = [
+    ...new Map(
+      ((subscriptionRows || []) as SubscriptionRow[]).map((subscription) => [
+        subscription.endpoint,
+        subscription,
+      ])
+    ).values(),
+  ];
   const subscriptionsByUser = new Map<string, SubscriptionRow[]>();
   subscriptions.forEach((subscription) => {
     const rows = subscriptionsByUser.get(subscription.user_id) || [];
@@ -114,7 +131,7 @@ export async function POST(request: NextRequest) {
   const expiredSubscriptionIds = new Set<number>();
 
   await Promise.all(
-    notifications.flatMap((notification) =>
+    deliveryNotifications.flatMap((notification) =>
       (subscriptionsByUser.get(notification.user_id) || []).map(
         async (subscription) => {
           try {
@@ -129,7 +146,7 @@ export async function POST(request: NextRequest) {
               JSON.stringify({
                 title: notification.title,
                 body: notification.body || "새 메시지가 도착했습니다.",
-                tag: `worktalk-${notification.id}`,
+                tag: `worktalk-${notification.user_id}-${notification.message_id}`,
                 url: `/worktalk?room=${notification.room_id}&message=${notification.message_id}`,
               }),
               {

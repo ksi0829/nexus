@@ -104,6 +104,11 @@ internal sealed class NexusApplicationContext : ApplicationContext
 
     internal bool HasActiveChatWindow(int roomId)
     {
+        if (mainWindow.IsActiveChatRoom(roomId))
+        {
+            return true;
+        }
+
         foreach (NexusWindow window in chatWindows.ToArray())
         {
             if (window.IsDisposed)
@@ -185,6 +190,9 @@ internal class NexusWindow : Form
     private bool initialized;
     private bool? authenticatedState;
     private int? activeRoomId;
+    private bool clientConversationOpen;
+    private bool clientVisible;
+    private bool clientFocused;
 
     internal NexusWindow(
         NexusApplicationContext applicationContext,
@@ -325,6 +333,12 @@ internal class NexusWindow : Form
                 return;
             }
 
+            if (string.Equals(type, "client-state", StringComparison.Ordinal))
+            {
+                UpdateClientState(payload);
+                return;
+            }
+
             if (
                 !mainWindow ||
                 !string.Equals(type, "notification", StringComparison.Ordinal)
@@ -408,12 +422,35 @@ internal class NexusWindow : Form
     internal bool IsActiveChatRoom(int roomId)
     {
         return
-            !mainWindow &&
             activeRoomId.HasValue &&
             activeRoomId.Value == roomId &&
             Visible &&
             WindowState != FormWindowState.Minimized &&
-            (ContainsFocus || Focused || ActiveForm == this);
+            clientConversationOpen &&
+            clientVisible &&
+            clientFocused &&
+            (ContainsFocus || Focused || ActiveForm == this || mainWindow);
+    }
+
+    private void UpdateClientState(System.Collections.Generic.Dictionary<string, object> payload)
+    {
+        object activeRoomValue;
+        object conversationOpenValue;
+        object visibleValue;
+        object focusedValue;
+
+        activeRoomId = payload.TryGetValue("activeRoomId", out activeRoomValue)
+            ? TryParseInteger(activeRoomValue)
+            : null;
+        clientConversationOpen =
+            payload.TryGetValue("conversationOpen", out conversationOpenValue) &&
+            Convert.ToBoolean(conversationOpenValue);
+        clientVisible =
+            payload.TryGetValue("visible", out visibleValue) &&
+            Convert.ToBoolean(visibleValue);
+        clientFocused =
+            payload.TryGetValue("focused", out focusedValue) &&
+            Convert.ToBoolean(focusedValue);
     }
 
     private void UpdateActiveRoomId()

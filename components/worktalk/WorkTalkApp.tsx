@@ -1779,28 +1779,47 @@ export function WorkTalkApp() {
   ]);
 
   const syncWorkTalkClientStateToServiceWorker = useCallback(() => {
-    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    if (typeof window === "undefined") {
       return;
     }
-    const controller = navigator.serviceWorker.controller;
-    if (!controller) return;
-
     const activeRoomId = selectedRoomIdUiRef.current;
     const conversationOpen =
       activeSection === "chat" &&
       Boolean(activeRoomId) &&
       (!isNarrowLayoutNow || mobileConversationOpen);
 
-    controller.postMessage({
-      type: "WORKTALK_CLIENT_STATE",
-      activeRoomId,
-      activeSection,
-      conversationOpen,
-      visible: document.visibilityState === "visible",
-      focused: document.hasFocus(),
-      timestamp: Date.now(),
-    });
-  }, [activeSection, isNarrowLayoutNow, mobileConversationOpen]);
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      const controller = navigator.serviceWorker.controller;
+      controller?.postMessage({
+        type: "WORKTALK_CLIENT_STATE",
+        activeRoomId,
+        activeSection,
+        conversationOpen,
+        visible: document.visibilityState === "visible",
+        focused: document.hasFocus(),
+        timestamp: Date.now(),
+      });
+    }
+
+    if (isNexusDesktopApp) {
+      (window as NexusDesktopWindow).chrome?.webview?.postMessage(
+        JSON.stringify({
+          type: "client-state",
+          activeRoomId,
+          activeSection,
+          conversationOpen,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+          timestamp: Date.now(),
+        })
+      );
+    }
+  }, [
+    activeSection,
+    isNarrowLayoutNow,
+    isNexusDesktopApp,
+    mobileConversationOpen,
+  ]);
 
   useEffect(() => {
     syncWorkTalkClientStateToServiceWorker();
@@ -2316,7 +2335,7 @@ export function WorkTalkApp() {
     const normalizedRoomId = Number(roomId);
     if (!Number.isFinite(normalizedRoomId)) return;
 
-    if (!popupMode) {
+    if (!popupMode && !isNarrowLayoutNow) {
       const popupWidth = 520;
       const popupHeight = 780;
       const popupLeft = Math.max(
