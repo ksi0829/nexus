@@ -2340,8 +2340,7 @@ export function WorkTalkApp() {
       Boolean(selectedRoom);
     const activeRoomIsVisible =
       notificationTargetsCurrentRoom &&
-      document.visibilityState === "visible" &&
-      document.hasFocus();
+      document.visibilityState === "visible";
 
     if (notificationTargetsCurrentRoom && latestNotification.message_id) {
       selectRoom(latestNotification.room_id, latestNotification.message_id);
@@ -2388,6 +2387,7 @@ export function WorkTalkApp() {
 
     const shouldShowBrowserNotification =
       browserNotificationPermission === "granted" &&
+      pushStatus !== "subscribed" &&
       "Notification" in window &&
       (document.visibilityState !== "visible" ||
         !document.hasFocus() ||
@@ -2430,7 +2430,7 @@ export function WorkTalkApp() {
               : latestNotification.body,
           icon: "/notification-icon.png?v=6",
           badge: "/notification-badge.png?v=6",
-          tag: `worktalk-notification-${latestNotification.id}`,
+          tag: `worktalk-${latestNotification.room_id}-${latestNotification.message_id}`,
         });
         browserNotification.onclick = () => {
           window.focus();
@@ -2461,6 +2461,7 @@ export function WorkTalkApp() {
     isNexusDesktopApp,
     latestNotification,
     openNotification,
+    pushStatus,
     scheduleBottomScroll,
     selectedRoomId,
     selectedRoom,
@@ -2471,7 +2472,12 @@ export function WorkTalkApp() {
     const normalizedRoomId = Number(roomId);
     if (!Number.isFinite(normalizedRoomId)) return;
 
-    if (!popupMode && !isNarrowLayoutNow) {
+    const shouldUseSameWindowConversation =
+      typeof window !== "undefined" &&
+      window.matchMedia("(pointer: coarse)").matches &&
+      window.matchMedia("(hover: none)").matches;
+
+    if (!popupMode && !shouldUseSameWindowConversation) {
       const popupWidth = 520;
       const popupHeight = 780;
       const popupLeft = Math.max(
