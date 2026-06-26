@@ -2,9 +2,11 @@ const WORKTALK_URL = "/worktalk";
 const WORKTALK_DEEP_LINK_MESSAGE = "WORKTALK_DEEP_LINK";
 const WORKTALK_PUSH_DEBUG_MESSAGE = "WORKTALK_PUSH_DEBUG";
 const WORKTALK_CLIENT_STATE_MESSAGE = "WORKTALK_CLIENT_STATE";
+const WORKTALK_CLIENT_STATE_REQUEST_MESSAGE = "WORKTALK_CLIENT_STATE_REQUEST";
 const WORKTALK_VIBRATION_PATTERN = [240, 120, 240];
 const WORKTALK_ACTIVE_CLIENT_TTL_MS = 8_000;
 const worktalkClientStates = new Map();
+const pendingClientStateRequests = new Map();
 
 function toNullableString(value) {
   if (value === undefined || value === null || value === "") return null;
@@ -85,7 +87,6 @@ function isActiveRoomClientVisible(roomId) {
 
     if (
       state.visible === true &&
-      state.focused === true &&
       state.activeSection === "chat" &&
       state.conversationOpen === true &&
       String(state.activeRoomId || "") === targetRoomId
@@ -95,6 +96,48 @@ function isActiveRoomClientVisible(roomId) {
   }
 
   return false;
+}
+
+function finishClientStateRequest(requestId) {
+  const pending = pendingClientStateRequests.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeoutId);
+  pendingClientStateRequests.delete(requestId);
+  pending.resolve();
+}
+
+function requestClientStateRefresh(clients, roomId) {
+  const windowClients = Array.isArray(clients) ? clients : [];
+  if (windowClients.length === 0) return Promise.resolve();
+
+  const requestId = `state-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      pendingClientStateRequests.delete(requestId);
+      resolve();
+    }, 350);
+
+    pendingClientStateRequests.set(requestId, {
+      resolve,
+      timeoutId,
+      roomId: toNullableString(roomId),
+    });
+
+    windowClients.forEach((client) => {
+      try {
+        client.postMessage({
+          type: WORKTALK_CLIENT_STATE_REQUEST_MESSAGE,
+          requestId,
+          roomId,
+        });
+      } catch {
+        // State refresh is best-effort; stale state fallback still applies.
+      }
+    });
+  });
 }
 
 self.addEventListener("install", () => {
@@ -118,6 +161,13 @@ self.addEventListener("message", (event) => {
     focused: data.focused === true,
     updatedAt: Date.now(),
   });
+
+  if (data.requestId && pendingClientStateRequests.has(data.requestId)) {
+    const pending = pendingClientStateRequests.get(data.requestId);
+    if (pending?.roomId && isActiveRoomClientVisible(pending.roomId)) {
+      finishClientStateRequest(data.requestId);
+    }
+  }
 });
 
 self.addEventListener("push", (event) => {
@@ -172,7 +222,9 @@ self.addEventListener("push", (event) => {
           reason: "service worker push",
           roomId,
           messageId,
-        }).then(() => clients);
+        })
+          .then(() => requestClientStateRefresh(clients, roomId))
+          .then(() => clients);
       })
       .then(() => {
         const hasActiveRoomClient = isActiveRoomClientVisible(roomId);

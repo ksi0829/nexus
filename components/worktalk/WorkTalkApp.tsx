@@ -1705,6 +1705,7 @@ export function WorkTalkApp() {
             room?: string | number | null;
             messageId?: string | number | null;
             message?: string | number | null;
+            requestId?: string;
             scope?: "notification" | "vibration";
             event?: string;
             reason?: string;
@@ -1721,6 +1722,27 @@ export function WorkTalkApp() {
         | null;
 
       if (!data) return;
+
+      if (data.type === "WORKTALK_CLIENT_STATE_REQUEST") {
+        const activeRoomId = selectedRoomIdUiRef.current;
+        const isNarrowLayout = window.matchMedia(
+          WORKTALK_MOBILE_LAYOUT_QUERY
+        ).matches;
+        navigator.serviceWorker.controller?.postMessage({
+          type: "WORKTALK_CLIENT_STATE",
+          requestId: data.requestId,
+          activeRoomId,
+          activeSection: activeSectionRef.current,
+          conversationOpen:
+            activeSectionRef.current === "chat" &&
+            Boolean(activeRoomId) &&
+            (!isNarrowLayout || mobileConversationOpenRef.current),
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+          timestamp: Date.now(),
+        });
+        return;
+      }
 
       if (data.type === "WORKTALK_PUSH_DEBUG") {
         const rawRoom =
