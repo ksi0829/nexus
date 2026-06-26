@@ -4,9 +4,11 @@ const WORKTALK_PUSH_DEBUG_MESSAGE = "WORKTALK_PUSH_DEBUG";
 const WORKTALK_CLIENT_STATE_MESSAGE = "WORKTALK_CLIENT_STATE";
 const WORKTALK_CLIENT_STATE_REQUEST_MESSAGE = "WORKTALK_CLIENT_STATE_REQUEST";
 const WORKTALK_VIBRATION_PATTERN = [240, 120, 240];
-const WORKTALK_ACTIVE_CLIENT_TTL_MS = 8_000;
+const WORKTALK_ACTIVE_CLIENT_TTL_MS = 30_000;
+const WORKTALK_RECENT_NOTIFICATION_TAG_TTL_MS = 20_000;
 const worktalkClientStates = new Map();
 const pendingClientStateRequests = new Map();
+const recentNotificationTags = new Map();
 
 function toNullableString(value) {
   if (value === undefined || value === null || value === "") return null;
@@ -98,6 +100,60 @@ function isActiveRoomClientVisible(roomId) {
   return false;
 }
 
+function pruneRecentNotificationTags() {
+  const now = Date.now();
+  for (const [tag, createdAt] of recentNotificationTags.entries()) {
+    if (now - createdAt > WORKTALK_RECENT_NOTIFICATION_TAG_TTL_MS) {
+      recentNotificationTags.delete(tag);
+    }
+  }
+}
+
+function buildClientStateSnapshot(roomId, clients = []) {
+  const now = Date.now();
+  const targetRoomId = toNullableString(roomId);
+  const clientStateRows = [];
+
+  for (const [clientId, state] of worktalkClientStates.entries()) {
+    if (!state || now - state.updatedAt > WORKTALK_ACTIVE_CLIENT_TTL_MS) {
+      worktalkClientStates.delete(clientId);
+      continue;
+    }
+
+    clientStateRows.push({
+      clientId,
+      activeRoomId: state.activeRoomId,
+      activeSection: state.activeSection,
+      conversationOpen: state.conversationOpen === true,
+      visible: state.visible === true,
+      focused: state.focused === true,
+      ageMs: now - state.updatedAt,
+      matchesRoom:
+        Boolean(targetRoomId) && String(state.activeRoomId || "") === targetRoomId,
+    });
+  }
+
+  const matchingClient = clientStateRows.find(
+    (state) =>
+      state.visible === true &&
+      state.activeSection === "chat" &&
+      state.conversationOpen === true &&
+      state.matchesRoom === true
+  );
+
+  return {
+    clientsMatchedCount: Array.isArray(clients) ? clients.length : 0,
+    knownClientStateCount: clientStateRows.length,
+    shouldSuppressNotification: Boolean(matchingClient),
+    clientActiveRoomId: matchingClient?.activeRoomId || null,
+    clientActiveSection: matchingClient?.activeSection || null,
+    clientConversationOpen: matchingClient?.conversationOpen ?? null,
+    clientVisible: matchingClient?.visible ?? null,
+    clientFocused: matchingClient?.focused ?? null,
+    clientStates: clientStateRows.slice(0, 6),
+  };
+}
+
 function finishClientStateRequest(requestId) {
   const pending = pendingClientStateRequests.get(requestId);
   if (!pending) return;
@@ -118,7 +174,7 @@ function requestClientStateRefresh(clients, roomId) {
     const timeoutId = setTimeout(() => {
       pendingClientStateRequests.delete(requestId);
       resolve();
-    }, 350);
+    }, 900);
 
     pendingClientStateRequests.set(requestId, {
       resolve,
@@ -197,8 +253,12 @@ self.addEventListener("push", (event) => {
     body: payload.body || "새 알림이 도착했습니다.",
     icon: "/notification-icon.png?v=6",
     badge: "/notification-badge.png?v=6",
-    tag: payload.tag || `worktalk-${Date.now()}`,
-    renotify: true,
+    tag:
+      payload.tag ||
+      `worktalk-${toNullableString(roomId) || "room"}-${
+        toNullableString(messageId) || Date.now()
+      }`,
+    renotify: false,
     silent: false,
     vibrate: WORKTALK_VIBRATION_PATTERN,
     data: {
@@ -226,17 +286,38 @@ self.addEventListener("push", (event) => {
           .then(() => requestClientStateRefresh(clients, roomId))
           .then(() => clients);
       })
-      .then(() => {
-        const hasActiveRoomClient = isActiveRoomClientVisible(roomId);
-        if (hasActiveRoomClient) {
+      .then((clients) => {
+        const snapshot = buildClientStateSnapshot(roomId, clients);
+        const suppressDebugPayload = {
+          scope: "notification",
+          event: "push suppress check",
+          reason: snapshot.shouldSuppressNotification
+            ? "active room visible client"
+            : "no active room client",
+          roomId,
+          messageId,
+          pushPayloadRoomId: roomId,
+          clientActiveRoomId: snapshot.clientActiveRoomId,
+          clientActiveSection: snapshot.clientActiveSection,
+          clientConversationOpen: snapshot.clientConversationOpen,
+          clientVisible: snapshot.clientVisible,
+          clientFocused: snapshot.clientFocused,
+          clientsMatchedCount: snapshot.clientsMatchedCount,
+          knownClientStateCount: snapshot.knownClientStateCount,
+          shouldSuppressNotification: snapshot.shouldSuppressNotification,
+          clientStates: JSON.stringify(snapshot.clientStates),
+          notificationTag: options.tag,
+        };
+
+        if (snapshot.shouldSuppressNotification) {
           return broadcastPushDebug({
-            scope: "vibration",
-            event: "vibration skipped",
+            ...suppressDebugPayload,
+            scope: "notification",
+            event: "notification skipped",
             reason: "active room visible client",
-            roomId,
-            messageId,
           });
         }
+
         options.data.swDebug = {
           ...swDebug,
           event: "notification shown",
@@ -252,17 +333,43 @@ self.addEventListener("push", (event) => {
         );
         options.data.targetUrl = targetUrl;
         options.data.url = targetUrl;
-        return self.registration
-          .showNotification(title, options)
-          .then(() =>
-            broadcastPushDebug({
+        return broadcastPushDebug(suppressDebugPayload)
+          .then(() => self.registration.getNotifications({ tag: options.tag }))
+          .then((notifications) => {
+            pruneRecentNotificationTags();
+            if (
+              notifications.length > 0 ||
+              recentNotificationTags.has(options.tag)
+            ) {
+              return broadcastPushDebug({
+                scope: "notification",
+                event: "notification skipped",
+                reason: "duplicate notification tag",
+                roomId,
+                messageId,
+                pushPayloadRoomId: roomId,
+                notificationTag: options.tag,
+                existingNotificationCount: notifications.length,
+                shouldSuppressNotification: true,
+              }).then(() => false);
+            }
+            recentNotificationTags.set(options.tag, Date.now());
+            return self.registration
+              .showNotification(title, options)
+              .then(() => true);
+          })
+          .then((notificationShown) => {
+            if (!notificationShown) return undefined;
+            return broadcastPushDebug({
               scope: "vibration",
               event: "vibration triggered",
               reason: "background push notification",
               roomId,
               messageId,
-            })
-          );
+              pushPayloadRoomId: roomId,
+              notificationTag: options.tag,
+            });
+          });
       })
   );
 });

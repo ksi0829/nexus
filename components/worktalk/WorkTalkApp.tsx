@@ -82,6 +82,18 @@ type WorkTalkUxDebugEvent = {
   appTop?: string | null;
   appLeft?: string | null;
   appDisplay?: string | null;
+  pushPayloadRoomId?: string | number | null;
+  clientActiveRoomId?: string | number | null;
+  clientActiveSection?: string | null;
+  clientConversationOpen?: boolean | null;
+  clientVisible?: boolean | null;
+  clientFocused?: boolean | null;
+  clientsMatchedCount?: number | null;
+  knownClientStateCount?: number | null;
+  shouldSuppressNotification?: boolean | null;
+  notificationTag?: string | null;
+  existingNotificationCount?: number | null;
+  clientStates?: string | null;
   timestamp: string;
 };
 type DeepLinkDebugStatus = {
@@ -1712,6 +1724,18 @@ export function WorkTalkApp() {
             visible?: boolean | null;
             focused?: boolean | null;
             documentVisibility?: string;
+            pushPayloadRoomId?: string | number | null;
+            clientActiveRoomId?: string | number | null;
+            clientActiveSection?: string | null;
+            clientConversationOpen?: boolean | null;
+            clientVisible?: boolean | null;
+            clientFocused?: boolean | null;
+            clientsMatchedCount?: number | null;
+            knownClientStateCount?: number | null;
+            shouldSuppressNotification?: boolean | null;
+            notificationTag?: string | null;
+            existingNotificationCount?: number | null;
+            clientStates?: string | null;
             swDebug?: {
               event?: string;
               reason?: string;
@@ -1760,6 +1784,18 @@ export function WorkTalkApp() {
           visible: document.visibilityState === "visible",
           focused: document.hasFocus(),
           documentVisibility: document.visibilityState,
+          pushPayloadRoomId: data.pushPayloadRoomId,
+          clientActiveRoomId: data.clientActiveRoomId,
+          clientActiveSection: data.clientActiveSection,
+          clientConversationOpen: data.clientConversationOpen,
+          clientVisible: data.clientVisible,
+          clientFocused: data.clientFocused,
+          clientsMatchedCount: data.clientsMatchedCount,
+          knownClientStateCount: data.knownClientStateCount,
+          shouldSuppressNotification: data.shouldSuppressNotification,
+          notificationTag: data.notificationTag,
+          existingNotificationCount: data.existingNotificationCount,
+          clientStates: data.clientStates,
         });
         return;
       }
@@ -4894,6 +4930,39 @@ export function WorkTalkApp() {
                   <div>reason: {event.reason || "null"}</div>
                   <div>roomId: {event.roomId ?? "null"}</div>
                   <div>activeRoomId: {event.activeRoomId ?? "null"}</div>
+                  <div>
+                    push payload roomId: {event.pushPayloadRoomId ?? "null"}
+                  </div>
+                  <div>
+                    client activeRoomId: {event.clientActiveRoomId ?? "null"}
+                  </div>
+                  <div>
+                    client activeSection: {event.clientActiveSection ?? "null"}
+                  </div>
+                  <div>
+                    client conversationOpen:{" "}
+                    {String(event.clientConversationOpen)}
+                  </div>
+                  <div>client visible: {String(event.clientVisible)}</div>
+                  <div>client focused: {String(event.clientFocused)}</div>
+                  <div>
+                    clients.matchAll count:{" "}
+                    {event.clientsMatchedCount ?? "null"}
+                  </div>
+                  <div>
+                    known client states:{" "}
+                    {event.knownClientStateCount ?? "null"}
+                  </div>
+                  <div>
+                    shouldSuppressNotification:{" "}
+                    {String(event.shouldSuppressNotification)}
+                  </div>
+                  <div>notificationTag: {event.notificationTag || "null"}</div>
+                  <div>
+                    existingNotificationCount:{" "}
+                    {event.existingNotificationCount ?? "null"}
+                  </div>
+                  <div>clientStates: {event.clientStates || "null"}</div>
                   <div>
                     document.visibilityState:{" "}
                     {event.documentVisibility || "null"}

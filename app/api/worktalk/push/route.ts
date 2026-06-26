@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
       (subscriptionsByUser.get(notification.user_id) || []).map(
         async (subscription) => {
           try {
+            const notificationTag = `worktalk-${notification.room_id}-${notification.message_id}`;
             await webpush.sendNotification(
               {
                 endpoint: subscription.endpoint,
@@ -167,12 +168,17 @@ export async function POST(request: NextRequest) {
               JSON.stringify({
                 title: notification.title,
                 body: notification.body || "새 메시지가 도착했습니다.",
-                tag: `worktalk-${notification.user_id}-${notification.message_id}`,
+                tag: notificationTag,
+                roomId: notification.room_id,
+                room: notification.room_id,
+                messageId: notification.message_id,
+                message: notification.message_id,
                 url: `/worktalk?room=${notification.room_id}&message=${notification.message_id}`,
               }),
               {
                 TTL: 60,
                 urgency: "high",
+                topic: `wt-${notification.room_id}-${notification.message_id}`,
               }
             );
             sent += 1;
