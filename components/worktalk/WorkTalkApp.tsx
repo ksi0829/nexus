@@ -3,6 +3,7 @@
 import {
   DragEvent,
   FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   useCallback,
@@ -141,6 +142,8 @@ const workTalkSupabase = createSupabaseBrowser();
 const NEXUS_DOCUMENT_BUCKET = "nexus-documents";
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 const WORKTALK_MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
+const ROOM_TAP_MOVE_THRESHOLD = 10;
+const ROOM_TAP_MAX_DURATION = 800;
 const ORG_GROUP_ORDER = [
   "경영진",
   ...CURRENT_ORG.map((group) => group.team),
@@ -181,6 +184,13 @@ type WorkTalkDeepLink = {
   sourceUrl: string;
   rawRoom: string | null;
   rawMessage: string | null;
+};
+type RoomTapStart = {
+  roomId: number;
+  pointerId: number;
+  x: number;
+  y: number;
+  time: number;
 };
 
 function parsePositiveInt(value: string | null) {
@@ -701,6 +711,8 @@ export function WorkTalkApp() {
   const lastVibratedNotificationIdRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollTimersRef = useRef<number[]>([]);
+  const roomTapStartRef = useRef<RoomTapStart | null>(null);
+  const mobileRoomHistoryActiveRef = useRef(false);
   const {
     status: pushStatus,
     errorMessage: pushErrorMessage,
@@ -872,6 +884,73 @@ export function WorkTalkApp() {
     },
     [clearSelectedRoom, setRoomSelectionRestoreBlocked]
   );
+
+  const registerMobileConversationHistory = useCallback(
+    (roomId: number) => {
+      if (typeof window === "undefined") return;
+      if (popupMode || !isNarrowLayoutNow) return;
+      if (mobileRoomHistoryActiveRef.current) return;
+
+      mobileRoomHistoryActiveRef.current = true;
+      window.history.pushState(
+        { nexusView: "worktalk-room", roomId },
+        "",
+        "/worktalk"
+      );
+    },
+    [isNarrowLayoutNow, popupMode]
+  );
+
+  const closeMobileConversation = useCallback(
+    (reason: string) => {
+      if (popupMode) {
+        window.close();
+        return;
+      }
+
+      if (mobileRoomHistoryActiveRef.current) {
+        window.history.back();
+        return;
+      }
+
+      setMobileConversationOpen(false);
+      forceMobileListModeReset(reason);
+    },
+    [forceMobileListModeReset, popupMode]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handlePopState = () => {
+      if (!mobileRoomHistoryActiveRef.current && !mobileConversationOpenRef.current) {
+        return;
+      }
+
+      mobileRoomHistoryActiveRef.current = false;
+      setActiveSection("chat");
+      setMobileConversationOpen(false);
+      setRoomMenuOpen(false);
+      setMemberListOpen(false);
+      setMemberManagerOpen(false);
+      setMessageMenu(null);
+      setReplyTarget(null);
+      forceMobileListModeReset("mobile_hardware_back");
+
+      window.setTimeout(() => {
+        if (window.location.pathname !== "/worktalk" || window.location.search) {
+          window.history.replaceState(
+            { nexusView: "worktalk-list" },
+            "",
+            "/worktalk"
+          );
+        }
+      }, 0);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [forceMobileListModeReset]);
 
   useEffect(() => {
     if (isActualMobileListView && !hasPendingDeepLinkTarget) {
@@ -1960,7 +2039,7 @@ export function WorkTalkApp() {
 
     deepLinkHandledRef.current = true;
 
-      const timeoutId = window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
@@ -1976,10 +2055,8 @@ export function WorkTalkApp() {
         roomId: deepLink.roomId,
         messageId: deepLink.messageId ?? null,
       });
-      selectRoom(
-        deepLink.roomId,
-        deepLink.messageId
-      );
+      selectRoom(deepLink.roomId, deepLink.messageId);
+      registerMobileConversationHistory(deepLink.roomId);
       setServiceWorkerDeepLink(null);
       window.history.replaceState({}, "", "/worktalk");
       if (!deepLink.messageId) {
@@ -1997,6 +2074,7 @@ export function WorkTalkApp() {
     serviceWorkerDeepLink,
     setRoomSelectionRestoreBlocked,
     setupState,
+    registerMobileConversationHistory,
     updateDeepLinkDebugStatus,
   ]);
 
@@ -2372,6 +2450,7 @@ export function WorkTalkApp() {
         selectRoom(normalizedRoomId, focusMessageId);
       }
       setMobileConversationOpen(true);
+      registerMobileConversationHistory(normalizedRoomId);
       return;
     }
     selectRoom(normalizedRoomId, focusMessageId || undefined);
@@ -2383,7 +2462,53 @@ export function WorkTalkApp() {
     setMessageSearch("");
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
+    registerMobileConversationHistory(normalizedRoomId);
     scheduleBottomScroll();
+  }
+
+  function handleRoomPointerDown(
+    roomId: number,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    roomTapStartRef.current = {
+      roomId,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      time: Date.now(),
+    };
+    setHighlightedRoomId(roomId);
+  }
+
+  function handleRoomPointerUp(
+    roomId: number,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    const start = roomTapStartRef.current;
+    roomTapStartRef.current = null;
+    if (!start || start.roomId !== roomId || start.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const moved =
+      Math.abs(event.clientX - start.x) > ROOM_TAP_MOVE_THRESHOLD ||
+      Math.abs(event.clientY - start.y) > ROOM_TAP_MOVE_THRESHOLD;
+    const tooSlow = Date.now() - start.time > ROOM_TAP_MAX_DURATION;
+    if (moved || tooSlow) return;
+
+    event.preventDefault();
+    openRoom(roomId);
+  }
+
+  function handleRoomKeyDown(
+    roomId: number,
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setHighlightedRoomId(roomId);
+    openRoom(roomId);
   }
 
   function openSearchResult(result: WorkTalkSearchResult) {
@@ -3089,8 +3214,13 @@ export function WorkTalkApp() {
                     onClick={() => {
                       setHighlightedRoomId(room.id);
                     }}
-                    onDoubleClick={() => openRoom(room.id)}
-                    title="더블클릭하여 대화방 열기"
+                    onPointerDown={(event) => handleRoomPointerDown(room.id, event)}
+                    onPointerUp={(event) => handleRoomPointerUp(room.id, event)}
+                    onPointerCancel={() => {
+                      roomTapStartRef.current = null;
+                    }}
+                    onKeyDown={(event) => handleRoomKeyDown(room.id, event)}
+                    title="대화방 열기"
                   >
                     <RoomAvatar room={room} />
                     <span className={styles.roomSummary}>
@@ -3576,9 +3706,7 @@ export function WorkTalkApp() {
               <button
                 type="button"
                 className={styles.mobileBack}
-                onClick={() =>
-                  popupMode ? window.close() : setMobileConversationOpen(false)
-                }
+                onClick={() => closeMobileConversation("conversation_header_back")}
                 aria-label="대화방 목록으로 돌아가기"
               >
                 <WorkTalkIcon name="back" />

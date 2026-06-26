@@ -126,6 +126,32 @@ internal sealed class NexusApplicationContext : ApplicationContext
         return false;
     }
 
+    internal bool ActivateExistingChatRoom(int roomId)
+    {
+        if (mainWindow.IsChatRoomWindow(roomId))
+        {
+            ShowMainWindow();
+            return true;
+        }
+
+        foreach (NexusWindow window in chatWindows.ToArray())
+        {
+            if (window.IsDisposed)
+            {
+                chatWindows.Remove(window);
+                continue;
+            }
+
+            if (window.IsChatRoomWindow(roomId))
+            {
+                window.BringToFrontForRoom();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     internal void ShowNotification(string title, string body, int? roomId)
     {
         if (roomId.HasValue && HasActiveChatWindow(roomId.Value))
@@ -393,6 +419,16 @@ internal class NexusWindow : Form
         CoreWebView2NewWindowRequestedEventArgs eventArgs
     )
     {
+        int? requestedRoomId = ExtractRoomId(eventArgs.Uri);
+        if (
+            requestedRoomId.HasValue &&
+            applicationContext.ActivateExistingChatRoom(requestedRoomId.Value)
+        )
+        {
+            eventArgs.Handled = true;
+            return;
+        }
+
         CoreWebView2Deferral deferral = eventArgs.GetDeferral();
         try
         {
@@ -428,8 +464,39 @@ internal class NexusWindow : Form
             WindowState != FormWindowState.Minimized &&
             clientConversationOpen &&
             clientVisible &&
-            clientFocused &&
-            (ContainsFocus || Focused || ActiveForm == this || mainWindow);
+            (clientFocused || ContainsFocus || Focused || ActiveForm == this);
+    }
+
+    internal bool IsChatRoomWindow(int roomId)
+    {
+        if (activeRoomId.HasValue && activeRoomId.Value == roomId)
+        {
+            return true;
+        }
+
+        string source = string.Empty;
+        if (webView.Source != null)
+        {
+            source = webView.Source.AbsoluteUri;
+        }
+        else if (webView.CoreWebView2 != null)
+        {
+            source = webView.CoreWebView2.Source;
+        }
+
+        int? sourceRoomId = ExtractRoomId(source);
+        return sourceRoomId.HasValue && sourceRoomId.Value == roomId;
+    }
+
+    internal void BringToFrontForRoom()
+    {
+        ShowInTaskbar = true;
+        Show();
+        if (WindowState == FormWindowState.Minimized)
+        {
+            WindowState = FormWindowState.Normal;
+        }
+        Activate();
     }
 
     private void UpdateClientState(System.Collections.Generic.Dictionary<string, object> payload)
@@ -539,7 +606,11 @@ internal class NexusWindow : Form
         bool isLoginPage =
             currentUrl.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0;
 
-        if (isLoginPage)
+        bool isAuthenticated = authenticatedState.HasValue
+            ? authenticatedState.Value
+            : !isLoginPage;
+
+        if (!isAuthenticated)
         {
             allowClose = true;
             applicationContext.ExitFromLogin();

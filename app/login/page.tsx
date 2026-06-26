@@ -137,7 +137,7 @@ export default function LoginPage() {
       await recordLoginActivity(profile);
 
       const nextPath = new URLSearchParams(window.location.search).get("next");
-      router.push(nextPath?.startsWith("/") ? nextPath : "/worktalk");
+      router.replace(nextPath?.startsWith("/") ? nextPath : "/worktalk");
     } catch (err) {
       console.error(err);
       alert("로그인 중 오류 발생");

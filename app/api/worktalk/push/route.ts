@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
     .from("worktalk_notifications")
     .select("id,user_id,room_id,message_id,title,body")
     .eq("sender_id", user.id)
+    .neq("user_id", user.id)
     .eq("room_id", roomId)
     .is("push_sent_at", null)
     .gte("created_at", pendingSince)
@@ -83,15 +84,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: pendingError.message }, { status: 500 });
   }
 
-  const notifications = (pendingRows || []) as NotificationRow[];
-  if (notifications.length === 0) {
+  const pendingNotifications = (pendingRows || []) as NotificationRow[];
+  if (pendingNotifications.length === 0) {
     return NextResponse.json({ sent: 0, removed: 0 });
+  }
+
+  const pendingNotificationIds = pendingNotifications.map(
+    (notification) => notification.id
+  );
+  const claimTime = new Date().toISOString();
+  const { data: claimedRows, error: claimError } = await admin
+    .from("worktalk_notifications")
+    .update({ push_sent_at: claimTime })
+    .in("id", pendingNotificationIds)
+    .is("push_sent_at", null)
+    .select("id,user_id,room_id,message_id,title,body");
+
+  if (claimError) {
+    return NextResponse.json({ error: claimError.message }, { status: 500 });
+  }
+
+  const notifications = (claimedRows || []) as NotificationRow[];
+  if (notifications.length === 0) {
+    return NextResponse.json({ sent: 0, removed: 0, claimed: 0 });
   }
 
   const deliveryNotifications = [
     ...new Map(
       notifications.map((notification) => [
-        `${notification.user_id}:${notification.message_id}`,
+        `${notification.user_id}:${notification.room_id}:${notification.message_id}`,
         notification,
       ])
     ).values(),
@@ -177,12 +198,6 @@ export async function POST(request: NextRequest) {
     )
   );
 
-  const notificationIds = notifications.map((notification) => notification.id);
-  await admin
-    .from("worktalk_notifications")
-    .update({ push_sent_at: new Date().toISOString() })
-    .in("id", notificationIds);
-
   if (expiredSubscriptionIds.size > 0) {
     await admin
       .from("worktalk_push_subscriptions")
@@ -192,6 +207,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     sent,
+    claimed: notifications.length,
     removed: expiredSubscriptionIds.size,
   });
 }
