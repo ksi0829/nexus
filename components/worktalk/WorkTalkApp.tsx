@@ -3525,20 +3525,36 @@ export function WorkTalkApp() {
                 앱을 닫거나 백그라운드에 두어도 이 기기로 알림이 옵니다.
               </p>
             )}
-            {!isNexusDesktopApp && isIOS && !isStandalone && (
-              <p className={styles.pushHint}>
-                iPhone은 Safari 공유 메뉴에서 ‘홈 화면에 추가’한 뒤 설치된
-                NEXUS에서 푸시를 켜주세요.
-              </p>
-            )}
-            {!isNexusDesktopApp && !isIOS && !isStandalone && canInstall && (
-              <div className={styles.installPrompt}>
-                <span>NEXUS를 앱처럼 홈 화면에 설치할 수 있습니다.</span>
+            <div className={styles.installStatusCard}>
+              <span>
+                <WorkTalkIcon name="document" />
+                이 기기에 설치
+              </span>
+              {isNexusDesktopApp ? (
+                <em className={styles.installReadyBadge}>Windows 앱 실행 중</em>
+              ) : isStandalone ? (
+                <em className={styles.installReadyBadge}>앱으로 실행 중</em>
+              ) : canInstall ? (
                 <button type="button" onClick={() => void install()}>
-                  홈 화면 설치
+                  설치하기
                 </button>
-              </div>
-            )}
+              ) : (
+                <em className={styles.installUnavailableBadge}>
+                  {isIOS ? "Safari에서 설치 가능" : "브라우저 메뉴 사용"}
+                </em>
+              )}
+              <small>
+                {isNexusDesktopApp
+                  ? "설치형 앱에서는 닫기 버튼을 눌러도 트레이에서 알림을 받을 수 있습니다."
+                  : isStandalone
+                    ? "현재 설치된 NEXUS TALK 앱 화면으로 실행 중입니다."
+                    : canInstall
+                      ? "PC와 Android Chrome에서는 버튼을 눌러 앱처럼 설치할 수 있습니다."
+                      : isIOS
+                        ? "iPhone은 Safari 공유 메뉴의 ‘홈 화면에 추가’로 설치합니다."
+                        : "설치 버튼이 보이지 않으면 브라우저 주소창 또는 메뉴의 앱 설치를 사용하세요."}
+              </small>
+            </div>
             {!isNexusDesktopApp && pushStatus === "denied" && (
               <p className={styles.pushError}>
                 브라우저 설정에서 NEXUS 알림 권한을 허용해야 합니다.

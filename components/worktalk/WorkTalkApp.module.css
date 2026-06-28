@@ -580,30 +580,66 @@
   color: #b14f47;
 }
 
-.installPrompt {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: -2px 18px 10px;
-  padding: 9px 10px;
-  border-radius: 9px;
-  background: #edf6f2;
-  color: #49645b;
-  font-size: 9.5px;
-  line-height: 1.4;
+.installStatusCard {
+  display: grid;
+  gap: 7px;
+  margin: 0 18px 10px;
+  padding: 11px;
+  border: 1px solid #dce8e4;
+  border-radius: 12px;
+  background: #f7faf9;
+  color: #425751;
 }
 
-.installPrompt button {
-  flex: none;
-  padding: 6px 8px;
+.installStatusCard > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #324942;
+  font-size: 10.5px;
+  font-weight: 900;
+}
+
+.installStatusCard svg {
+  width: 15px;
+}
+
+.installStatusCard button {
+  width: fit-content;
+  padding: 7px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--wt-primary);
   color: #fff;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 850;
   cursor: pointer;
+}
+
+.installStatusCard small {
+  color: #697974;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.installReadyBadge,
+.installUnavailableBadge {
+  width: fit-content;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.installReadyBadge {
+  background: #e3f3eb;
+  color: #217652;
+}
+
+.installUnavailableBadge {
+  background: #eef3f1;
+  color: #64736f;
 }
 
 .notificationTabs {
