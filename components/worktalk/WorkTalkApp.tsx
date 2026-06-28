@@ -3534,7 +3534,7 @@ export function WorkTalkApp() {
               {isNexusDesktopApp ? (
                 <em className={styles.installReadyBadge}>Windows 앱 실행 중</em>
               ) : isStandalone ? (
-                <em className={styles.installReadyBadge}>앱으로 실행 중</em>
+                <em className={styles.installReadyBadge}>Chrome PWA 실행 중</em>
               ) : canInstall ? (
                 <button type="button" onClick={() => void install()}>
                   설치하기
@@ -3550,7 +3550,7 @@ export function WorkTalkApp() {
                 {isNexusDesktopApp
                   ? "설치형 앱에서는 닫기 버튼을 눌러도 트레이에서 알림을 받을 수 있습니다."
                   : isStandalone
-                    ? "현재 설치된 NEXUS TALK 앱 화면으로 실행 중입니다."
+                    ? "현재 Chrome PWA 앱 화면으로 실행 중입니다. Chrome PWA는 닫기 버튼을 누르면 종료되며, 트레이 상주는 Windows 설치형 NEXUS.exe에서만 지원됩니다."
                     : canInstall
                       ? "버튼을 누르면 Chrome 설치 프롬프트가 열리고 바탕화면/시작 메뉴 또는 홈 화면에 아이콘이 생성됩니다."
                       : hasInstalledApp
