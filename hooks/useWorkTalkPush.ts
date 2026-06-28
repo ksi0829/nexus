@@ -17,6 +17,12 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+type NavigatorWithInstalledApps = Navigator & {
+  getInstalledRelatedApps?: () => Promise<Array<{ id?: string; platform?: string }>>;
+};
+
+const INSTALL_MARKER_KEY = "nexusTalkInstalled";
+
 function urlBase64ToUint8Array(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -73,6 +79,7 @@ export function useWorkTalkPush(enabled: boolean) {
   const [errorMessage, setErrorMessage] = useState("");
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [hasInstalledApp, setHasInstalledApp] = useState(false);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -121,8 +128,24 @@ export function useWorkTalkPush(enabled: boolean) {
         window.matchMedia("(display-mode: standalone)").matches ||
         ("standalone" in navigator &&
           Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+      const installedMarker =
+        window.localStorage.getItem(INSTALL_MARKER_KEY) === "true";
       setIsIOS(ios);
       setIsStandalone(standalone);
+      setHasInstalledApp(standalone || installedMarker);
+      if (standalone) {
+        window.localStorage.setItem(INSTALL_MARKER_KEY, "true");
+      }
+      const installedAppsGetter = (navigator as NavigatorWithInstalledApps)
+        .getInstalledRelatedApps;
+      if (typeof installedAppsGetter === "function") {
+        void installedAppsGetter.call(navigator).then((apps) => {
+          if (apps.length > 0) {
+            window.localStorage.setItem(INSTALL_MARKER_KEY, "true");
+            setHasInstalledApp(true);
+          }
+        });
+      }
       void register().catch((error) => {
         setErrorMessage(getPushErrorMessage(error));
         setStatus("error");
@@ -135,10 +158,13 @@ export function useWorkTalkPush(enabled: boolean) {
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
       event.preventDefault();
+      setHasInstalledApp(false);
       setInstallPrompt(event as BeforeInstallPromptEvent);
     };
     const handleInstalled = () => {
       setInstallPrompt(null);
+      setHasInstalledApp(true);
+      window.localStorage.setItem(INSTALL_MARKER_KEY, "true");
       setIsStandalone(true);
     };
 
@@ -221,6 +247,7 @@ export function useWorkTalkPush(enabled: boolean) {
     errorMessage,
     isIOS,
     isStandalone,
+    hasInstalledApp,
     canInstall: Boolean(installPrompt),
     install,
     subscribe,

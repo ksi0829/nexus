@@ -730,6 +730,7 @@ export function WorkTalkApp() {
     errorMessage: pushErrorMessage,
     isIOS,
     isStandalone,
+    hasInstalledApp,
     canInstall,
     install,
     subscribe: subscribeToPush,
@@ -3538,9 +3539,11 @@ export function WorkTalkApp() {
                 <button type="button" onClick={() => void install()}>
                   설치하기
                 </button>
+              ) : hasInstalledApp ? (
+                <em className={styles.installReadyBadge}>설치됨</em>
               ) : (
                 <em className={styles.installUnavailableBadge}>
-                  {isIOS ? "Safari에서 설치 가능" : "브라우저 메뉴 사용"}
+                  {isIOS ? "Safari에서 설치 가능" : "설치 버튼 대기"}
                 </em>
               )}
               <small>
@@ -3549,10 +3552,12 @@ export function WorkTalkApp() {
                   : isStandalone
                     ? "현재 설치된 NEXUS TALK 앱 화면으로 실행 중입니다."
                     : canInstall
-                      ? "PC와 Android Chrome에서는 버튼을 눌러 앱처럼 설치할 수 있습니다."
-                      : isIOS
-                        ? "iPhone은 Safari 공유 메뉴의 ‘홈 화면에 추가’로 설치합니다."
-                        : "설치 버튼이 보이지 않으면 브라우저 주소창 또는 메뉴의 앱 설치를 사용하세요."}
+                      ? "버튼을 누르면 Chrome 설치 프롬프트가 열리고 바탕화면/시작 메뉴 또는 홈 화면에 아이콘이 생성됩니다."
+                      : hasInstalledApp
+                        ? "Chrome 주소창에 ‘앱에서 열기’가 보이면 이미 설치된 상태입니다. 새로 설치하려면 기존 NEXUS TALK 앱을 제거한 뒤 다시 접속하세요."
+                        : isIOS
+                          ? "iPhone은 Safari 공유 메뉴의 ‘홈 화면에 추가’로 설치합니다."
+                          : "미설치 상태라면 잠시 후 이 영역에 ‘설치하기’ 버튼이 표시됩니다. 이미 설치된 PC에서는 Chrome 주소창에 ‘앱에서 열기’가 표시됩니다."}
               </small>
             </div>
             {!isNexusDesktopApp && pushStatus === "denied" && (
