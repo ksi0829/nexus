@@ -3554,10 +3554,10 @@ export function WorkTalkApp() {
                     : canInstall
                       ? "버튼을 누르면 Chrome 설치 프롬프트가 열리고 바탕화면/시작 메뉴 또는 홈 화면에 아이콘이 생성됩니다."
                       : hasInstalledApp
-                        ? "Chrome 주소창에 ‘앱에서 열기’가 보이면 이미 설치된 상태입니다. 새로 설치하려면 기존 NEXUS TALK 앱을 제거한 뒤 다시 접속하세요."
+                        ? "Chrome이 이미 설치된 NEXUS TALK 앱으로 인식 중입니다. 재설치를 원하면 chrome://apps 또는 Chrome 앱 관리에서 기존 NEXUS TALK을 제거한 뒤 다시 접속하세요."
                         : isIOS
                           ? "iPhone은 Safari 공유 메뉴의 ‘홈 화면에 추가’로 설치합니다."
-                          : "미설치 상태라면 잠시 후 이 영역에 ‘설치하기’ 버튼이 표시됩니다. 이미 설치된 PC에서는 Chrome 주소창에 ‘앱에서 열기’가 표시됩니다."}
+                          : "Chrome이 설치 가능하다고 판단하면 이 영역에 ‘설치하기’ 버튼이 표시됩니다. 주소창에 ‘앱에서 열기’가 보이면 이미 설치된 앱으로 인식 중일 수 있으니 chrome://apps를 확인하세요."}
               </small>
             </div>
             {!isNexusDesktopApp && pushStatus === "denied" && (
