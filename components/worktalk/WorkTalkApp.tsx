@@ -1824,7 +1824,7 @@ export function WorkTalkApp() {
         const isNarrowLayout = window.matchMedia(
           WORKTALK_MOBILE_LAYOUT_QUERY
         ).matches;
-        navigator.serviceWorker.controller?.postMessage({
+        const statePayload = {
           type: "WORKTALK_CLIENT_STATE",
           requestId: data.requestId,
           activeRoomId,
@@ -1836,7 +1836,19 @@ export function WorkTalkApp() {
           visible: document.visibilityState === "visible",
           focused: document.hasFocus(),
           timestamp: Date.now(),
-        });
+        };
+        const controller = navigator.serviceWorker.controller;
+        controller?.postMessage(statePayload);
+        const messageSource = event.source as
+          | { postMessage?: (message: unknown) => void }
+          | null;
+        if (
+          messageSource &&
+          messageSource !== controller &&
+          typeof messageSource.postMessage === "function"
+        ) {
+          messageSource.postMessage(statePayload);
+        }
         return;
       }
 
@@ -1998,8 +2010,7 @@ export function WorkTalkApp() {
       (!isNarrowLayoutNow || mobileConversationOpen);
 
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-      const controller = navigator.serviceWorker.controller;
-      controller?.postMessage({
+      const statePayload = {
         type: "WORKTALK_CLIENT_STATE",
         activeRoomId,
         activeSection,
@@ -2007,7 +2018,17 @@ export function WorkTalkApp() {
         visible: document.visibilityState === "visible",
         focused: document.hasFocus(),
         timestamp: Date.now(),
-      });
+      };
+      const controller = navigator.serviceWorker.controller;
+      if (controller) {
+        controller.postMessage(statePayload);
+      } else {
+        void navigator.serviceWorker.ready
+          .then((registration) => {
+            registration.active?.postMessage(statePayload);
+          })
+          .catch(() => undefined);
+      }
     }
 
     if (isNexusDesktopApp) {
@@ -2049,6 +2070,24 @@ export function WorkTalkApp() {
       window.removeEventListener("blur", handleStateChange);
     };
   }, [selectedRoomId, syncWorkTalkClientStateToServiceWorker]);
+
+  useEffect(() => {
+    if (
+      activeSection !== "chat" ||
+      !selectedRoomId ||
+      !conversationPanelVisible
+    ) {
+      return;
+    }
+
+    syncWorkTalkClientStateToServiceWorker();
+  }, [
+    activeSection,
+    conversationPanelVisible,
+    messageTailKey,
+    selectedRoomId,
+    syncWorkTalkClientStateToServiceWorker,
+  ]);
 
   useEffect(() => {
     const deepLink = serviceWorkerDeepLink ?? readWorkTalkDeepLink();

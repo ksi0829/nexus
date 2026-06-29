@@ -563,6 +563,48 @@ export function useWorkTalk() {
     return true;
   }, []);
 
+  const mergeRealtimeRoomPreview = useCallback((message: WorkTalkMessage) => {
+    setRooms((current) => {
+      let changed = false;
+      const nextRooms = current.map((room) => {
+        if (room.id !== message.room_id) return room;
+        if (
+          room.latestMessage?.id === message.id &&
+          room.last_message_at === message.created_at
+        ) {
+          return room;
+        }
+        changed = true;
+        return {
+          ...room,
+          latestMessage: message,
+          last_message_at: message.created_at,
+        };
+      });
+
+      if (!changed) return current;
+
+      return nextRooms.sort((left, right) => {
+        const leftMember = left.members.find(
+          (member) => member.user_id === currentProfile?.id
+        );
+        const rightMember = right.members.find(
+          (member) => member.user_id === currentProfile?.id
+        );
+        if (Boolean(leftMember?.is_pinned) !== Boolean(rightMember?.is_pinned)) {
+          return leftMember?.is_pinned ? -1 : 1;
+        }
+        const orderDifference =
+          (leftMember?.sort_order || 0) - (rightMember?.sort_order || 0);
+        if (orderDifference !== 0) return orderDifference;
+        return (
+          new Date(right.last_message_at).getTime() -
+          new Date(left.last_message_at).getTime()
+        );
+      });
+    });
+  }, [currentProfile?.id]);
+
   useEffect(() => {
     setupStateRef.current = setupState;
   }, [setupState]);
@@ -2593,6 +2635,7 @@ export function useWorkTalk() {
               })
             );
             appendResult = appendRealtimeMessageToCurrentRoom(message);
+            mergeRealtimeRoomPreview(message);
             setRealtimeDebugStatus((current) => ({
               ...current,
               lastEvent: "messages:INSERT",
@@ -2617,7 +2660,9 @@ export function useWorkTalk() {
               timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
             }));
 
-            scheduleRoomRefresh(activeRoomId);
+            if (message.room_id !== activeRoomId) {
+              scheduleRoomRefresh(activeRoomId);
+            }
           }
         )
         .subscribe((status, error) => {
@@ -2865,6 +2910,7 @@ export function useWorkTalk() {
     appendRealtimeMessageToCurrentRoom,
     currentProfile,
     loadRoomNotice,
+    mergeRealtimeRoomPreview,
     mergeRealtimeRoomMember,
     scheduleRoomRefresh,
     setupState,
