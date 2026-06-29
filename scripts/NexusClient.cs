@@ -394,6 +394,7 @@ internal class NexusWindow : Form
     private void HandleSourceChanged(object sender, CoreWebView2SourceChangedEventArgs eventArgs)
     {
         UpdateActiveRoomId();
+        UpdateAuthenticationStateFromCurrentUrl();
     }
 
     private void HandlePermissionRequested(
@@ -535,6 +536,30 @@ internal class NexusWindow : Form
         activeRoomId = ExtractRoomId(source);
     }
 
+    private void UpdateAuthenticationStateFromCurrentUrl()
+    {
+        string source = string.Empty;
+        if (webView.Source != null)
+        {
+            source = webView.Source.AbsoluteUri;
+        }
+        else if (webView.CoreWebView2 != null)
+        {
+            source = webView.CoreWebView2.Source;
+        }
+
+        if (source.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            authenticatedState = false;
+            return;
+        }
+
+        if (source.IndexOf("/worktalk", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            authenticatedState = true;
+        }
+    }
+
     private static int? ExtractRoomId(string source)
     {
         Uri uri;
@@ -609,6 +634,11 @@ internal class NexusWindow : Form
         bool isAuthenticated = authenticatedState.HasValue
             ? authenticatedState.Value
             : !isLoginPage;
+
+        if (!isLoginPage && currentUrl.IndexOf("/worktalk", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            isAuthenticated = true;
+        }
 
         if (!isAuthenticated)
         {

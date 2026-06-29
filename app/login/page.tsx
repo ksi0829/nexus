@@ -9,6 +9,14 @@ const supabase = createSupabaseBrowser();
 const COMPANY_EMAIL_DOMAIN =
   "@zetacorporation.com";
 
+type NexusDesktopWindow = Window & {
+  chrome?: {
+    webview?: {
+      postMessage: (message: string) => void;
+    };
+  };
+};
+
 function toLoginEmail(id: string) {
   const trimmed = id.trim();
 
@@ -65,6 +73,10 @@ export default function LoginPage() {
     useState(false);
 
   useEffect(() => {
+    (window as NexusDesktopWindow).chrome?.webview?.postMessage(
+      JSON.stringify({ type: "auth-state", authenticated: false })
+    );
+
     const saved = localStorage.getItem("savedEmail");
     if (!saved) return;
 
@@ -135,6 +147,10 @@ export default function LoginPage() {
       }
 
       await recordLoginActivity(profile);
+
+      (window as NexusDesktopWindow).chrome?.webview?.postMessage(
+        JSON.stringify({ type: "auth-state", authenticated: true })
+      );
 
       const nextPath = new URLSearchParams(window.location.search).get("next");
       router.replace(nextPath?.startsWith("/") ? nextPath : "/worktalk");
