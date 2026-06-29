@@ -134,6 +134,11 @@ type NexusDesktopWindow = Window & {
     };
   };
 };
+type AuthDebugState = {
+  userId: string | null;
+  email: string | null;
+  sessionError: string | null;
+};
 type PresenceRow = {
   user_id: string;
   visible: boolean;
@@ -189,6 +194,21 @@ const isElementVisible = (element: HTMLElement | null) =>
     element &&
       (element.offsetParent !== null || element.getClientRects().length > 0)
   );
+
+function getMessageLatencyMs(event: {
+  sendToUiMs: number | null;
+  realtimeDispatchDurationMs: number | null;
+  realtimeToUiMs: number | null;
+}) {
+  if (event.sendToUiMs !== null) return event.sendToUiMs;
+  if (
+    event.realtimeDispatchDurationMs !== null &&
+    event.realtimeToUiMs !== null
+  ) {
+    return event.realtimeDispatchDurationMs + event.realtimeToUiMs;
+  }
+  return event.realtimeDispatchDurationMs;
+}
 
 type WorkTalkDeepLink = {
   roomId: number;
@@ -668,6 +688,11 @@ export function WorkTalkApp() {
   const [readReceiptDebugEvents, setReadReceiptDebugEvents] = useState<
     ReadReceiptDebugEvent[]
   >([]);
+  const [authDebugState, setAuthDebugState] = useState<AuthDebugState>({
+    userId: null,
+    email: null,
+    sessionError: null,
+  });
   const [uxDebugEvents, setUxDebugEvents] = useState<WorkTalkUxDebugEvent[]>(
     []
   );
@@ -783,6 +808,31 @@ export function WorkTalkApp() {
       (event) => event.scope === "notification" || event.scope === "vibration"
     )
     .slice(0, 10);
+  const messagePerformanceSummary = useMemo(() => {
+    const samples = messageLatencyEvents
+      .map((event) => ({
+        event,
+        latencyMs: getMessageLatencyMs(event),
+      }))
+      .filter(
+        (sample): sample is { event: (typeof messageLatencyEvents)[number]; latencyMs: number } =>
+          typeof sample.latencyMs === "number" && Number.isFinite(sample.latencyMs)
+      );
+    const latencies = samples.map((sample) => sample.latencyMs);
+    const total = latencies.reduce((sum, value) => sum + value, 0);
+    const average =
+      latencies.length > 0 ? Math.round(total / latencies.length) : null;
+
+    return {
+      sampleCount: latencies.length,
+      average,
+      minimum: latencies.length > 0 ? Math.min(...latencies) : null,
+      maximum: latencies.length > 0 ? Math.max(...latencies) : null,
+      last: latencies[0] ?? null,
+      overOneSecondCount: latencies.filter((value) => value > 1000).length,
+      recent: samples.slice(0, 10),
+    };
+  }, [messageLatencyEvents]);
 
   const appendReadReceiptDebugEvent = useCallback(
     (event: Omit<ReadReceiptDebugEvent, "timestamp"> & { timestamp?: string }) => {
@@ -812,6 +862,25 @@ export function WorkTalkApp() {
     },
     []
   );
+
+  useEffect(() => {
+    if (!showReadReceiptDebugPanel) return;
+
+    let cancelled = false;
+    void workTalkSupabase.auth.getSession().then(({ data, error }) => {
+      if (cancelled) return;
+      setAuthDebugState({
+        userId: data.session?.user.id ?? null,
+        email: data.session?.user.email ?? null,
+        sessionError: error?.message ?? null,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile?.id, showReadReceiptDebugPanel]);
+
   useEffect(() => {
     if (typeof window === "undefined" || typeof screen === "undefined") return;
     const orientation = screen.orientation as
@@ -4779,6 +4848,24 @@ export function WorkTalkApp() {
             }}
           >
             <strong style={{ display: "block", marginBottom: 4 }}>
+              CURRENT USER DEBUG
+            </strong>
+            <div>auth.user.id: {authDebugState.userId || "null"}</div>
+            <div>auth.user.email: {authDebugState.email || "null"}</div>
+            <div>profile.id: {currentProfile?.id || "null"}</div>
+            <div>profile.name: {currentProfile?.name || "null"}</div>
+            <div>profile.team: {currentProfile?.team || "null"}</div>
+            <div>profile.role: {currentProfile?.role || "null"}</div>
+            <div>session error: {authDebugState.sessionError || "none"}</div>
+          </div>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
               PUSH DEEP LINK DEBUG
             </strong>
             <div>timestamp: {deepLinkDebugStatus.timestamp || "waiting"}</div>
@@ -4948,9 +5035,48 @@ export function WorkTalkApp() {
             </div>
             <div>
               channels: messages={subscriptionDebugStatus.messages}, files=
-              {subscriptionDebugStatus.files}, notifications=
+                {subscriptionDebugStatus.files}, notifications=
               {subscriptionDebugStatus.notifications}, meta=
               {subscriptionDebugStatus.meta}
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                padding: "8px 9px",
+                border: "1px solid rgba(223, 252, 245, 0.18)",
+                borderRadius: 10,
+                background: "rgba(223, 252, 245, 0.06)",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>
+                MESSAGE PERFORMANCE
+              </strong>
+              <div>samples: {messagePerformanceSummary.sampleCount} / 100</div>
+              <div>
+                Average : {messagePerformanceSummary.average ?? "null"}ms
+              </div>
+              <div>
+                Minimum : {messagePerformanceSummary.minimum ?? "null"}ms
+              </div>
+              <div>
+                Maximum : {messagePerformanceSummary.maximum ?? "null"}ms
+              </div>
+              <div>Last    : {messagePerformanceSummary.last ?? "null"}ms</div>
+              <div>
+                &gt; 1s : {messagePerformanceSummary.overOneSecondCount} /{" "}
+                {messagePerformanceSummary.sampleCount}
+              </div>
+              {messagePerformanceSummary.recent.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  recent 10:{" "}
+                  {messagePerformanceSummary.recent
+                    .map(
+                      ({ event, latencyMs }) =>
+                        `#${event.messageId ?? "pending"} ${latencyMs}ms`
+                    )
+                    .join(" / ")}
+                </div>
+              )}
             </div>
             {messageLatencyEvents.length === 0 ? (
               <div
@@ -4962,7 +5088,7 @@ export function WorkTalkApp() {
                 waiting for message latency events...
               </div>
             ) : (
-              messageLatencyEvents.map((event, index) => (
+              messageLatencyEvents.slice(0, 10).map((event, index) => (
                 <div
                   key={`${event.messageKey}-${index}`}
                   style={{

@@ -17,6 +17,7 @@ import type {
 
 const supabase = createSupabaseBrowser();
 const MESSAGE_LIMIT = 100;
+const MESSAGE_LATENCY_EVENT_LIMIT = 100;
 const WORKTALK_FILE_BUCKET = "worktalk-files";
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 
@@ -324,6 +325,7 @@ export function useWorkTalk() {
   const lastDeliveredNotificationIdRef = useRef<number | null>(null);
   const roomReadGuardRef = useRef<RoomReadGuard>(defaultRoomReadGuard);
   const pendingLatencyEventsRef = useRef<WorkTalkLatencyDebugEvent[]>([]);
+  const roomsRef = useRef<WorkTalkRoom[]>([]);
   const messagesRef = useRef<WorkTalkMessage[]>([]);
   const pendingRealtimeFilesRef = useRef<Map<number, WorkTalkFile[]>>(new Map());
   const channelStatusRef = useRef({
@@ -354,7 +356,7 @@ export function useWorkTalk() {
                 eventIndex === index ? updateEvent(event) : event
               )
             : [createEvent(), ...current];
-        const limited = next.slice(0, 10);
+        const limited = next.slice(0, MESSAGE_LATENCY_EVENT_LIMIT);
         pendingLatencyEventsRef.current = limited;
         return limited;
       });
@@ -388,7 +390,7 @@ export function useWorkTalk() {
               source,
             };
           })
-          .slice(0, 10);
+          .slice(0, MESSAGE_LATENCY_EVENT_LIMIT);
         pendingLatencyEventsRef.current = next;
         return next;
       });
@@ -524,6 +526,43 @@ export function useWorkTalk() {
     [markLatencyUiRendered]
   );
 
+  const mergeRealtimeRoomMember = useCallback((member: MemberRow) => {
+    const canMerge = roomsRef.current.some(
+      (room) =>
+        room.id === member.room_id &&
+        room.members.some((roomMember) => roomMember.user_id === member.user_id)
+    );
+    if (!canMerge) return false;
+
+    setRooms((current) =>
+      current.map((room) => {
+        if (room.id !== member.room_id) return room;
+
+        const nextMembers = room.members.map((roomMember) => {
+          if (roomMember.user_id !== member.user_id) return roomMember;
+          return {
+            ...roomMember,
+            member_role: member.member_role,
+            notifications_enabled: member.notifications_enabled,
+            is_pinned: member.is_pinned,
+            sort_order: member.sort_order,
+            joined_at: member.joined_at,
+            left_at: member.left_at,
+            last_read_message_id: member.last_read_message_id,
+            last_read_at: member.last_read_at,
+          };
+        });
+
+        return {
+          ...room,
+          members: sortRoomMembersByName(nextMembers),
+        };
+      })
+    );
+
+    return true;
+  }, []);
+
   useEffect(() => {
     setupStateRef.current = setupState;
   }, [setupState]);
@@ -531,6 +570,10 @@ export function useWorkTalk() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
 
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
@@ -2754,8 +2797,19 @@ export function useWorkTalk() {
             schema: "public",
             table: "worktalk_room_members",
           },
-          () => {
-            scheduleRoomRefresh(selectedRoomIdRef.current);
+          (payload) => {
+            const member = (payload.new || payload.old) as MemberRow | null;
+            const merged = member ? mergeRealtimeRoomMember(member) : false;
+            console.info("[WorkTalk read receipt] room member realtime", {
+              eventType: payload.eventType,
+              roomId: member?.room_id ?? null,
+              userId: member?.user_id ?? null,
+              lastReadMessageId: member?.last_read_message_id ?? null,
+              merged,
+            });
+            if (!merged) {
+              scheduleRoomRefresh(selectedRoomIdRef.current);
+            }
           }
         )
         .on(
@@ -2811,6 +2865,7 @@ export function useWorkTalk() {
     appendRealtimeMessageToCurrentRoom,
     currentProfile,
     loadRoomNotice,
+    mergeRealtimeRoomMember,
     scheduleRoomRefresh,
     setupState,
     upsertLatencyEvent,
