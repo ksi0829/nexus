@@ -97,6 +97,9 @@ type WorkTalkLatencyDebugEvent = {
   dbCommitTimestamp: string | null;
   realtimeDispatchDurationMs: number | null;
   realtimeReceiveDurationMs: number | null;
+  sendButtonDisabledDurationMs?: number | null;
+  inputClearTime?: string | null;
+  inputClearPerf?: number;
   senderId: string | null;
   source: string;
   sendClickPerf?: number;
@@ -397,6 +400,34 @@ export function useWorkTalk() {
     },
     []
   );
+
+  const recordMessageInputCleared = useCallback((roomId: number, body: string) => {
+    const inputClear = nowLatencyStamp();
+    const bodyPreview = previewLatencyBody(body);
+    setMessageLatencyEvents((current) => {
+      let updated = false;
+      const next = current.map((event) => {
+        if (
+          updated ||
+          event.direction !== "send" ||
+          event.roomId !== roomId ||
+          event.bodyPreview !== bodyPreview ||
+          event.inputClearTime
+        ) {
+          return event;
+        }
+        updated = true;
+        return {
+          ...event,
+          inputClearTime: inputClear.wall,
+          inputClearPerf: inputClear.perf,
+        };
+      });
+      if (!updated) return current;
+      pendingLatencyEventsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const appendRealtimeMessageToCurrentRoom = useCallback(
     (message: WorkTalkMessage): RealtimeAppendResult => {
@@ -1540,6 +1571,8 @@ export function useWorkTalk() {
           dbCommitTimestamp: null,
           realtimeDispatchDurationMs: null,
           realtimeReceiveDurationMs: null,
+          sendButtonDisabledDurationMs: null,
+          inputClearTime: null,
           senderId: currentProfile?.id ?? null,
           source: "sendMessage",
           sendClickPerf,
@@ -1597,6 +1630,8 @@ export function useWorkTalk() {
             dbCommitTimestamp: null,
             realtimeDispatchDurationMs: null,
             realtimeReceiveDurationMs: null,
+            sendButtonDisabledDurationMs: null,
+            inputClearTime: null,
             senderId: currentProfile?.id ?? null,
             source: "sendMessage:response",
             sendClickPerf,
@@ -1642,6 +1677,8 @@ export function useWorkTalk() {
             dbCommitTimestamp: null,
             realtimeDispatchDurationMs: null,
             realtimeReceiveDurationMs: null,
+            sendButtonDisabledDurationMs: null,
+            inputClearTime: null,
             senderId: currentProfile?.id ?? null,
             source: "push_api_called",
             sendClickPerf,
@@ -1669,6 +1706,32 @@ export function useWorkTalk() {
         setErrorMessage(message);
         return false;
       } finally {
+        const sendButtonRelease = nowLatencyStamp();
+        const sendButtonDisabledDurationMs = roundLatency(
+          sendButtonRelease.perf - sendClickPerf
+        );
+        setMessageLatencyEvents((current) => {
+          let updated = false;
+          const next = current.map((event) => {
+            if (
+              updated ||
+              event.direction !== "send" ||
+              event.roomId !== targetRoomId ||
+              event.bodyPreview !== bodyPreview ||
+              event.sendClickPerf !== sendClickPerf
+            ) {
+              return event;
+            }
+            updated = true;
+            return {
+              ...event,
+              sendButtonDisabledDurationMs,
+            };
+          });
+          if (!updated) return current;
+          pendingLatencyEventsRef.current = next;
+          return next;
+        });
         setSending(false);
       }
     },
@@ -2977,6 +3040,7 @@ export function useWorkTalk() {
     realtimeDebugStatus,
     messageLatencyEvents,
     subscriptionDebugStatus,
+    recordMessageInputCleared,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,

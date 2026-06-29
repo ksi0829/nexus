@@ -210,6 +210,21 @@ function getMessageLatencyMs(event: {
   return event.realtimeDispatchDurationMs;
 }
 
+function getMessageSendWaitMs(event: {
+  sendButtonDisabledDurationMs?: number | null;
+  apiRoundTripMs: number | null;
+  apiRequestDurationMs: number | null;
+}) {
+  if (
+    typeof event.sendButtonDisabledDurationMs === "number" &&
+    Number.isFinite(event.sendButtonDisabledDurationMs)
+  ) {
+    return event.sendButtonDisabledDurationMs;
+  }
+  if (event.apiRoundTripMs !== null) return event.apiRoundTripMs;
+  return event.apiRequestDurationMs;
+}
+
 type WorkTalkDeepLink = {
   roomId: number;
   messageId?: number;
@@ -578,6 +593,7 @@ export function WorkTalkApp() {
     realtimeDebugStatus,
     messageLatencyEvents,
     subscriptionDebugStatus,
+    recordMessageInputCleared,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,
@@ -831,9 +847,21 @@ export function WorkTalkApp() {
       last: latencies[0] ?? null,
       overOneSecondCount: latencies.filter((value) => value > 1000).length,
       recent: samples.slice(0, 10),
-      slow: samples
-        .filter((sample) => sample.latencyMs > 1000)
-        .sort((left, right) => right.latencyMs - left.latencyMs)
+      slow: messageLatencyEvents
+        .map((event) => {
+          const latencyMs = getMessageLatencyMs(event);
+          const sendWaitMs =
+            event.direction === "send" ? getMessageSendWaitMs(event) : null;
+          const slowMs = Math.max(latencyMs ?? 0, sendWaitMs ?? 0);
+          return {
+            event,
+            latencyMs,
+            sendWaitMs,
+            slowMs,
+          };
+        })
+        .filter((sample) => sample.slowMs > 1000)
+        .sort((left, right) => right.slowMs - left.slowMs)
         .slice(0, 10),
     };
   }, [messageLatencyEvents]);
@@ -2963,6 +2991,9 @@ export function WorkTalkApp() {
             });
     if (sent) {
       setDraft("");
+      if (selectedRoomId) {
+        recordMessageInputCleared(selectedRoomId, nextBody);
+      }
       setReplyTarget(null);
       setPendingFiles([]);
       setFileError("");
@@ -5155,7 +5186,7 @@ export function WorkTalkApp() {
                     SLOW &gt;1S
                   </strong>
                   {messagePerformanceSummary.slow.map(
-                    ({ event, latencyMs }, index) => {
+                    ({ event, latencyMs, sendWaitMs, slowMs }, index) => {
                       const timestamp =
                         event.uiRenderDone ||
                         event.realtimeEventReceived ||
@@ -5177,9 +5208,25 @@ export function WorkTalkApp() {
                         >
                           <div>
                             messageId: {event.messageId ?? "pending"} · latency:{" "}
-                            {latencyMs}ms
+                            {latencyMs ?? "null"}ms · send_wait:{" "}
+                            {sendWaitMs ?? "null"}ms · slow: {slowMs}ms
                           </div>
                           <div>body: {event.bodyPreview || "null"}</div>
+                          <div>
+                            api_request_duration:{" "}
+                            {event.apiRequestDurationMs ?? "null"}ms
+                          </div>
+                          <div>
+                            api_response_received:{" "}
+                            {event.apiResponseReceived || "null"}
+                          </div>
+                          <div>
+                            send_button_disabled_duration:{" "}
+                            {event.sendButtonDisabledDurationMs ?? "null"}ms
+                          </div>
+                          <div>
+                            input_clear_time: {event.inputClearTime || "null"}
+                          </div>
                           <div>
                             realtime_dispatch_duration:{" "}
                             {event.realtimeDispatchDurationMs ?? "null"}ms
@@ -5245,6 +5292,11 @@ export function WorkTalkApp() {
                   <div>
                     db_insert_duration: {event.dbInsertDurationMs ?? "null"}ms
                   </div>
+                  <div>
+                    send_button_disabled_duration:{" "}
+                    {event.sendButtonDisabledDurationMs ?? "null"}ms
+                  </div>
+                  <div>input_clear_time: {event.inputClearTime || "null"}</div>
                   <div>
                     db_commit_timestamp: {event.dbCommitTimestamp || "null"}
                   </div>
