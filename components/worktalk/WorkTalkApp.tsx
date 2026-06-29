@@ -4990,6 +4990,24 @@ export function WorkTalkApp() {
                     {event.realtimeEventReceived || "null"}
                   </div>
                   <div>ui_render_done: {event.uiRenderDone || "null"}</div>
+                  <div>
+                    api_request_duration:{" "}
+                    {event.apiRequestDurationMs ?? "null"}ms
+                  </div>
+                  <div>
+                    db_insert_duration: {event.dbInsertDurationMs ?? "null"}ms
+                  </div>
+                  <div>
+                    db_commit_timestamp: {event.dbCommitTimestamp || "null"}
+                  </div>
+                  <div>
+                    realtime_dispatch_duration:{" "}
+                    {event.realtimeDispatchDurationMs ?? "null"}ms
+                  </div>
+                  <div>
+                    realtime_receive_duration:{" "}
+                    {event.realtimeReceiveDurationMs ?? "null"}ms
+                  </div>
                   <div>push_api_called: {event.pushApiCalled || "null"}</div>
                   <div>
                     push_showNotification:{" "}

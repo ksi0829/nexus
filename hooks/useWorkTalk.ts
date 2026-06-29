@@ -91,10 +91,16 @@ type WorkTalkLatencyDebugEvent = {
   sendToRealtimeMs: number | null;
   realtimeToUiMs: number | null;
   sendToUiMs: number | null;
+  apiRequestDurationMs: number | null;
+  dbInsertDurationMs: number | null;
+  dbCommitTimestamp: string | null;
+  realtimeDispatchDurationMs: number | null;
+  realtimeReceiveDurationMs: number | null;
   senderId: string | null;
   source: string;
   sendClickPerf?: number;
   apiRequestPerf?: number;
+  apiResponsePerf?: number;
   realtimeEventPerf?: number;
 };
 type RealtimeAppendResult = {
@@ -122,9 +128,11 @@ const defaultRoomReadGuard: RoomReadGuard = () => ({
 });
 
 function nowLatencyStamp() {
+  const now = new Date();
   return {
     perf: performance.now(),
-    wall: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+    epochMs: now.getTime(),
+    wall: now.toLocaleTimeString("ko-KR", { hour12: false }),
   };
 }
 
@@ -137,6 +145,12 @@ function roundLatency(value: number | null) {
 function previewLatencyBody(body: string) {
   const trimmed = body.trim().replace(/\s+/g, " ");
   return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
+}
+
+function parseEpochMs(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isMissingWorkTalkTable(message?: string) {
@@ -1436,6 +1450,11 @@ export function useWorkTalk() {
           sendToRealtimeMs: null,
           realtimeToUiMs: null,
           sendToUiMs: null,
+          apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+          dbInsertDurationMs: null,
+          dbCommitTimestamp: null,
+          realtimeDispatchDurationMs: null,
+          realtimeReceiveDurationMs: null,
           senderId: currentProfile?.id ?? null,
           source: "sendMessage",
           sendClickPerf,
@@ -1445,6 +1464,7 @@ export function useWorkTalk() {
           ...event,
           apiRequestStart: apiRequest.wall,
           sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+          apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
           sendClickPerf: event.sendClickPerf ?? sendClickPerf,
           apiRequestPerf: apiRequest.perf,
         })
@@ -1487,19 +1507,27 @@ export function useWorkTalk() {
             sendToRealtimeMs: null,
             realtimeToUiMs: null,
             sendToUiMs: null,
+            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            dbCommitTimestamp: null,
+            realtimeDispatchDurationMs: null,
+            realtimeReceiveDurationMs: null,
             senderId: currentProfile?.id ?? null,
             source: "sendMessage:response",
             sendClickPerf,
             apiRequestPerf: apiRequest.perf,
+            apiResponsePerf: apiResponse.perf,
           }),
           (event) => ({
             ...event,
             dbInsertDone: apiResponse.wall,
             apiResponseReceived: apiResponse.wall,
             apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
             source: "sendMessage:response",
             sendClickPerf: event.sendClickPerf ?? sendClickPerf,
             apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
+            apiResponsePerf: apiResponse.perf,
           })
         );
         const pushCall = nowLatencyStamp();
@@ -1524,10 +1552,16 @@ export function useWorkTalk() {
             sendToRealtimeMs: null,
             realtimeToUiMs: null,
             sendToUiMs: null,
+            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            dbCommitTimestamp: null,
+            realtimeDispatchDurationMs: null,
+            realtimeReceiveDurationMs: null,
             senderId: currentProfile?.id ?? null,
             source: "push_api_called",
             sendClickPerf,
             apiRequestPerf: apiRequest.perf,
+            apiResponsePerf: apiResponse.perf,
           }),
           (event) => ({
             ...event,
@@ -2450,6 +2484,10 @@ export function useWorkTalk() {
               matchesActiveRoom: message.room_id === activeRoomId,
             });
             const realtimeStamp = nowLatencyStamp();
+            const dbCommitEpochMs = parseEpochMs(message.created_at);
+            const realtimeDispatchDurationMs = dbCommitEpochMs
+              ? roundLatency(realtimeStamp.epochMs - dbCommitEpochMs)
+              : null;
             const pendingSendMatch = pendingLatencyEventsRef.current.find(
               (event) =>
                 event.direction === "send" &&
@@ -2483,6 +2521,11 @@ export function useWorkTalk() {
                 sendToRealtimeMs: null,
                 realtimeToUiMs: null,
                 sendToUiMs: null,
+                apiRequestDurationMs: null,
+                dbInsertDurationMs: null,
+                dbCommitTimestamp: message.created_at || null,
+                realtimeDispatchDurationMs,
+                realtimeReceiveDurationMs: null,
                 senderId: message.sender_id,
                 source: "realtime_event_received",
                 realtimeEventPerf: realtimeStamp.perf,
@@ -2497,6 +2540,11 @@ export function useWorkTalk() {
                 sendToRealtimeMs: event.sendClickPerf
                   ? roundLatency(realtimeStamp.perf - event.sendClickPerf)
                   : event.sendToRealtimeMs,
+                dbCommitTimestamp: message.created_at || event.dbCommitTimestamp,
+                realtimeDispatchDurationMs,
+                realtimeReceiveDurationMs: event.apiResponsePerf
+                  ? roundLatency(realtimeStamp.perf - event.apiResponsePerf)
+                  : event.realtimeReceiveDurationMs,
                 realtimeEventPerf: realtimeStamp.perf,
                 source: "realtime_event_received",
               })
