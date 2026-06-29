@@ -2445,16 +2445,27 @@ export function WorkTalkApp() {
   useEffect(() => {
     if (!latestNotification) return;
 
+    const latestNotificationRoomId = Number.isFinite(latestNotification.room_id)
+      ? Number(latestNotification.room_id)
+      : null;
+    const activeRoomIdForNotification =
+      selectedRoomIdUiRef.current ?? selectedRoomId;
     const notificationTargetsCurrentRoom =
-      activeSection === "chat" &&
-      selectedRoomId === latestNotification.room_id &&
-      Boolean(selectedRoom);
+      activeSectionRef.current === "chat" &&
+      Boolean(latestNotificationRoomId) &&
+      activeRoomIdForNotification === latestNotificationRoomId &&
+      Boolean(selectedRoom || conversationPanelVisible);
     const activeRoomIsVisible =
       notificationTargetsCurrentRoom &&
+      conversationPanelVisible &&
       document.visibilityState === "visible";
 
-    if (notificationTargetsCurrentRoom && latestNotification.message_id) {
-      selectRoom(latestNotification.room_id, latestNotification.message_id);
+    if (
+      notificationTargetsCurrentRoom &&
+      latestNotificationRoomId &&
+      latestNotification.message_id
+    ) {
+      selectRoom(latestNotificationRoomId, latestNotification.message_id);
       scheduleBottomScroll("auto", { extraSettle: true });
     }
 
@@ -2468,9 +2479,10 @@ export function WorkTalkApp() {
           event: "notification skipped",
           reason: "active room open",
           roomId: latestNotification.room_id,
-          activeRoomId: selectedRoomId,
+          activeRoomId: activeRoomIdForNotification,
           visible: document.visibilityState === "visible",
           focused: document.hasFocus(),
+          clientConversationOpen: conversationPanelVisible,
         });
         clearLatestNotification();
         return;
@@ -2480,9 +2492,10 @@ export function WorkTalkApp() {
         event: "notification shown",
         reason: "desktop app notification",
         roomId: latestNotification.room_id,
-        activeRoomId: selectedRoomId,
+        activeRoomId: activeRoomIdForNotification,
         visible: document.visibilityState === "visible",
         focused: document.hasFocus(),
+        clientConversationOpen: conversationPanelVisible,
       });
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({
@@ -2503,7 +2516,7 @@ export function WorkTalkApp() {
       (document.visibilityState !== "visible" ||
         !document.hasFocus() ||
         activeSection !== "chat" ||
-        selectedRoomId !== latestNotification.room_id) &&
+        activeRoomIdForNotification !== latestNotificationRoomId) &&
       !activeRoomIsVisible;
 
     if (lastVibratedNotificationIdRef.current !== latestNotification.id) {
@@ -2517,9 +2530,10 @@ export function WorkTalkApp() {
             ? "foreground"
             : "page notification handled without navigator.vibrate",
         roomId: latestNotification.room_id,
-        activeRoomId: selectedRoomId,
+        activeRoomId: activeRoomIdForNotification,
         visible: document.visibilityState === "visible",
         focused: document.hasFocus(),
+        clientConversationOpen: conversationPanelVisible,
       });
     }
 
@@ -2530,9 +2544,10 @@ export function WorkTalkApp() {
           event: "notification shown",
           reason: "browser notification",
           roomId: latestNotification.room_id,
-          activeRoomId: selectedRoomId,
+          activeRoomId: activeRoomIdForNotification,
           visible: document.visibilityState === "visible",
           focused: document.hasFocus(),
+          clientConversationOpen: conversationPanelVisible,
         });
         const browserNotification = new Notification(latestNotification.title, {
           body:
@@ -2557,9 +2572,10 @@ export function WorkTalkApp() {
         event: "notification skipped",
         reason: activeRoomIsVisible ? "active room open" : "in-app only",
         roomId: latestNotification.room_id,
-        activeRoomId: selectedRoomId,
+        activeRoomId: activeRoomIdForNotification,
         visible: document.visibilityState === "visible",
         focused: document.hasFocus(),
+        clientConversationOpen: conversationPanelVisible,
       });
     }
 
@@ -2569,6 +2585,7 @@ export function WorkTalkApp() {
     activeSection,
     browserNotificationPermission,
     clearLatestNotification,
+    conversationPanelVisible,
     isNexusDesktopApp,
     latestNotification,
     openNotification,

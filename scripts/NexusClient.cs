@@ -463,9 +463,7 @@ internal class NexusWindow : Form
             activeRoomId.Value == roomId &&
             Visible &&
             WindowState != FormWindowState.Minimized &&
-            clientConversationOpen &&
-            clientVisible &&
-            (clientFocused || ContainsFocus || Focused || ActiveForm == this);
+            clientConversationOpen;
     }
 
     internal bool IsChatRoomWindow(int roomId)
