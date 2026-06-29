@@ -831,6 +831,10 @@ export function WorkTalkApp() {
       last: latencies[0] ?? null,
       overOneSecondCount: latencies.filter((value) => value > 1000).length,
       recent: samples.slice(0, 10),
+      slow: samples
+        .filter((sample) => sample.latencyMs > 1000)
+        .sort((left, right) => right.latencyMs - left.latencyMs)
+        .slice(0, 10),
     };
   }, [messageLatencyEvents]);
 
@@ -5131,6 +5135,68 @@ export function WorkTalkApp() {
                         `#${event.messageId ?? "pending"} ${latencyMs}ms`
                     )
                     .join(" / ")}
+                </div>
+              )}
+              {messagePerformanceSummary.slow.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTop: "1px solid rgba(255, 212, 0, 0.28)",
+                  }}
+                >
+                  <strong
+                    style={{
+                      display: "block",
+                      marginBottom: 5,
+                      color: "#ffd400",
+                    }}
+                  >
+                    SLOW &gt;1S
+                  </strong>
+                  {messagePerformanceSummary.slow.map(
+                    ({ event, latencyMs }, index) => {
+                      const timestamp =
+                        event.uiRenderDone ||
+                        event.realtimeEventReceived ||
+                        event.apiResponseReceived ||
+                        event.sendClickTime ||
+                        "null";
+
+                      return (
+                        <div
+                          key={`slow-${event.messageKey}-${index}`}
+                          style={{
+                            marginTop: index === 0 ? 0 : 7,
+                            paddingTop: index === 0 ? 0 : 7,
+                            borderTop:
+                              index === 0
+                                ? "none"
+                                : "1px solid rgba(223, 252, 245, 0.14)",
+                          }}
+                        >
+                          <div>
+                            messageId: {event.messageId ?? "pending"} · latency:{" "}
+                            {latencyMs}ms
+                          </div>
+                          <div>body: {event.bodyPreview || "null"}</div>
+                          <div>
+                            realtime_dispatch_duration:{" "}
+                            {event.realtimeDispatchDurationMs ?? "null"}ms
+                          </div>
+                          <div>
+                            realtime_receive_duration:{" "}
+                            {event.realtimeReceiveDurationMs ?? "null"}ms
+                          </div>
+                          <div>
+                            db_insert_duration:{" "}
+                            {event.dbInsertDurationMs ?? "null"}ms
+                          </div>
+                          <div>timestamp: {timestamp}</div>
+                        </div>
+                      );
+                    }
+                  )}
                 </div>
               )}
             </div>
