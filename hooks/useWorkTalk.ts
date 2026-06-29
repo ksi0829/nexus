@@ -72,11 +72,67 @@ type WorkTalkRealtimeDebugStatus = {
   messagesFetchStatus: string;
   timestamp: string;
 };
+type WorkTalkLatencyDebugEvent = {
+  messageKey: string;
+  messageId: number | null;
+  roomId: number | null;
+  direction: "send" | "receive" | "push";
+  bodyPreview: string;
+  sendClickTime: string | null;
+  apiRequestStart: string | null;
+  dbInsertDone: string | null;
+  apiResponseReceived: string | null;
+  realtimeEventReceived: string | null;
+  uiRenderDone: string | null;
+  pushApiCalled: string | null;
+  pushShowNotification: string | null;
+  sendToApiMs: number | null;
+  apiRoundTripMs: number | null;
+  sendToRealtimeMs: number | null;
+  realtimeToUiMs: number | null;
+  sendToUiMs: number | null;
+  senderId: string | null;
+  source: string;
+  sendClickPerf?: number;
+  apiRequestPerf?: number;
+  realtimeEventPerf?: number;
+};
+type WorkTalkSubscriptionDebugStatus = {
+  roomId: number | null;
+  messages: string;
+  files: string;
+  notifications: string;
+  meta: string;
+  activeSubscriptionCount: number;
+  timestamp: string;
+};
+type SendMessageDiagnostics = {
+  sendClickTime?: number;
+  sendClickWallTime?: string;
+};
 
 const defaultRoomReadGuard: RoomReadGuard = () => ({
   allowed: false,
   reason: "read guard not installed",
 });
+
+function nowLatencyStamp() {
+  return {
+    perf: performance.now(),
+    wall: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+  };
+}
+
+function roundLatency(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
+}
+
+function previewLatencyBody(body: string) {
+  const trimmed = body.trim().replace(/\s+/g, " ");
+  return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
+}
 
 function isMissingWorkTalkTable(message?: string) {
   return Boolean(
@@ -225,6 +281,19 @@ export function useWorkTalk() {
       messagesFetchStatus: "waiting",
       timestamp: "",
     });
+  const [messageLatencyEvents, setMessageLatencyEvents] = useState<
+    WorkTalkLatencyDebugEvent[]
+  >([]);
+  const [subscriptionDebugStatus, setSubscriptionDebugStatus] =
+    useState<WorkTalkSubscriptionDebugStatus>({
+      roomId: null,
+      messages: "waiting",
+      files: "waiting",
+      notifications: "waiting",
+      meta: "waiting",
+      activeSubscriptionCount: 0,
+      timestamp: "",
+    });
   const setupStateRef = useRef<WorkTalkSetupState>("loading");
   const selectedRoomIdRef = useRef<number | null>(null);
   const messageRequestIdRef = useRef(0);
@@ -236,10 +305,41 @@ export function useWorkTalk() {
   const blockRoomSelectionRestoreRef = useRef(false);
   const lastDeliveredNotificationIdRef = useRef<number | null>(null);
   const roomReadGuardRef = useRef<RoomReadGuard>(defaultRoomReadGuard);
+  const pendingLatencyEventsRef = useRef<WorkTalkLatencyDebugEvent[]>([]);
+  const channelStatusRef = useRef({
+    messages: "waiting",
+    files: "waiting",
+    notifications: "waiting",
+    meta: "waiting",
+  });
 
   const selectedRoom = useMemo(
     () => rooms.find((room) => room.id === selectedRoomId) || null,
     [rooms, selectedRoomId]
+  );
+
+  const upsertLatencyEvent = useCallback(
+    (
+      matcher: (event: WorkTalkLatencyDebugEvent) => boolean,
+      createEvent: () => WorkTalkLatencyDebugEvent,
+      updateEvent: (
+        event: WorkTalkLatencyDebugEvent
+      ) => WorkTalkLatencyDebugEvent
+    ) => {
+      setMessageLatencyEvents((current) => {
+        const index = current.findIndex(matcher);
+        const next =
+          index >= 0
+            ? current.map((event, eventIndex) =>
+                eventIndex === index ? updateEvent(event) : event
+              )
+            : [createEvent(), ...current];
+        const limited = next.slice(0, 10);
+        pendingLatencyEventsRef.current = limited;
+        return limited;
+      });
+    },
+    []
   );
 
   useEffect(() => {
@@ -836,6 +936,30 @@ export function useWorkTalk() {
         return;
       }
       setMessages(nextMessages);
+      const uiStamp = nowLatencyStamp();
+      const renderedMessageIds = new Set(nextMessages.map((message) => message.id));
+      setMessageLatencyEvents((current) => {
+        const next = current
+          .map((event) => {
+            if (!event.messageId || !renderedMessageIds.has(event.messageId)) {
+              return event;
+            }
+            return {
+              ...event,
+              uiRenderDone: uiStamp.wall,
+              realtimeToUiMs: event.realtimeEventPerf
+                ? roundLatency(uiStamp.perf - event.realtimeEventPerf)
+                : event.realtimeToUiMs,
+              sendToUiMs: event.sendClickPerf
+                ? roundLatency(uiStamp.perf - event.sendClickPerf)
+                : event.sendToUiMs,
+              source: "ui_render_done",
+            };
+          })
+          .slice(0, 10);
+        pendingLatencyEventsRef.current = next;
+        return next;
+      });
       console.info("[WorkTalk performance] UI Updated", {
         scope: "messages",
         roomId,
@@ -1149,15 +1273,55 @@ export function useWorkTalk() {
   );
 
   const sendMessage = useCallback(
-    async (body: string) => {
+    async (body: string, diagnostics?: SendMessageDiagnostics) => {
       const targetRoomId = selectedRoomIdRef.current;
       if (!targetRoomId || !body.trim() || sending) return false;
 
-      const startedAt = performance.now();
+      const sendClickPerf = diagnostics?.sendClickTime ?? performance.now();
+      const sendClickWallTime =
+        diagnostics?.sendClickWallTime ||
+        new Date().toLocaleTimeString("ko-KR", { hour12: false });
+      const apiRequest = nowLatencyStamp();
+      const messageKey = `pending-${targetRoomId}-${sendClickPerf}`;
+      const bodyPreview = previewLatencyBody(body);
       console.info("[WorkTalk performance] Message Send Start", {
         roomId: targetRoomId,
         bodyLength: body.trim().length,
       });
+      upsertLatencyEvent(
+        (event) => event.messageKey === messageKey,
+        () => ({
+          messageKey,
+          messageId: null,
+          roomId: targetRoomId,
+          direction: "send",
+          bodyPreview,
+          sendClickTime: sendClickWallTime,
+          apiRequestStart: apiRequest.wall,
+          dbInsertDone: null,
+          apiResponseReceived: null,
+          realtimeEventReceived: null,
+          uiRenderDone: null,
+          pushApiCalled: null,
+          pushShowNotification: null,
+          sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+          apiRoundTripMs: null,
+          sendToRealtimeMs: null,
+          realtimeToUiMs: null,
+          sendToUiMs: null,
+          senderId: currentProfile?.id ?? null,
+          source: "sendMessage",
+          sendClickPerf,
+          apiRequestPerf: apiRequest.perf,
+        }),
+        (event) => ({
+          ...event,
+          apiRequestStart: apiRequest.wall,
+          sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+          sendClickPerf: event.sendClickPerf ?? sendClickPerf,
+          apiRequestPerf: apiRequest.perf,
+        })
+      );
       setSending(true);
       try {
         const { error } = await supabase.rpc("worktalk_send_message", {
@@ -1170,10 +1334,82 @@ export function useWorkTalk() {
           return false;
         }
 
+        const apiResponse = nowLatencyStamp();
         console.info("[WorkTalk performance] Message Insert Success", {
           roomId: targetRoomId,
-          elapsedMs: Math.round(performance.now() - startedAt),
+          elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
         });
+        upsertLatencyEvent(
+          (event) => event.messageKey === messageKey,
+          () => ({
+            messageKey,
+            messageId: null,
+            roomId: targetRoomId,
+            direction: "send",
+            bodyPreview,
+            sendClickTime: sendClickWallTime,
+            apiRequestStart: apiRequest.wall,
+            dbInsertDone: apiResponse.wall,
+            apiResponseReceived: apiResponse.wall,
+            realtimeEventReceived: null,
+            uiRenderDone: null,
+            pushApiCalled: null,
+            pushShowNotification: null,
+            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            sendToRealtimeMs: null,
+            realtimeToUiMs: null,
+            sendToUiMs: null,
+            senderId: currentProfile?.id ?? null,
+            source: "sendMessage:response",
+            sendClickPerf,
+            apiRequestPerf: apiRequest.perf,
+          }),
+          (event) => ({
+            ...event,
+            dbInsertDone: apiResponse.wall,
+            apiResponseReceived: apiResponse.wall,
+            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            source: "sendMessage:response",
+            sendClickPerf: event.sendClickPerf ?? sendClickPerf,
+            apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
+          })
+        );
+        const pushCall = nowLatencyStamp();
+        upsertLatencyEvent(
+          (event) => event.messageKey === messageKey,
+          () => ({
+            messageKey,
+            messageId: null,
+            roomId: targetRoomId,
+            direction: "send",
+            bodyPreview,
+            sendClickTime: sendClickWallTime,
+            apiRequestStart: apiRequest.wall,
+            dbInsertDone: apiResponse.wall,
+            apiResponseReceived: apiResponse.wall,
+            realtimeEventReceived: null,
+            uiRenderDone: null,
+            pushApiCalled: pushCall.wall,
+            pushShowNotification: null,
+            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+            sendToRealtimeMs: null,
+            realtimeToUiMs: null,
+            sendToUiMs: null,
+            senderId: currentProfile?.id ?? null,
+            source: "push_api_called",
+            sendClickPerf,
+            apiRequestPerf: apiRequest.perf,
+          }),
+          (event) => ({
+            ...event,
+            pushApiCalled: pushCall.wall,
+            source: "push_api_called",
+            sendClickPerf: event.sendClickPerf ?? sendClickPerf,
+            apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
+          })
+        );
         void requestPushDelivery(targetRoomId);
         if (selectedRoomIdRef.current === targetRoomId) {
           scheduleMessageRefresh(targetRoomId, 40);
@@ -1193,7 +1429,13 @@ export function useWorkTalk() {
         setSending(false);
       }
     },
-    [scheduleMessageRefresh, scheduleRoomRefresh, sending]
+    [
+      currentProfile?.id,
+      scheduleMessageRefresh,
+      scheduleRoomRefresh,
+      sending,
+      upsertLatencyEvent,
+    ]
   );
 
   const sendReplyMessage = useCallback(
@@ -1902,6 +2144,18 @@ export function useWorkTalk() {
         ...debugPayload,
         json: JSON.stringify(debugPayload),
       });
+      channelStatusRef.current = {
+        ...channelStatusRef.current,
+        [scope]: status,
+      };
+      setSubscriptionDebugStatus({
+        roomId: selectedRoomIdRef.current,
+        ...channelStatusRef.current,
+        activeSubscriptionCount: Object.values(channelStatusRef.current).filter(
+          (value) => value === "SUBSCRIBED"
+        ).length,
+        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+      });
     };
     const channels: Array<ReturnType<typeof supabase.channel>> = [];
     let isCancelled = false;
@@ -2067,6 +2321,58 @@ export function useWorkTalk() {
               activeRoomId,
               matchesActiveRoom: message.room_id === activeRoomId,
             });
+            const realtimeStamp = nowLatencyStamp();
+            const pendingSendMatch = pendingLatencyEventsRef.current.find(
+              (event) =>
+                event.direction === "send" &&
+                event.messageId === null &&
+                event.roomId === message.room_id &&
+                event.senderId === message.sender_id &&
+                event.bodyPreview === previewLatencyBody(message.body)
+            );
+            upsertLatencyEvent(
+              (event) =>
+                event.messageId === message.id ||
+                Boolean(
+                  pendingSendMatch && event.messageKey === pendingSendMatch.messageKey
+                ),
+              () => ({
+                messageKey: `message-${message.id}`,
+                messageId: message.id,
+                roomId: message.room_id,
+                direction: message.sender_id === profileId ? "send" : "receive",
+                bodyPreview: previewLatencyBody(message.body),
+                sendClickTime: null,
+                apiRequestStart: null,
+                dbInsertDone: null,
+                apiResponseReceived: null,
+                realtimeEventReceived: realtimeStamp.wall,
+                uiRenderDone: null,
+                pushApiCalled: null,
+                pushShowNotification: null,
+                sendToApiMs: null,
+                apiRoundTripMs: null,
+                sendToRealtimeMs: null,
+                realtimeToUiMs: null,
+                sendToUiMs: null,
+                senderId: message.sender_id,
+                source: "realtime_event_received",
+                realtimeEventPerf: realtimeStamp.perf,
+              }),
+              (event) => ({
+                ...event,
+                messageKey: event.messageKey.startsWith("pending-")
+                  ? `message-${message.id}`
+                  : event.messageKey,
+                messageId: message.id,
+                realtimeEventReceived: realtimeStamp.wall,
+                sendToRealtimeMs: event.sendClickPerf
+                  ? roundLatency(realtimeStamp.perf - event.sendClickPerf)
+                  : event.sendToRealtimeMs,
+                realtimeEventPerf: realtimeStamp.perf,
+                source: "realtime_event_received",
+              })
+            );
             setRealtimeDebugStatus((current) => ({
               ...current,
               lastEvent: "messages:INSERT",
@@ -2334,6 +2640,7 @@ export function useWorkTalk() {
     scheduleMessageRefresh,
     scheduleRoomRefresh,
     setupState,
+    upsertLatencyEvent,
   ]);
 
   useEffect(() => {
@@ -2394,6 +2701,8 @@ export function useWorkTalk() {
     notificationsReady,
     latestNotification,
     realtimeDebugStatus,
+    messageLatencyEvents,
+    subscriptionDebugStatus,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,

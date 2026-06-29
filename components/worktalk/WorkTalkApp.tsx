@@ -556,6 +556,8 @@ export function WorkTalkApp() {
     notificationsReady,
     latestNotification,
     realtimeDebugStatus,
+    messageLatencyEvents,
+    subscriptionDebugStatus,
     clearLatestNotification,
     selectRoom,
     clearSelectedRoom,
@@ -2824,7 +2826,12 @@ export function WorkTalkApp() {
         ? await sendFiles(pendingFiles, nextBody)
         : replyTarget
           ? await sendReplyMessage(nextBody, replyTarget.id)
-          : await sendMessage(nextBody);
+          : await sendMessage(nextBody, {
+              sendClickTime: performance.now(),
+              sendClickWallTime: new Date().toLocaleTimeString("ko-KR", {
+                hour12: false,
+              }),
+            });
     if (sent) {
       setDraft("");
       setReplyTarget(null);
@@ -4922,6 +4929,82 @@ export function WorkTalkApp() {
               messages fetch count:{" "}
               {realtimeDebugStatus.messagesFetchCount ?? "null"}
             </div>
+          </div>
+          <div
+            style={{
+              marginBottom: 10,
+              paddingBottom: 10,
+              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: 4 }}>
+              MESSAGE LATENCY DEBUG
+            </strong>
+            <div>subscription timestamp: {subscriptionDebugStatus.timestamp || "waiting"}</div>
+            <div>subscription roomId: {subscriptionDebugStatus.roomId ?? "null"}</div>
+            <div>
+              active subscriptions:{" "}
+              {subscriptionDebugStatus.activeSubscriptionCount}
+            </div>
+            <div>
+              channels: messages={subscriptionDebugStatus.messages}, files=
+              {subscriptionDebugStatus.files}, notifications=
+              {subscriptionDebugStatus.notifications}, meta=
+              {subscriptionDebugStatus.meta}
+            </div>
+            {messageLatencyEvents.length === 0 ? (
+              <div
+                style={{
+                  marginTop: 7,
+                  color: "rgba(223, 252, 245, 0.68)",
+                }}
+              >
+                waiting for message latency events...
+              </div>
+            ) : (
+              messageLatencyEvents.map((event, index) => (
+                <div
+                  key={`${event.messageKey}-${index}`}
+                  style={{
+                    paddingTop: 7,
+                    marginTop: 7,
+                    borderTop: "1px solid rgba(223, 252, 245, 0.14)",
+                  }}
+                >
+                  <div>
+                    <b>#{index + 1}</b> {event.direction} · messageId:{" "}
+                    {event.messageId ?? "pending"} · roomId:{" "}
+                    {event.roomId ?? "null"}
+                  </div>
+                  <div>body: {event.bodyPreview || "null"}</div>
+                  <div>source: {event.source}</div>
+                  <div>send_click_time: {event.sendClickTime || "null"}</div>
+                  <div>api_request_start: {event.apiRequestStart || "null"}</div>
+                  <div>db_insert_done: {event.dbInsertDone || "null"}</div>
+                  <div>
+                    api_response_received:{" "}
+                    {event.apiResponseReceived || "null"}
+                  </div>
+                  <div>
+                    realtime_event_received:{" "}
+                    {event.realtimeEventReceived || "null"}
+                  </div>
+                  <div>ui_render_done: {event.uiRenderDone || "null"}</div>
+                  <div>push_api_called: {event.pushApiCalled || "null"}</div>
+                  <div>
+                    push_showNotification:{" "}
+                    {event.pushShowNotification || "SW/PUSH DEBUG 참고"}
+                  </div>
+                  <div>
+                    latency(ms): send→api {event.sendToApiMs ?? "null"} / api{" "}
+                    {event.apiRoundTripMs ?? "null"} / send→realtime{" "}
+                    {event.sendToRealtimeMs ?? "null"} / realtime→ui{" "}
+                    {event.realtimeToUiMs ?? "null"} / send→ui{" "}
+                    {event.sendToUiMs ?? "null"}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           <div
             style={{
