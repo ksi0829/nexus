@@ -26,6 +26,8 @@ const MESSAGE_LIMIT = 100;
 const MESSAGE_LATENCY_EVENT_LIMIT = 100;
 const WORKTALK_FILE_BUCKET = "worktalk-files";
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
+const WORKTALK_MESSAGE_COLUMNS =
+  "id,room_id,sender_id,sender_name,sender_team,message_type,body,metadata,reply_to_message_id,created_at";
 
 type RoomRow = Omit<WorkTalkRoom, "members" | "latestMessage" | "unreadCount">;
 type MemberRow = Omit<WorkTalkRoomMember, "profile">;
@@ -628,13 +630,46 @@ export function useWorkTalk() {
       }
 
       const currentMessages = messagesRef.current;
-      const optimisticIndex = currentMessages.findIndex(
+      let optimisticIndex = currentMessages.findIndex(
         (item) =>
           item.optimistic_status &&
           item.optimistic_status !== "failed" &&
           item.server_message_id === message.id
       );
-      if (currentMessages.some((item) => item.id === message.id)) {
+      if (
+        optimisticIndex < 0 &&
+        message.sender_id === currentProfile?.id &&
+        message.message_type === "text"
+      ) {
+        optimisticIndex = currentMessages.findIndex(
+          (item) =>
+            item.optimistic_status &&
+            item.optimistic_status !== "failed" &&
+            !item.server_message_id &&
+            item.room_id === message.room_id &&
+            item.sender_id === message.sender_id &&
+            item.message_type === message.message_type &&
+            item.body === message.body
+        );
+      }
+
+      const existingServerIndex = currentMessages.findIndex(
+        (item) => item.id === message.id
+      );
+      if (existingServerIndex >= 0) {
+        if (optimisticIndex >= 0 && optimisticIndex !== existingServerIndex) {
+          const nextMessages = currentMessages.filter(
+            (_item, index) => index !== optimisticIndex
+          );
+          messagesRef.current = nextMessages;
+          setMessages(nextMessages);
+          setLoadingMessages(false);
+          return {
+            attempted: true,
+            applied: true,
+            reason: "removed_optimistic_duplicate",
+          };
+        }
         return {
           attempted: true,
           applied: false,
@@ -698,7 +733,7 @@ export function useWorkTalk() {
             : "appended_realtime_message",
       };
     },
-    [markLatencyUiRendered]
+    [currentProfile?.id, markLatencyUiRendered]
   );
 
   const appendOptimisticTextMessage = useCallback(
@@ -785,6 +820,22 @@ export function useWorkTalk() {
     },
     []
   );
+
+  const fetchServerMessageById = useCallback(async (messageId: number) => {
+    const { data, error } = await supabase
+      .from("worktalk_messages")
+      .select(WORKTALK_MESSAGE_COLUMNS)
+      .eq("id", messageId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      ...(data as Omit<WorkTalkMessage, "files">),
+      files: [],
+      replyTo: null,
+    } satisfies WorkTalkMessage;
+  }, []);
 
   const appendRealtimeFileToCurrentRoom = useCallback(
     (file: WorkTalkFile): RealtimeAppendResult => {
@@ -1407,8 +1458,6 @@ export function useWorkTalk() {
     setLoadingMessages(true);
 
     try {
-      const messageColumns =
-        "id,room_id,sender_id,sender_name,sender_team,message_type,body,metadata,reply_to_message_id,created_at";
       let plainMessages: Omit<WorkTalkMessage, "files">[] = [];
 
       if (focusMessageId) {
@@ -1418,14 +1467,14 @@ export function useWorkTalk() {
         ] = await Promise.all([
           supabase
             .from("worktalk_messages")
-            .select(messageColumns)
+            .select(WORKTALK_MESSAGE_COLUMNS)
             .eq("room_id", roomId)
             .lte("id", focusMessageId)
             .order("id", { ascending: false })
             .limit(50),
           supabase
             .from("worktalk_messages")
-            .select(messageColumns)
+            .select(WORKTALK_MESSAGE_COLUMNS)
             .eq("room_id", roomId)
             .gt("id", focusMessageId)
             .order("id", { ascending: true })
@@ -1441,7 +1490,7 @@ export function useWorkTalk() {
       } else {
         const { data, error } = await supabase
           .from("worktalk_messages")
-          .select(messageColumns)
+          .select(WORKTALK_MESSAGE_COLUMNS)
           .eq("room_id", roomId)
           .order("created_at", { ascending: false })
           .limit(MESSAGE_LIMIT);
@@ -2137,6 +2186,12 @@ export function useWorkTalk() {
             })
           );
           markOptimisticMessageSent(clientTempId, rpcMessageId);
+          if (rpcMessageId) {
+            const serverMessage = await fetchServerMessageById(rpcMessageId);
+            if (serverMessage) {
+              appendRealtimeMessageToCurrentRoom(serverMessage);
+            }
+          }
           const pushCall = nowLatencyStamp();
           upsertLatencyEvent(
             (event) => event.messageKey === messageKey,
@@ -2210,7 +2265,9 @@ export function useWorkTalk() {
     },
     [
       appendOptimisticTextMessage,
+      appendRealtimeMessageToCurrentRoom,
       currentProfile?.id,
+      fetchServerMessageById,
       markOptimisticMessageFailed,
       markOptimisticMessageSent,
       scheduleRoomRefresh,
