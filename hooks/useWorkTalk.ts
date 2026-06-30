@@ -103,6 +103,10 @@ type WorkTalkLatencyDebugEvent = {
   apiRequestDurationMs: number | null;
   dbInsertDurationMs: number | null;
   dbCommitTimestamp: string | null;
+  realtimeCommitTimestamp?: string | null;
+  realtimeCommitToPayloadMs?: number | null;
+  realtimeCommitToRenderMs?: number | null;
+  messageCreatedToRealtimeCommitMs?: number | null;
   realtimeDispatchDurationMs: number | null;
   realtimeReceiveDurationMs: number | null;
   sendButtonDisabledDurationMs?: number | null;
@@ -417,6 +421,14 @@ export function useWorkTalk() {
               uiRenderDone: uiStamp.wall,
               renderDoneAt: new Date(uiStamp.epochMs).toISOString(),
               uiRenderEpochMs: uiStamp.epochMs,
+              realtimeCommitToRenderMs:
+                event.realtimeCommitTimestamp &&
+                parseEpochMs(event.realtimeCommitTimestamp)
+                  ? roundLatency(
+                      uiStamp.epochMs -
+                        parseEpochMs(event.realtimeCommitTimestamp)!
+                    )
+                  : event.realtimeCommitToRenderMs,
               realtimeToUiMs: event.realtimeEventPerf
                 ? roundLatency(uiStamp.perf - event.realtimeEventPerf)
                 : event.realtimeToUiMs,
@@ -2894,9 +2906,23 @@ export function useWorkTalk() {
             });
             const realtimeStamp = nowLatencyStamp();
             const dbCommitEpochMs = parseEpochMs(message.created_at);
+            const realtimeCommitTimestamp =
+              typeof payload.commit_timestamp === "string"
+                ? payload.commit_timestamp
+                : null;
+            const realtimeCommitEpochMs = parseEpochMs(
+              realtimeCommitTimestamp
+            );
             const realtimeDispatchDurationMs = dbCommitEpochMs
               ? roundLatency(realtimeStamp.epochMs - dbCommitEpochMs)
               : null;
+            const realtimeCommitToPayloadMs = realtimeCommitEpochMs
+              ? roundLatency(realtimeStamp.epochMs - realtimeCommitEpochMs)
+              : null;
+            const messageCreatedToRealtimeCommitMs =
+              dbCommitEpochMs && realtimeCommitEpochMs
+                ? roundLatency(realtimeCommitEpochMs - dbCommitEpochMs)
+                : null;
             const pendingSendMatch = pendingLatencyEventsRef.current.find(
               (event) =>
                 event.direction === "send" &&
@@ -2937,6 +2963,10 @@ export function useWorkTalk() {
                 apiRequestDurationMs: null,
                 dbInsertDurationMs: null,
                 dbCommitTimestamp: message.created_at || null,
+                realtimeCommitTimestamp,
+                realtimeCommitToPayloadMs,
+                realtimeCommitToRenderMs: null,
+                messageCreatedToRealtimeCommitMs,
                 realtimeDispatchDurationMs,
                 realtimeReceiveDurationMs: null,
                 senderId: message.sender_id,
@@ -2958,6 +2988,14 @@ export function useWorkTalk() {
                   ? roundLatency(realtimeStamp.perf - event.sendClickPerf)
                   : event.sendToRealtimeMs,
                 dbCommitTimestamp: message.created_at || event.dbCommitTimestamp,
+                realtimeCommitTimestamp:
+                  realtimeCommitTimestamp || event.realtimeCommitTimestamp,
+                realtimeCommitToPayloadMs:
+                  realtimeCommitToPayloadMs ?? event.realtimeCommitToPayloadMs,
+                realtimeCommitToRenderMs: event.realtimeCommitToRenderMs,
+                messageCreatedToRealtimeCommitMs:
+                  messageCreatedToRealtimeCommitMs ??
+                  event.messageCreatedToRealtimeCommitMs,
                 realtimeDispatchDurationMs,
                 realtimeReceiveDurationMs: event.apiResponsePerf
                   ? roundLatency(realtimeStamp.perf - event.apiResponsePerf)

@@ -5367,6 +5367,14 @@ export function WorkTalkApp() {
                         dbDiagnostics?.rpc_return_ready_at,
                         event.realtimePayloadReceivedAt
                       );
+                      const commitFromFunctionEnteredMs = getTimestampDeltaMs(
+                        dbDiagnostics?.function_entered_at,
+                        event.realtimeCommitTimestamp
+                      );
+                      const commitFromRpcReturnReadyMs = getTimestampDeltaMs(
+                        dbDiagnostics?.rpc_return_ready_at,
+                        event.realtimeCommitTimestamp
+                      );
                       const renderFromPayloadMs = getTimestampDeltaMs(
                         event.realtimePayloadReceivedAt,
                         event.renderDoneAt
@@ -5448,6 +5456,13 @@ export function WorkTalkApp() {
                             render_done_at: {event.renderDoneAt || "null"}
                           </div>
                           <div>
+                            realtime commit_timestamp:{" "}
+                            {event.realtimeCommitTimestamp || "null"} ·
+                            message.created_at→commit:{" "}
+                            {event.messageCreatedToRealtimeCommitMs ?? "null"}
+                            ms
+                          </div>
+                          <div>
                             receiver delay from message.created_at:{" "}
                             {payloadFromMessageCreatedMs ?? "null"}ms · from
                             function_entered_at:{" "}
@@ -5455,6 +5470,16 @@ export function WorkTalkApp() {
                             rpc_return_ready_at:{" "}
                             {payloadFromRpcReturnReadyMs ?? "null"}ms ·
                             payload→render: {renderFromPayloadMs ?? "null"}ms
+                          </div>
+                          <div>
+                            realtime commit→payload:{" "}
+                            {event.realtimeCommitToPayloadMs ?? "null"}ms ·
+                            commit→render:{" "}
+                            {event.realtimeCommitToRenderMs ?? "null"}ms ·
+                            function_entered_at→commit:{" "}
+                            {commitFromFunctionEnteredMs ?? "null"}ms ·
+                            rpc_return_ready_at→commit:{" "}
+                            {commitFromRpcReturnReadyMs ?? "null"}ms
                           </div>
                           <div>body: {event.bodyPreview || "null"}</div>
                           <div>

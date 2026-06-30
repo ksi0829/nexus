@@ -664,6 +664,55 @@ grant execute on function public.worktalk_send_message(bigint, text) to authenti
 --     'public.worktalk_rooms'::regclass
 --   );
 --
+-- Realtime / WAL / replication inspection helpers:
+-- These views may require elevated database privileges depending on the
+-- Supabase project plan and role. If access is denied, use Dashboard
+-- Observability for Realtime API Gateway and database wait events instead.
+--
+-- select
+--   slot_name,
+--   plugin,
+--   slot_type,
+--   active,
+--   restart_lsn,
+--   confirmed_flush_lsn,
+--   pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn) as confirmed_lag_bytes
+-- from pg_replication_slots
+-- order by slot_name;
+--
+-- select
+--   pid,
+--   application_name,
+--   client_addr,
+--   state,
+--   sent_lsn,
+--   write_lsn,
+--   flush_lsn,
+--   replay_lsn,
+--   write_lag,
+--   flush_lag,
+--   replay_lag
+-- from pg_stat_replication
+-- order by application_name, pid;
+--
+-- select
+--   pid,
+--   usename,
+--   application_name,
+--   backend_type,
+--   state,
+--   wait_event_type,
+--   wait_event,
+--   xact_start,
+--   query_start,
+--   now() - coalesce(xact_start, query_start) as active_for,
+--   left(query, 240) as query_preview
+-- from pg_stat_activity
+-- where application_name ilike '%realtime%'
+--    or backend_type ilike '%walsender%'
+--    or query ilike '%worktalk_send_message%'
+-- order by coalesce(xact_start, query_start) nulls last;
+--
 -- EXPLAIN helpers:
 -- Replace ROOM_ID and USER_ID before running.
 --
