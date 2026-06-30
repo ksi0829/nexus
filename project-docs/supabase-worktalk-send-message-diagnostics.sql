@@ -34,6 +34,10 @@ create table if not exists public.worktalk_send_message_diagnostics (
   room_update_ms integer,
   sender_read_update_ms integer,
   return_prepare_ms integer,
+  diagnostics_insert_ms integer,
+  after_total_to_return_ms integer,
+  function_entered_at timestamptz,
+  rpc_return_ready_at timestamptz,
   stage_marks jsonb not null default '{}'::jsonb,
   txid bigint not null default txid_current(),
   backend_pid integer not null default pg_backend_pid()
@@ -53,7 +57,11 @@ alter table public.worktalk_send_message_diagnostics
   add column if not exists notification_recipient_select_ms integer,
   add column if not exists notification_insert_only_ms integer,
   add column if not exists notification_recipient_count integer,
-  add column if not exists message_insert_core_estimated_ms integer;
+  add column if not exists message_insert_core_estimated_ms integer,
+  add column if not exists diagnostics_insert_ms integer,
+  add column if not exists after_total_to_return_ms integer,
+  add column if not exists function_entered_at timestamptz,
+  add column if not exists rpc_return_ready_at timestamptz;
 
 alter table public.worktalk_send_message_diagnostics enable row level security;
 
@@ -239,8 +247,15 @@ declare
   room_update_ms integer := null;
   sender_read_update_ms integer := null;
   return_prepare_ms integer := null;
+  v_diagnostics_insert_ms integer := null;
+  v_after_total_to_return_ms integer := null;
   total_ms integer := null;
-  stage_marks jsonb := '{}'::jsonb;
+  function_entered_at timestamptz := rpc_started_at;
+  total_calculated_at timestamptz := null;
+  diagnostics_insert_started_at timestamptz := null;
+  v_rpc_return_ready_at timestamptz := null;
+  diagnostics_row_id bigint := null;
+  v_stage_marks jsonb := '{}'::jsonb;
 begin
   perform set_config('worktalk.last_notification_insert_ms', '', true);
   perform set_config('worktalk.last_notification_rows', '', true);
@@ -249,8 +264,8 @@ begin
   perform set_config('worktalk.last_notification_insert_only_ms', '', true);
   perform set_config('worktalk.last_notification_recipient_count', '', true);
 
-  stage_marks := stage_marks || jsonb_build_object(
-    'rpc_start', clock_timestamp(),
+  v_stage_marks := v_stage_marks || jsonb_build_object(
+    'rpc_start', function_entered_at,
     'target_room_id', target_room_id
   );
 
@@ -262,7 +277,7 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
-  stage_marks := stage_marks || jsonb_build_object(
+  v_stage_marks := v_stage_marks || jsonb_build_object(
     'membership_check_done', clock_timestamp(),
     'membership_check_ms', membership_check_ms
   );
@@ -277,7 +292,7 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
-  stage_marks := stage_marks || jsonb_build_object(
+  v_stage_marks := v_stage_marks || jsonb_build_object(
     'profile_select_done', clock_timestamp(),
     'profile_select_ms', profile_select_ms
   );
@@ -338,7 +353,7 @@ begin
     else greatest(0, message_insert_ms - notification_trigger_total_ms)
   end;
 
-  stage_marks := stage_marks || jsonb_build_object(
+  v_stage_marks := v_stage_marks || jsonb_build_object(
     'message_insert_done', clock_timestamp(),
     'message_insert_ms', message_insert_ms,
     'message_insert_core_estimated_ms', message_insert_core_estimated_ms,
@@ -358,7 +373,7 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
-  stage_marks := stage_marks || jsonb_build_object(
+  v_stage_marks := v_stage_marks || jsonb_build_object(
     'room_update_done', clock_timestamp(),
     'room_update_ms', room_update_ms
   );
@@ -371,7 +386,7 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
-  stage_marks := stage_marks || jsonb_build_object(
+  v_stage_marks := v_stage_marks || jsonb_build_object(
     'sender_read_update_done', clock_timestamp(),
     'sender_read_update_ms', sender_read_update_ms
   );
@@ -381,8 +396,9 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - rpc_started_at)) * 1000)::integer
   );
-  stage_marks := stage_marks || jsonb_build_object(
-    'rpc_return_ready', clock_timestamp(),
+  total_calculated_at := clock_timestamp();
+  v_stage_marks := v_stage_marks || jsonb_build_object(
+    'total_calculated_at', total_calculated_at,
     'total_ms', total_ms
   );
   return_prepare_ms := greatest(
@@ -390,6 +406,7 @@ begin
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
 
+  diagnostics_insert_started_at := clock_timestamp();
   insert into public.worktalk_send_message_diagnostics (
     room_id,
     message_id,
@@ -409,6 +426,10 @@ begin
     room_update_ms,
     sender_read_update_ms,
     return_prepare_ms,
+    diagnostics_insert_ms,
+    after_total_to_return_ms,
+    function_entered_at,
+    rpc_return_ready_at,
     stage_marks
   )
   values (
@@ -430,8 +451,37 @@ begin
     room_update_ms,
     sender_read_update_ms,
     return_prepare_ms,
-    stage_marks
+    null,
+    null,
+    function_entered_at,
+    null,
+    v_stage_marks
+  )
+  returning id into diagnostics_row_id;
+
+  v_diagnostics_insert_ms := greatest(
+    0,
+    round(extract(epoch from (clock_timestamp() - diagnostics_insert_started_at)) * 1000)::integer
   );
+  v_rpc_return_ready_at := clock_timestamp();
+  v_after_total_to_return_ms := greatest(
+    0,
+    round(extract(epoch from (v_rpc_return_ready_at - total_calculated_at)) * 1000)::integer
+  );
+  v_stage_marks := v_stage_marks || jsonb_build_object(
+    'diagnostics_insert_done', clock_timestamp(),
+    'diagnostics_insert_ms', v_diagnostics_insert_ms,
+    'rpc_return_ready_at', v_rpc_return_ready_at,
+    'after_total_to_return_ms', v_after_total_to_return_ms
+  );
+
+  update public.worktalk_send_message_diagnostics
+  set
+    diagnostics_insert_ms = v_diagnostics_insert_ms,
+    after_total_to_return_ms = v_after_total_to_return_ms,
+    rpc_return_ready_at = v_rpc_return_ready_at,
+    stage_marks = v_stage_marks
+  where id = diagnostics_row_id;
 
   return new_message_id;
 end;
@@ -459,7 +509,11 @@ grant execute on function public.worktalk_send_message(bigint, text) to authenti
 --   notification_rows,
 --   room_update_ms,
 --   sender_read_update_ms,
---   return_prepare_ms
+--   return_prepare_ms,
+--   diagnostics_insert_ms,
+--   after_total_to_return_ms,
+--   function_entered_at,
+--   rpc_return_ready_at
 -- from public.worktalk_send_message_diagnostics
 -- order by created_at desc
 -- limit 50;

@@ -150,6 +150,10 @@ type SendMessageDiagnosticsRow = {
   notification_trigger_total_ms: number | null;
   notification_insert_only_ms: number | null;
   message_insert_core_estimated_ms: number | null;
+  diagnostics_insert_ms: number | null;
+  after_total_to_return_ms: number | null;
+  function_entered_at: string | null;
+  rpc_return_ready_at: string | null;
 };
 type PresenceRow = {
   user_id: string;
@@ -989,6 +993,10 @@ export function WorkTalkApp() {
           "notification_trigger_total_ms",
           "notification_insert_only_ms",
           "message_insert_core_estimated_ms",
+          "diagnostics_insert_ms",
+          "after_total_to_return_ms",
+          "function_entered_at",
+          "rpc_return_ready_at",
         ].join(",")
       )
       .in("message_id", slowMessageIds)
@@ -5378,6 +5386,18 @@ export function WorkTalkApp() {
                             {dbDiagnostics?.notification_insert_ms ?? "null"}ms ·
                             membership_check:{" "}
                             {dbDiagnostics?.membership_check_ms ?? "null"}ms
+                          </div>
+                          <div>
+                            DB diagnostics_insert_ms:{" "}
+                            {dbDiagnostics?.diagnostics_insert_ms ?? "null"}ms ·
+                            after_total_to_return:{" "}
+                            {dbDiagnostics?.after_total_to_return_ms ?? "null"}ms
+                          </div>
+                          <div>
+                            DB function_entered_at:{" "}
+                            {dbDiagnostics?.function_entered_at || "null"} ·
+                            rpc_return_ready_at:{" "}
+                            {dbDiagnostics?.rpc_return_ready_at || "null"}
                           </div>
                           <div>body: {event.bodyPreview || "null"}</div>
                           <div>
