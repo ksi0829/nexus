@@ -76,7 +76,10 @@ using (
     select 1
     from public.profiles profile
     where profile.id = auth.uid()
-      and profile.role = 'admin'
+      and (
+        profile.role = 'admin'
+        or profile.name = '김선일'
+      )
   )
 );
 

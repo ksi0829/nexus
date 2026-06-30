@@ -1019,8 +1019,11 @@ export function WorkTalkApp() {
         }
 
         setSendMessageDiagnosticsByMessageId(nextRows);
+        const matchedCount = Object.keys(nextRows).length;
         setSendMessageDiagnosticsStatus(
-          `matched ${Object.keys(nextRows).length} / ${slowMessageIds.length}`
+          matchedCount === 0
+            ? `matched 0 / ${slowMessageIds.length} · no rows readable; check RLS or diagnostics INSERT · ids: ${slowMessageIds.join(",")}`
+            : `matched ${matchedCount} / ${slowMessageIds.length} · ids: ${slowMessageIds.join(",")}`
         );
       });
 

@@ -1761,11 +1761,15 @@ export function useWorkTalk() {
         });
         const promiseResolved = nowLatencyStamp();
         const { error } = rpcResult;
+        const resolvedMessageId = Number(rpcResult.data);
+        const rpcMessageId = Number.isFinite(resolvedMessageId)
+          ? resolvedMessageId
+          : null;
         upsertLatencyEvent(
           (event) => event.messageKey === messageKey,
           () => ({
             messageKey,
-            messageId: null,
+            messageId: rpcMessageId,
             roomId: targetRoomId,
             direction: "send",
             bodyPreview,
@@ -1808,6 +1812,7 @@ export function useWorkTalk() {
           }),
           (event) => ({
             ...event,
+            messageId: event.messageId ?? rpcMessageId,
             promiseResolvedTime: promiseResolved.wall,
             promiseResolvedPerf: promiseResolved.perf,
             rpcCallToPromiseResolveMs: event.rpcCallBeforePerf
@@ -1834,7 +1839,7 @@ export function useWorkTalk() {
           (event) => event.messageKey === messageKey,
           () => ({
             messageKey,
-            messageId: null,
+            messageId: rpcMessageId,
             roomId: targetRoomId,
             direction: "send",
             bodyPreview,
@@ -1875,6 +1880,7 @@ export function useWorkTalk() {
           }),
           (event) => ({
             ...event,
+            messageId: event.messageId ?? rpcMessageId,
             dbInsertDone: apiResponse.wall,
             apiResponseReceived: apiResponse.wall,
             apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
@@ -1892,7 +1898,7 @@ export function useWorkTalk() {
           (event) => event.messageKey === messageKey,
           () => ({
             messageKey,
-            messageId: null,
+            messageId: rpcMessageId,
             roomId: targetRoomId,
             direction: "send",
             bodyPreview,
@@ -1933,6 +1939,7 @@ export function useWorkTalk() {
           }),
           (event) => ({
             ...event,
+            messageId: event.messageId ?? rpcMessageId,
             pushApiCalled: pushCall.wall,
             source: "push_api_called",
             sendClickPerf: event.sendClickPerf ?? sendClickPerf,
