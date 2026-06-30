@@ -157,6 +157,12 @@ type SendMessageDiagnosticsRow = {
   notification_trigger_started_at: string | null;
   notification_trigger_finished_at: string | null;
   rpc_return_ready_at: string | null;
+  activity_snapshots: Record<string, unknown> | null;
+  wal_lsn_start: string | null;
+  wal_lsn_after_message_insert: string | null;
+  wal_lsn_return_ready: string | null;
+  wal_bytes_message_insert: number | null;
+  wal_bytes_total: number | null;
 };
 type PresenceRow = {
   user_id: string;
@@ -260,6 +266,40 @@ function getTimestampDeltaMs(from?: string | null, to?: string | null) {
   const toMs = new Date(to).getTime();
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
   return Math.round(toMs - fromMs);
+}
+
+function getObjectRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function formatDbActivitySnapshot(
+  snapshots: Record<string, unknown> | null | undefined,
+  stage: string
+) {
+  const root = getObjectRecord(snapshots);
+  const snapshot = getObjectRecord(root?.[stage]);
+  if (!snapshot) return `${stage}: null`;
+
+  const blockingRaw = snapshot.blocking_pids;
+  const blockingPids = Array.isArray(blockingRaw)
+    ? blockingRaw.length > 0
+      ? blockingRaw.join(",")
+      : "none"
+    : String(blockingRaw ?? "none");
+
+  return [
+    `${stage}: wait=${String(snapshot.wait_event_type ?? "null")}/${String(
+      snapshot.wait_event ?? "null"
+    )}`,
+    `blocking=${blockingPids}`,
+    `locks=${String(snapshot.lock_total ?? "null")}/${String(
+      snapshot.lock_not_granted ?? "null"
+    )}`,
+    `xact=${String(snapshot.xact_age_ms ?? "null")}ms`,
+    `query=${String(snapshot.query_age_ms ?? "null")}ms`,
+    `wal=${String(snapshot.wal_lsn ?? "null")}`,
+  ].join(" · ");
 }
 
 type WorkTalkDeepLink = {
@@ -1011,6 +1051,12 @@ export function WorkTalkApp() {
           "notification_trigger_started_at",
           "notification_trigger_finished_at",
           "rpc_return_ready_at",
+          "activity_snapshots",
+          "wal_lsn_start",
+          "wal_lsn_after_message_insert",
+          "wal_lsn_return_ready",
+          "wal_bytes_message_insert",
+          "wal_bytes_total",
         ].join(",")
       )
       .in("message_id", slowMessageIds)
@@ -5474,6 +5520,36 @@ export function WorkTalkApp() {
                             {dbDiagnostics?.diagnostics_insert_ms ?? "null"}ms ·
                             after_total_to_return:{" "}
                             {dbDiagnostics?.after_total_to_return_ms ?? "null"}ms
+                          </div>
+                          <div>
+                            DB WAL bytes: message_insert{" "}
+                            {dbDiagnostics?.wal_bytes_message_insert ?? "null"} ·
+                            total {dbDiagnostics?.wal_bytes_total ?? "null"}
+                          </div>
+                          <div>
+                            DB WAL LSN: start{" "}
+                            {dbDiagnostics?.wal_lsn_start || "null"} · after_insert{" "}
+                            {dbDiagnostics?.wal_lsn_after_message_insert ||
+                              "null"}{" "}
+                            · return {dbDiagnostics?.wal_lsn_return_ready || "null"}
+                          </div>
+                          <div>
+                            {formatDbActivitySnapshot(
+                              dbDiagnostics?.activity_snapshots,
+                              "before_message_insert"
+                            )}
+                          </div>
+                          <div>
+                            {formatDbActivitySnapshot(
+                              dbDiagnostics?.activity_snapshots,
+                              "after_message_insert"
+                            )}
+                          </div>
+                          <div>
+                            {formatDbActivitySnapshot(
+                              dbDiagnostics?.activity_snapshots,
+                              "return_ready"
+                            )}
                           </div>
                           <div>
                             DB function_entered_at:{" "}
