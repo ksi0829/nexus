@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
+import {
+  clearWorkTalkRpcTimingContext,
+  setWorkTalkRpcTimingContext,
+  WORKTALK_RPC_TIMING_EVENT,
+} from "@/lib/worktalk/rpcTiming";
+import type { WorkTalkRpcTimingDetail } from "@/lib/worktalk/rpcTiming";
 import type {
   WorkTalkFile,
   WorkTalkMessage,
@@ -98,14 +104,35 @@ type WorkTalkLatencyDebugEvent = {
   realtimeDispatchDurationMs: number | null;
   realtimeReceiveDurationMs: number | null;
   sendButtonDisabledDurationMs?: number | null;
+  buttonEnableTime?: string | null;
   inputClearTime?: string | null;
   inputClearPerf?: number;
+  rpcCallBeforeTime?: string | null;
+  fetchStartTime?: string | null;
+  httpRequestSentTime?: string | null;
+  firstByteReceivedTime?: string | null;
+  httpResponseCompleteTime?: string | null;
+  promiseResolvedTime?: string | null;
+  rpcCallToFetchStartMs?: number | null;
+  fetchStartToFirstByteMs?: number | null;
+  firstByteToResponseCompleteMs?: number | null;
+  httpResponseTotalMs?: number | null;
+  responseCompleteToPromiseResolveMs?: number | null;
+  rpcCallToPromiseResolveMs?: number | null;
+  httpStatus?: number | null;
+  httpOk?: boolean | null;
+  rpcFetchError?: string | null;
   senderId: string | null;
   source: string;
   sendClickPerf?: number;
   apiRequestPerf?: number;
   apiResponsePerf?: number;
   realtimeEventPerf?: number;
+  rpcCallBeforePerf?: number;
+  fetchStartPerf?: number;
+  firstBytePerf?: number;
+  httpResponseCompletePerf?: number;
+  promiseResolvedPerf?: number;
 };
 type RealtimeAppendResult = {
   attempted: boolean;
@@ -427,6 +454,83 @@ export function useWorkTalk() {
       pendingLatencyEventsRef.current = next;
       return next;
     });
+  }, []);
+
+  useEffect(() => {
+    const handleRpcTiming = (event: Event) => {
+      const detail = (event as CustomEvent<WorkTalkRpcTimingDetail>).detail;
+      if (!detail || detail.rpcName !== "worktalk_send_message") return;
+
+      setMessageLatencyEvents((current) => {
+        let updated = false;
+        const next = current.map((latencyEvent) => {
+          if (latencyEvent.messageKey !== detail.messageKey) {
+            return latencyEvent;
+          }
+
+          updated = true;
+          const nextEvent: WorkTalkLatencyDebugEvent = {
+            ...latencyEvent,
+            httpStatus: detail.status ?? latencyEvent.httpStatus ?? null,
+            httpOk: detail.ok ?? latencyEvent.httpOk ?? null,
+            rpcFetchError:
+              detail.phase === "fetch_error"
+                ? detail.error || "fetch_error"
+                : latencyEvent.rpcFetchError ?? null,
+          };
+
+          if (detail.phase === "fetch_start") {
+            nextEvent.fetchStartTime = detail.timestamp;
+            nextEvent.fetchStartPerf = detail.perf;
+            nextEvent.rpcCallToFetchStartMs = latencyEvent.rpcCallBeforePerf
+              ? roundLatency(detail.perf - latencyEvent.rpcCallBeforePerf)
+              : nextEvent.rpcCallToFetchStartMs ?? null;
+          }
+
+          if (detail.phase === "http_request_sent") {
+            nextEvent.httpRequestSentTime = detail.timestamp;
+          }
+
+          if (detail.phase === "first_byte_received") {
+            nextEvent.firstByteReceivedTime = detail.timestamp;
+            nextEvent.firstBytePerf = detail.perf;
+            nextEvent.fetchStartToFirstByteMs = latencyEvent.fetchStartPerf
+              ? roundLatency(detail.perf - latencyEvent.fetchStartPerf)
+              : detail.durationMs ?? nextEvent.fetchStartToFirstByteMs ?? null;
+          }
+
+          if (detail.phase === "http_response_complete") {
+            nextEvent.httpResponseCompleteTime = detail.timestamp;
+            nextEvent.httpResponseCompletePerf = detail.perf;
+            nextEvent.httpResponseTotalMs = latencyEvent.fetchStartPerf
+              ? roundLatency(detail.perf - latencyEvent.fetchStartPerf)
+              : detail.durationMs ?? nextEvent.httpResponseTotalMs ?? null;
+            nextEvent.firstByteToResponseCompleteMs = latencyEvent.firstBytePerf
+              ? roundLatency(detail.perf - latencyEvent.firstBytePerf)
+              : nextEvent.firstByteToResponseCompleteMs ?? null;
+            nextEvent.responseCompleteToPromiseResolveMs =
+              latencyEvent.promiseResolvedPerf
+                ? roundLatency(latencyEvent.promiseResolvedPerf - detail.perf)
+                : nextEvent.responseCompleteToPromiseResolveMs ?? null;
+          }
+
+          if (detail.phase === "fetch_error") {
+            nextEvent.source = "rpc_fetch_error";
+          }
+
+          return nextEvent;
+        });
+
+        if (!updated) return current;
+        pendingLatencyEventsRef.current = next;
+        return next;
+      });
+    };
+
+    window.addEventListener(WORKTALK_RPC_TIMING_EVENT, handleRpcTiming);
+    return () => {
+      window.removeEventListener(WORKTALK_RPC_TIMING_EVENT, handleRpcTiming);
+    };
   }, []);
 
   const appendRealtimeMessageToCurrentRoom = useCallback(
@@ -1572,7 +1676,14 @@ export function useWorkTalk() {
           realtimeDispatchDurationMs: null,
           realtimeReceiveDurationMs: null,
           sendButtonDisabledDurationMs: null,
+          buttonEnableTime: null,
           inputClearTime: null,
+          rpcCallBeforeTime: null,
+          fetchStartTime: null,
+          httpRequestSentTime: null,
+          firstByteReceivedTime: null,
+          httpResponseCompleteTime: null,
+          promiseResolvedTime: null,
           senderId: currentProfile?.id ?? null,
           source: "sendMessage",
           sendClickPerf,
@@ -1589,17 +1700,132 @@ export function useWorkTalk() {
       );
       setSending(true);
       try {
-        const { error } = await supabase.rpc("worktalk_send_message", {
+        const rpcCallBefore = nowLatencyStamp();
+        setWorkTalkRpcTimingContext({
+          messageKey,
+          roomId: targetRoomId,
+          bodyPreview,
+        });
+        upsertLatencyEvent(
+          (event) => event.messageKey === messageKey,
+          () => ({
+            messageKey,
+            messageId: null,
+            roomId: targetRoomId,
+            direction: "send",
+            bodyPreview,
+            sendClickTime: sendClickWallTime,
+            apiRequestStart: apiRequest.wall,
+            dbInsertDone: null,
+            apiResponseReceived: null,
+            realtimeEventReceived: null,
+            uiRenderDone: null,
+            pushApiCalled: null,
+            pushShowNotification: null,
+            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+            apiRoundTripMs: null,
+            sendToRealtimeMs: null,
+            realtimeToUiMs: null,
+            sendToUiMs: null,
+            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+            dbInsertDurationMs: null,
+            dbCommitTimestamp: null,
+            realtimeDispatchDurationMs: null,
+            realtimeReceiveDurationMs: null,
+            sendButtonDisabledDurationMs: null,
+            buttonEnableTime: null,
+            inputClearTime: null,
+            rpcCallBeforeTime: rpcCallBefore.wall,
+            fetchStartTime: null,
+            httpRequestSentTime: null,
+            firstByteReceivedTime: null,
+            httpResponseCompleteTime: null,
+            promiseResolvedTime: null,
+            senderId: currentProfile?.id ?? null,
+            source: "rpc_call_before",
+            sendClickPerf,
+            apiRequestPerf: apiRequest.perf,
+            rpcCallBeforePerf: rpcCallBefore.perf,
+          }),
+          (event) => ({
+            ...event,
+            rpcCallBeforeTime: rpcCallBefore.wall,
+            rpcCallBeforePerf: rpcCallBefore.perf,
+            source: "rpc_call_before",
+          })
+        );
+
+        const rpcResult = await supabase.rpc("worktalk_send_message", {
           target_room_id: targetRoomId,
           message_body: body.trim(),
         });
+        const promiseResolved = nowLatencyStamp();
+        const { error } = rpcResult;
+        upsertLatencyEvent(
+          (event) => event.messageKey === messageKey,
+          () => ({
+            messageKey,
+            messageId: null,
+            roomId: targetRoomId,
+            direction: "send",
+            bodyPreview,
+            sendClickTime: sendClickWallTime,
+            apiRequestStart: apiRequest.wall,
+            dbInsertDone: null,
+            apiResponseReceived: null,
+            realtimeEventReceived: null,
+            uiRenderDone: null,
+            pushApiCalled: null,
+            pushShowNotification: null,
+            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+            apiRoundTripMs: null,
+            sendToRealtimeMs: null,
+            realtimeToUiMs: null,
+            sendToUiMs: null,
+            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+            dbInsertDurationMs: null,
+            dbCommitTimestamp: null,
+            realtimeDispatchDurationMs: null,
+            realtimeReceiveDurationMs: null,
+            sendButtonDisabledDurationMs: null,
+            buttonEnableTime: null,
+            inputClearTime: null,
+            rpcCallBeforeTime: rpcCallBefore.wall,
+            fetchStartTime: null,
+            httpRequestSentTime: null,
+            firstByteReceivedTime: null,
+            httpResponseCompleteTime: null,
+            promiseResolvedTime: promiseResolved.wall,
+            senderId: currentProfile?.id ?? null,
+            source: "promise_resolved",
+            sendClickPerf,
+            apiRequestPerf: apiRequest.perf,
+            rpcCallBeforePerf: rpcCallBefore.perf,
+            promiseResolvedPerf: promiseResolved.perf,
+            rpcCallToPromiseResolveMs: roundLatency(
+              promiseResolved.perf - rpcCallBefore.perf
+            ),
+          }),
+          (event) => ({
+            ...event,
+            promiseResolvedTime: promiseResolved.wall,
+            promiseResolvedPerf: promiseResolved.perf,
+            rpcCallToPromiseResolveMs: event.rpcCallBeforePerf
+              ? roundLatency(promiseResolved.perf - event.rpcCallBeforePerf)
+              : roundLatency(promiseResolved.perf - rpcCallBefore.perf),
+            responseCompleteToPromiseResolveMs: event.httpResponseCompletePerf
+              ? roundLatency(promiseResolved.perf - event.httpResponseCompletePerf)
+              : event.responseCompleteToPromiseResolveMs ?? null,
+            source: "promise_resolved",
+          })
+        );
 
         if (error) {
           setErrorMessage(error.message);
           return false;
         }
 
-        const apiResponse = nowLatencyStamp();
+        const apiResponse = promiseResolved;
         console.info("[WorkTalk performance] Message Insert Success", {
           roomId: targetRoomId,
           elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
@@ -1631,12 +1857,21 @@ export function useWorkTalk() {
             realtimeDispatchDurationMs: null,
             realtimeReceiveDurationMs: null,
             sendButtonDisabledDurationMs: null,
+            buttonEnableTime: null,
             inputClearTime: null,
+            rpcCallBeforeTime: rpcCallBefore.wall,
+            fetchStartTime: null,
+            httpRequestSentTime: null,
+            firstByteReceivedTime: null,
+            httpResponseCompleteTime: null,
+            promiseResolvedTime: promiseResolved.wall,
             senderId: currentProfile?.id ?? null,
             source: "sendMessage:response",
             sendClickPerf,
             apiRequestPerf: apiRequest.perf,
             apiResponsePerf: apiResponse.perf,
+            rpcCallBeforePerf: rpcCallBefore.perf,
+            promiseResolvedPerf: promiseResolved.perf,
           }),
           (event) => ({
             ...event,
@@ -1648,6 +1883,8 @@ export function useWorkTalk() {
             sendClickPerf: event.sendClickPerf ?? sendClickPerf,
             apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
             apiResponsePerf: apiResponse.perf,
+            promiseResolvedTime: event.promiseResolvedTime ?? promiseResolved.wall,
+            promiseResolvedPerf: event.promiseResolvedPerf ?? promiseResolved.perf,
           })
         );
         const pushCall = nowLatencyStamp();
@@ -1678,12 +1915,21 @@ export function useWorkTalk() {
             realtimeDispatchDurationMs: null,
             realtimeReceiveDurationMs: null,
             sendButtonDisabledDurationMs: null,
+            buttonEnableTime: null,
             inputClearTime: null,
+            rpcCallBeforeTime: rpcCallBefore.wall,
+            fetchStartTime: null,
+            httpRequestSentTime: null,
+            firstByteReceivedTime: null,
+            httpResponseCompleteTime: null,
+            promiseResolvedTime: promiseResolved.wall,
             senderId: currentProfile?.id ?? null,
             source: "push_api_called",
             sendClickPerf,
             apiRequestPerf: apiRequest.perf,
             apiResponsePerf: apiResponse.perf,
+            rpcCallBeforePerf: rpcCallBefore.perf,
+            promiseResolvedPerf: promiseResolved.perf,
           }),
           (event) => ({
             ...event,
@@ -1706,6 +1952,7 @@ export function useWorkTalk() {
         setErrorMessage(message);
         return false;
       } finally {
+        clearWorkTalkRpcTimingContext(messageKey);
         const sendButtonRelease = nowLatencyStamp();
         const sendButtonDisabledDurationMs = roundLatency(
           sendButtonRelease.perf - sendClickPerf
@@ -1726,6 +1973,7 @@ export function useWorkTalk() {
             return {
               ...event,
               sendButtonDisabledDurationMs,
+              buttonEnableTime: sendButtonRelease.wall,
             };
           });
           if (!updated) return current;

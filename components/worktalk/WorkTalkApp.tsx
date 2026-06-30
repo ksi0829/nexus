@@ -5217,15 +5217,59 @@ export function WorkTalkApp() {
                             {event.apiRequestDurationMs ?? "null"}ms
                           </div>
                           <div>
+                            rpc_call_before: {event.rpcCallBeforeTime || "null"}
+                          </div>
+                          <div>
+                            fetch_start: {event.fetchStartTime || "null"}
+                          </div>
+                          <div>
+                            http_request_sent:{" "}
+                            {event.httpRequestSentTime || "null"}
+                          </div>
+                          <div>
+                            first_byte_received:{" "}
+                            {event.firstByteReceivedTime || "null"}
+                          </div>
+                          <div>
+                            http_response_complete:{" "}
+                            {event.httpResponseCompleteTime || "null"}
+                          </div>
+                          <div>
                             api_response_received:{" "}
                             {event.apiResponseReceived || "null"}
+                          </div>
+                          <div>
+                            promise_resolved:{" "}
+                            {event.promiseResolvedTime || "null"}
                           </div>
                           <div>
                             send_button_disabled_duration:{" "}
                             {event.sendButtonDisabledDurationMs ?? "null"}ms
                           </div>
                           <div>
+                            button_enable: {event.buttonEnableTime || "null"}
+                          </div>
+                          <div>
                             input_clear_time: {event.inputClearTime || "null"}
+                          </div>
+                          <div>
+                            rpc→fetch:{" "}
+                            {event.rpcCallToFetchStartMs ?? "null"}ms / ttfb:{" "}
+                            {event.fetchStartToFirstByteMs ?? "null"}ms /
+                            firstByte→complete:{" "}
+                            {event.firstByteToResponseCompleteMs ?? "null"}ms
+                          </div>
+                          <div>
+                            http_total: {event.httpResponseTotalMs ?? "null"}ms /
+                            response→promise:{" "}
+                            {event.responseCompleteToPromiseResolveMs ?? "null"}ms
+                            / rpc→promise:{" "}
+                            {event.rpcCallToPromiseResolveMs ?? "null"}ms
+                          </div>
+                          <div>
+                            http_status: {event.httpStatus ?? "null"} / ok:{" "}
+                            {String(event.httpOk ?? "null")} / fetch_error:{" "}
+                            {event.rpcFetchError || "null"}
                           </div>
                           <div>
                             realtime_dispatch_duration:{" "}
@@ -5281,6 +5325,24 @@ export function WorkTalkApp() {
                     {event.apiResponseReceived || "null"}
                   </div>
                   <div>
+                    rpc_call_before: {event.rpcCallBeforeTime || "null"}
+                  </div>
+                  <div>fetch_start: {event.fetchStartTime || "null"}</div>
+                  <div>
+                    http_request_sent: {event.httpRequestSentTime || "null"}
+                  </div>
+                  <div>
+                    first_byte_received:{" "}
+                    {event.firstByteReceivedTime || "null"}
+                  </div>
+                  <div>
+                    http_response_complete:{" "}
+                    {event.httpResponseCompleteTime || "null"}
+                  </div>
+                  <div>
+                    promise_resolved: {event.promiseResolvedTime || "null"}
+                  </div>
+                  <div>
                     realtime_event_received:{" "}
                     {event.realtimeEventReceived || "null"}
                   </div>
@@ -5296,7 +5358,25 @@ export function WorkTalkApp() {
                     send_button_disabled_duration:{" "}
                     {event.sendButtonDisabledDurationMs ?? "null"}ms
                   </div>
+                  <div>button_enable: {event.buttonEnableTime || "null"}</div>
                   <div>input_clear_time: {event.inputClearTime || "null"}</div>
+                  <div>
+                    rpc→fetch: {event.rpcCallToFetchStartMs ?? "null"}ms /
+                    ttfb: {event.fetchStartToFirstByteMs ?? "null"}ms /
+                    firstByte→complete:{" "}
+                    {event.firstByteToResponseCompleteMs ?? "null"}ms
+                  </div>
+                  <div>
+                    http_total: {event.httpResponseTotalMs ?? "null"}ms /
+                    response→promise:{" "}
+                    {event.responseCompleteToPromiseResolveMs ?? "null"}ms /
+                    rpc→promise: {event.rpcCallToPromiseResolveMs ?? "null"}ms
+                  </div>
+                  <div>
+                    http_status: {event.httpStatus ?? "null"} / ok:{" "}
+                    {String(event.httpOk ?? "null")} / fetch_error:{" "}
+                    {event.rpcFetchError || "null"}
+                  </div>
                   <div>
                     db_commit_timestamp: {event.dbCommitTimestamp || "null"}
                   </div>
