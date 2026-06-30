@@ -5281,6 +5281,47 @@ export function WorkTalkApp() {
               {subscriptionDebugStatus.notifications}, meta=
               {subscriptionDebugStatus.meta}
             </div>
+            <div>
+              realtime socket: state=
+              {subscriptionDebugStatus.realtimeConnectionState ?? "null"} /
+              connected={String(subscriptionDebugStatus.realtimeIsConnected)} /
+              readyState=
+              {subscriptionDebugStatus.realtimeConnReadyState ?? "null"} /
+              transport={subscriptionDebugStatus.realtimeTransport}
+            </div>
+            <div>
+              socket events: open={subscriptionDebugStatus.socketOpenCount} /
+              close={subscriptionDebugStatus.socketCloseCount} / error=
+              {subscriptionDebugStatus.socketErrorCount} / last=
+              {subscriptionDebugStatus.lastSocketEvent}@
+              {subscriptionDebugStatus.lastSocketEventAt || "null"}
+            </div>
+            <div>
+              channel lifecycle: create=
+              {subscriptionDebugStatus.channelCreateCount} / cleanup=
+              {subscriptionDebugStatus.channelCleanupCount} / subscribed=
+              {subscriptionDebugStatus.subscribedCount} / channel_error=
+              {subscriptionDebugStatus.channelErrorCount} / timeout=
+              {subscriptionDebugStatus.timedOutCount}
+            </div>
+            <div>
+              phoenix logger: events={subscriptionDebugStatus.loggerEventCount} /
+              phx_join={subscriptionDebugStatus.phxJoinCount} / last=
+              {subscriptionDebugStatus.lastLoggerKind || "null"}:
+              {subscriptionDebugStatus.lastLoggerMessage || "null"} @
+              {subscriptionDebugStatus.lastLoggerAt || "null"}
+            </div>
+            <div>
+              realtime URL:{" "}
+              {subscriptionDebugStatus.realtimeConnUrl ||
+                subscriptionDebugStatus.realtimeEndpointURL ||
+                "null"}
+            </div>
+            <div>
+              last close: code=
+              {subscriptionDebugStatus.lastCloseCode ?? "null"} / reason=
+              {subscriptionDebugStatus.lastCloseReason || "null"}
+            </div>
             <div
               style={{
                 marginTop: 8,

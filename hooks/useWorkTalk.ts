@@ -154,6 +154,29 @@ type WorkTalkSubscriptionDebugStatus = {
   notifications: string;
   meta: string;
   activeSubscriptionCount: number;
+  realtimeConnectionState: string | null;
+  realtimeIsConnected: boolean | null;
+  realtimeConnReadyState: number | null;
+  realtimeTransport: string;
+  realtimeEndpointURL: string | null;
+  realtimeConnUrl: string | null;
+  socketOpenCount: number;
+  socketCloseCount: number;
+  socketErrorCount: number;
+  loggerEventCount: number;
+  phxJoinCount: number;
+  channelCreateCount: number;
+  channelCleanupCount: number;
+  subscribedCount: number;
+  channelErrorCount: number;
+  timedOutCount: number;
+  lastSocketEvent: string;
+  lastSocketEventAt: string;
+  lastCloseCode: number | null;
+  lastCloseReason: string | null;
+  lastLoggerKind: string | null;
+  lastLoggerMessage: string | null;
+  lastLoggerAt: string;
   timestamp: string;
 };
 type SendMessageDiagnostics = {
@@ -350,6 +373,29 @@ export function useWorkTalk() {
       notifications: "waiting",
       meta: "waiting",
       activeSubscriptionCount: 0,
+      realtimeConnectionState: null,
+      realtimeIsConnected: null,
+      realtimeConnReadyState: null,
+      realtimeTransport: "unknown",
+      realtimeEndpointURL: null,
+      realtimeConnUrl: null,
+      socketOpenCount: 0,
+      socketCloseCount: 0,
+      socketErrorCount: 0,
+      loggerEventCount: 0,
+      phxJoinCount: 0,
+      channelCreateCount: 0,
+      channelCleanupCount: 0,
+      subscribedCount: 0,
+      channelErrorCount: 0,
+      timedOutCount: 0,
+      lastSocketEvent: "waiting",
+      lastSocketEventAt: "",
+      lastCloseCode: null,
+      lastCloseReason: null,
+      lastLoggerKind: null,
+      lastLoggerMessage: null,
+      lastLoggerAt: "",
       timestamp: "",
     });
   const setupStateRef = useRef<WorkTalkSetupState>("loading");
@@ -371,6 +417,25 @@ export function useWorkTalk() {
     files: "waiting",
     notifications: "waiting",
     meta: "waiting",
+  });
+  const realtimeLifecycleDebugRef = useRef({
+    socketOpenCount: 0,
+    socketCloseCount: 0,
+    socketErrorCount: 0,
+    loggerEventCount: 0,
+    phxJoinCount: 0,
+    channelCreateCount: 0,
+    channelCleanupCount: 0,
+    subscribedCount: 0,
+    channelErrorCount: 0,
+    timedOutCount: 0,
+    lastSocketEvent: "waiting",
+    lastSocketEventAt: "",
+    lastCloseCode: null as number | null,
+    lastCloseReason: null as string | null,
+    lastLoggerKind: null as string | null,
+    lastLoggerMessage: null as string | null,
+    lastLoggerAt: "",
   });
 
   const selectedRoom = useMemo(
@@ -2600,6 +2665,7 @@ export function useWorkTalk() {
     const filesChannelName = `${baseChannelName}-files`;
     const notificationsChannelName = `${baseChannelName}-notifications`;
     const metaChannelName = `${baseChannelName}-meta`;
+    const realtimeLifecycleDebug = realtimeLifecycleDebugRef.current;
     type RealtimeDebugSnapshot = {
       endPoint?: string;
       endpointURL?: () => string;
@@ -2635,6 +2701,36 @@ export function useWorkTalk() {
         realtimeConnReadyState: snapshot.conn?.readyState ?? null,
         realtimeConnUrl: snapshot.conn?.url ?? null,
       };
+    };
+    const getRealtimeTransport = (url: string | null) => {
+      if (!url) return "unknown";
+      if (url.startsWith("wss://") || url.startsWith("ws://")) {
+        return "websocket";
+      }
+      if (url.startsWith("https://") || url.startsWith("http://")) {
+        return "http";
+      }
+      return "unknown";
+    };
+    const publishSubscriptionDebugStatus = () => {
+      const realtimeState = getRealtimeDebugState(supabase.realtime);
+      const connUrl =
+        realtimeState.realtimeConnUrl || realtimeState.realtimeEndpointURL;
+      setSubscriptionDebugStatus({
+        roomId: selectedRoomIdRef.current,
+        ...channelStatusRef.current,
+        activeSubscriptionCount: Object.values(channelStatusRef.current).filter(
+          (value) => value === "SUBSCRIBED"
+        ).length,
+        realtimeConnectionState: realtimeState.realtimeConnectionState,
+        realtimeIsConnected: realtimeState.realtimeIsConnected,
+        realtimeConnReadyState: realtimeState.realtimeConnReadyState,
+        realtimeEndpointURL: realtimeState.realtimeEndpointURL,
+        realtimeConnUrl: realtimeState.realtimeConnUrl,
+        realtimeTransport: getRealtimeTransport(connUrl),
+        ...realtimeLifecycleDebug,
+        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+      });
     };
     const getRealtimeEventDebugState = (event?: unknown) => {
       const candidate = event as
@@ -2726,14 +2822,16 @@ export function useWorkTalk() {
         ...channelStatusRef.current,
         [scope]: status,
       };
-      setSubscriptionDebugStatus({
-        roomId: selectedRoomIdRef.current,
-        ...channelStatusRef.current,
-        activeSubscriptionCount: Object.values(channelStatusRef.current).filter(
-          (value) => value === "SUBSCRIBED"
-        ).length,
-        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-      });
+      if (status === "SUBSCRIBED") {
+        realtimeLifecycleDebug.subscribedCount += 1;
+      }
+      if (status === "CHANNEL_ERROR") {
+        realtimeLifecycleDebug.channelErrorCount += 1;
+      }
+      if (status === "TIMED_OUT") {
+        realtimeLifecycleDebug.timedOutCount += 1;
+      }
+      publishSubscriptionDebugStatus();
     };
     const channels: Array<ReturnType<typeof supabase.channel>> = [];
     let isCancelled = false;
@@ -2751,25 +2849,58 @@ export function useWorkTalk() {
       if (!realtimeDiagnosticsCleanup) {
         const originalLogger = realtimeSnapshot.logger;
         const closeCallback = (event?: unknown) => {
+          const eventDebug = getRealtimeEventDebugState(event);
+          realtimeLifecycleDebug.socketCloseCount += 1;
+          realtimeLifecycleDebug.lastSocketEvent = "close";
+          realtimeLifecycleDebug.lastSocketEventAt =
+            new Date().toLocaleTimeString("ko-KR", { hour12: false });
+          realtimeLifecycleDebug.lastCloseCode = eventDebug.closeCode;
+          realtimeLifecycleDebug.lastCloseReason = eventDebug.closeReason;
           console.log("[WorkTalk realtime debug] realtime:close", {
-            ...getRealtimeEventDebugState(event),
+            ...eventDebug,
             ...getRealtimeDebugState(supabase.realtime),
           });
+          publishSubscriptionDebugStatus();
         };
         const errorCallback = (event?: unknown) => {
+          realtimeLifecycleDebug.socketErrorCount += 1;
+          realtimeLifecycleDebug.lastSocketEvent = "error";
+          realtimeLifecycleDebug.lastSocketEventAt =
+            new Date().toLocaleTimeString("ko-KR", { hour12: false });
           console.log("[WorkTalk realtime debug] realtime:error", {
             ...getRealtimeEventDebugState(event),
             ...getRealtimeDebugState(supabase.realtime),
           });
+          publishSubscriptionDebugStatus();
         };
         const openCallback = (event?: unknown) => {
+          realtimeLifecycleDebug.socketOpenCount += 1;
+          realtimeLifecycleDebug.lastSocketEvent = "open";
+          realtimeLifecycleDebug.lastSocketEventAt =
+            new Date().toLocaleTimeString("ko-KR", { hour12: false });
           console.log("[WorkTalk realtime debug] realtime:open", {
             ...getRealtimeEventDebugState(event),
             ...getRealtimeDebugState(supabase.realtime),
           });
+          publishSubscriptionDebugStatus();
         };
         realtimeSnapshot.logger = (...args: unknown[]) => {
           const [kind, message, data] = args;
+          const messageText =
+            typeof message === "string"
+              ? message
+              : message == null
+                ? ""
+                : String(message);
+          realtimeLifecycleDebug.loggerEventCount += 1;
+          realtimeLifecycleDebug.lastLoggerKind =
+            typeof kind === "string" ? kind : kind == null ? "" : String(kind);
+          realtimeLifecycleDebug.lastLoggerMessage = messageText;
+          realtimeLifecycleDebug.lastLoggerAt =
+            new Date().toLocaleTimeString("ko-KR", { hour12: false });
+          if (messageText.includes("phx_join")) {
+            realtimeLifecycleDebug.phxJoinCount += 1;
+          }
           console.log("[WorkTalk realtime debug] realtime:logger", {
             kind,
             message,
@@ -2780,6 +2911,7 @@ export function useWorkTalk() {
           if (typeof originalLogger === "function") {
             originalLogger(...args);
           }
+          publishSubscriptionDebugStatus();
         };
         realtimeSnapshot.stateChangeCallbacks?.close?.push(closeCallback);
         realtimeSnapshot.stateChangeCallbacks?.error?.push(errorCallback);
@@ -2872,6 +3004,8 @@ export function useWorkTalk() {
         selectedRoomId: selectedRoomIdRef.current,
         setupState,
       });
+      realtimeLifecycleDebug.channelCreateCount += 4;
+      publishSubscriptionDebugStatus();
 
       const messagesChannel = supabase
         .channel(messagesChannelName)
@@ -3269,6 +3403,7 @@ export function useWorkTalk() {
         window.clearTimeout(roomRefreshTimerRef.current);
         roomRefreshTimerRef.current = null;
       }
+      realtimeLifecycleDebug.channelCleanupCount += channels.length;
       isCancelled = true;
       authSubscription?.unsubscribe();
       realtimeDiagnosticsCleanup?.();
