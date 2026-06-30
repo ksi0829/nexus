@@ -153,6 +153,9 @@ type SendMessageDiagnosticsRow = {
   diagnostics_insert_ms: number | null;
   after_total_to_return_ms: number | null;
   function_entered_at: string | null;
+  message_inserted_at: string | null;
+  notification_trigger_started_at: string | null;
+  notification_trigger_finished_at: string | null;
   rpc_return_ready_at: string | null;
 };
 type PresenceRow = {
@@ -249,6 +252,14 @@ function getMessageSendWaitMs(event: {
   }
   if (event.apiRoundTripMs !== null) return event.apiRoundTripMs;
   return event.apiRequestDurationMs;
+}
+
+function getTimestampDeltaMs(from?: string | null, to?: string | null) {
+  if (!from || !to) return null;
+  const fromMs = new Date(from).getTime();
+  const toMs = new Date(to).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+  return Math.round(toMs - fromMs);
 }
 
 type WorkTalkDeepLink = {
@@ -996,6 +1007,9 @@ export function WorkTalkApp() {
           "diagnostics_insert_ms",
           "after_total_to_return_ms",
           "function_entered_at",
+          "message_inserted_at",
+          "notification_trigger_started_at",
+          "notification_trigger_finished_at",
           "rpc_return_ready_at",
         ].join(",")
       )
@@ -5341,6 +5355,22 @@ export function WorkTalkApp() {
                         typeof dbDiagnostics?.total_ms === "number"
                           ? event.dbInsertDurationMs - dbDiagnostics.total_ms
                           : null;
+                      const payloadFromMessageCreatedMs = getTimestampDeltaMs(
+                        event.dbCommitTimestamp,
+                        event.realtimePayloadReceivedAt
+                      );
+                      const payloadFromFunctionEnteredMs = getTimestampDeltaMs(
+                        dbDiagnostics?.function_entered_at,
+                        event.realtimePayloadReceivedAt
+                      );
+                      const payloadFromRpcReturnReadyMs = getTimestampDeltaMs(
+                        dbDiagnostics?.rpc_return_ready_at,
+                        event.realtimePayloadReceivedAt
+                      );
+                      const renderFromPayloadMs = getTimestampDeltaMs(
+                        event.realtimePayloadReceivedAt,
+                        event.renderDoneAt
+                      );
 
                       return (
                         <div
@@ -5401,6 +5431,30 @@ export function WorkTalkApp() {
                             {dbDiagnostics?.function_entered_at || "null"} ·
                             rpc_return_ready_at:{" "}
                             {dbDiagnostics?.rpc_return_ready_at || "null"}
+                          </div>
+                          <div>
+                            DB message_inserted_at:{" "}
+                            {dbDiagnostics?.message_inserted_at || "null"} ·
+                            trigger:{" "}
+                            {dbDiagnostics?.notification_trigger_started_at ||
+                              "null"}{" "}
+                            →{" "}
+                            {dbDiagnostics?.notification_trigger_finished_at ||
+                              "null"}
+                          </div>
+                          <div>
+                            receiver payload_received_at:{" "}
+                            {event.realtimePayloadReceivedAt || "null"} ·
+                            render_done_at: {event.renderDoneAt || "null"}
+                          </div>
+                          <div>
+                            receiver delay from message.created_at:{" "}
+                            {payloadFromMessageCreatedMs ?? "null"}ms · from
+                            function_entered_at:{" "}
+                            {payloadFromFunctionEnteredMs ?? "null"}ms · from
+                            rpc_return_ready_at:{" "}
+                            {payloadFromRpcReturnReadyMs ?? "null"}ms ·
+                            payload→render: {renderFromPayloadMs ?? "null"}ms
                           </div>
                           <div>body: {event.bodyPreview || "null"}</div>
                           <div>

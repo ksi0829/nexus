@@ -90,7 +90,9 @@ type WorkTalkLatencyDebugEvent = {
   dbInsertDone: string | null;
   apiResponseReceived: string | null;
   realtimeEventReceived: string | null;
+  realtimePayloadReceivedAt?: string | null;
   uiRenderDone: string | null;
+  renderDoneAt?: string | null;
   pushApiCalled: string | null;
   pushShowNotification: string | null;
   sendToApiMs: number | null;
@@ -128,6 +130,8 @@ type WorkTalkLatencyDebugEvent = {
   apiRequestPerf?: number;
   apiResponsePerf?: number;
   realtimeEventPerf?: number;
+  realtimeEventEpochMs?: number;
+  uiRenderEpochMs?: number;
   rpcCallBeforePerf?: number;
   fetchStartPerf?: number;
   firstBytePerf?: number;
@@ -411,6 +415,8 @@ export function useWorkTalk() {
             return {
               ...event,
               uiRenderDone: uiStamp.wall,
+              renderDoneAt: new Date(uiStamp.epochMs).toISOString(),
+              uiRenderEpochMs: uiStamp.epochMs,
               realtimeToUiMs: event.realtimeEventPerf
                 ? roundLatency(uiStamp.perf - event.realtimeEventPerf)
                 : event.realtimeToUiMs,
@@ -2916,7 +2922,11 @@ export function useWorkTalk() {
                 dbInsertDone: null,
                 apiResponseReceived: null,
                 realtimeEventReceived: realtimeStamp.wall,
+                realtimePayloadReceivedAt: new Date(
+                  realtimeStamp.epochMs
+                ).toISOString(),
                 uiRenderDone: null,
+                renderDoneAt: null,
                 pushApiCalled: null,
                 pushShowNotification: null,
                 sendToApiMs: null,
@@ -2932,6 +2942,7 @@ export function useWorkTalk() {
                 senderId: message.sender_id,
                 source: "realtime_event_received",
                 realtimeEventPerf: realtimeStamp.perf,
+                realtimeEventEpochMs: realtimeStamp.epochMs,
               }),
               (event) => ({
                 ...event,
@@ -2940,6 +2951,9 @@ export function useWorkTalk() {
                   : event.messageKey,
                 messageId: message.id,
                 realtimeEventReceived: realtimeStamp.wall,
+                realtimePayloadReceivedAt: new Date(
+                  realtimeStamp.epochMs
+                ).toISOString(),
                 sendToRealtimeMs: event.sendClickPerf
                   ? roundLatency(realtimeStamp.perf - event.sendClickPerf)
                   : event.sendToRealtimeMs,
@@ -2949,6 +2963,7 @@ export function useWorkTalk() {
                   ? roundLatency(realtimeStamp.perf - event.apiResponsePerf)
                   : event.realtimeReceiveDurationMs,
                 realtimeEventPerf: realtimeStamp.perf,
+                realtimeEventEpochMs: realtimeStamp.epochMs,
                 source: "realtime_event_received",
               })
             );

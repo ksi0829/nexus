@@ -37,6 +37,9 @@ create table if not exists public.worktalk_send_message_diagnostics (
   diagnostics_insert_ms integer,
   after_total_to_return_ms integer,
   function_entered_at timestamptz,
+  message_inserted_at timestamptz,
+  notification_trigger_started_at timestamptz,
+  notification_trigger_finished_at timestamptz,
   rpc_return_ready_at timestamptz,
   stage_marks jsonb not null default '{}'::jsonb,
   txid bigint not null default txid_current(),
@@ -61,6 +64,9 @@ alter table public.worktalk_send_message_diagnostics
   add column if not exists diagnostics_insert_ms integer,
   add column if not exists after_total_to_return_ms integer,
   add column if not exists function_entered_at timestamptz,
+  add column if not exists message_inserted_at timestamptz,
+  add column if not exists notification_trigger_started_at timestamptz,
+  add column if not exists notification_trigger_finished_at timestamptz,
   add column if not exists rpc_return_ready_at timestamptz;
 
 alter table public.worktalk_send_message_diagnostics enable row level security;
@@ -101,6 +107,12 @@ declare
   trigger_total_ms integer := 0;
   inserted_count integer := 0;
 begin
+  perform set_config(
+    'worktalk.last_notification_trigger_started_at',
+    trigger_started_at::text,
+    true
+  );
+
   select coalesce(
     jsonb_agg(
       jsonb_build_object(
@@ -184,6 +196,12 @@ begin
   );
 
   perform set_config(
+    'worktalk.last_notification_trigger_finished_at',
+    clock_timestamp()::text,
+    true
+  );
+
+  perform set_config(
     'worktalk.last_notification_trigger_total_ms',
     trigger_total_ms::text,
     true
@@ -246,6 +264,8 @@ declare
   notification_recipient_select_ms integer := null;
   notification_insert_only_ms integer := null;
   notification_recipient_count integer := null;
+  notification_trigger_started_at timestamptz := null;
+  notification_trigger_finished_at timestamptz := null;
   message_insert_core_estimated_ms integer := null;
   room_update_ms integer := null;
   sender_read_update_ms integer := null;
@@ -254,6 +274,7 @@ declare
   v_after_total_to_return_ms integer := null;
   total_ms integer := null;
   function_entered_at timestamptz := rpc_started_at;
+  message_inserted_at timestamptz := null;
   total_calculated_at timestamptz := null;
   diagnostics_insert_started_at timestamptz := null;
   v_rpc_return_ready_at timestamptz := null;
@@ -266,6 +287,8 @@ begin
   perform set_config('worktalk.last_notification_recipient_select_ms', '', true);
   perform set_config('worktalk.last_notification_insert_only_ms', '', true);
   perform set_config('worktalk.last_notification_recipient_count', '', true);
+  perform set_config('worktalk.last_notification_trigger_started_at', '', true);
+  perform set_config('worktalk.last_notification_trigger_finished_at', '', true);
 
   v_stage_marks := v_stage_marks || jsonb_build_object(
     'rpc_start', function_entered_at,
@@ -320,6 +343,7 @@ begin
     0,
     round(extract(epoch from (clock_timestamp() - stage_started_at)) * 1000)::integer
   );
+  message_inserted_at := clock_timestamp();
 
   notification_insert_ms := nullif(
     current_setting('worktalk.last_notification_insert_ms', true),
@@ -351,6 +375,16 @@ begin
     ''
   )::integer;
 
+  notification_trigger_started_at := nullif(
+    current_setting('worktalk.last_notification_trigger_started_at', true),
+    ''
+  )::timestamptz;
+
+  notification_trigger_finished_at := nullif(
+    current_setting('worktalk.last_notification_trigger_finished_at', true),
+    ''
+  )::timestamptz;
+
   message_insert_core_estimated_ms := case
     when notification_trigger_total_ms is null then null
     else greatest(0, message_insert_ms - notification_trigger_total_ms)
@@ -358,8 +392,11 @@ begin
 
   v_stage_marks := v_stage_marks || jsonb_build_object(
     'message_insert_done', clock_timestamp(),
+    'message_inserted_at', message_inserted_at,
     'message_insert_ms', message_insert_ms,
     'message_insert_core_estimated_ms', message_insert_core_estimated_ms,
+    'notification_trigger_started_at', notification_trigger_started_at,
+    'notification_trigger_finished_at', notification_trigger_finished_at,
     'notification_trigger_total_ms', notification_trigger_total_ms,
     'notification_recipient_select_ms', notification_recipient_select_ms,
     'notification_insert_only_ms', notification_insert_only_ms,
@@ -432,6 +469,9 @@ begin
     diagnostics_insert_ms,
     after_total_to_return_ms,
     function_entered_at,
+    message_inserted_at,
+    notification_trigger_started_at,
+    notification_trigger_finished_at,
     rpc_return_ready_at,
     stage_marks
   )
@@ -457,6 +497,9 @@ begin
     null,
     null,
     function_entered_at,
+    message_inserted_at,
+    notification_trigger_started_at,
+    notification_trigger_finished_at,
     null,
     v_stage_marks
   )
