@@ -1696,6 +1696,23 @@
   background: #d9eee8;
 }
 
+.messagePending .bubbleLine p {
+  opacity: 0.78;
+}
+
+.messagePending .mineMessageMeta em {
+  color: #6f817d;
+}
+
+.messageFailed .bubbleLine p {
+  border-color: #f0b7ae;
+  background: #ffe8e4;
+}
+
+.failedMessageStatus {
+  color: #c2410c !important;
+}
+
 .fileCards {
   display: flex;
   width: min(360px, 100%);

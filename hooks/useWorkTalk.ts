@@ -628,6 +628,12 @@ export function useWorkTalk() {
       }
 
       const currentMessages = messagesRef.current;
+      const optimisticIndex = currentMessages.findIndex(
+        (item) =>
+          item.optimistic_status &&
+          item.optimistic_status !== "failed" &&
+          item.server_message_id === message.id
+      );
       if (currentMessages.some((item) => item.id === message.id)) {
         return {
           attempted: true,
@@ -659,7 +665,20 @@ export function useWorkTalk() {
               : null)
           : null,
       };
-      const nextMessages = [...currentMessages, nextMessage];
+      const nextMessages =
+        optimisticIndex >= 0
+          ? currentMessages.map((item, index) =>
+              index === optimisticIndex
+                ? {
+                    ...nextMessage,
+                    client_temp_id: item.client_temp_id,
+                    server_message_id: message.id,
+                    optimistic_status: undefined,
+                    error_message: null,
+                  }
+                : item
+            )
+          : [...currentMessages, nextMessage];
       messagesRef.current = nextMessages;
       setMessages(nextMessages);
       setLoadingMessages(false);
@@ -673,10 +692,98 @@ export function useWorkTalk() {
       return {
         attempted: true,
         applied: true,
-        reason: "appended_realtime_message",
+        reason:
+          optimisticIndex >= 0
+            ? "replaced_optimistic_message"
+            : "appended_realtime_message",
       };
     },
     [markLatencyUiRendered]
+  );
+
+  const appendOptimisticTextMessage = useCallback(
+    (roomId: number, body: string, sendClickPerf: number) => {
+      if (!currentProfile) return null;
+
+      const randomPart =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2);
+      const clientTempId = `temp-${roomId}-${Date.now()}-${randomPart}`;
+      const tempMessage: WorkTalkMessage = {
+        id: -Math.max(1, Math.round(sendClickPerf * 1000)),
+        room_id: roomId,
+        sender_id: currentProfile.id,
+        sender_name: currentProfile.name,
+        sender_team: currentProfile.team,
+        message_type: "text",
+        body: body.trim(),
+        metadata: {},
+        reply_to_message_id: null,
+        replyTo: null,
+        created_at: new Date().toISOString(),
+        files: [],
+        client_temp_id: clientTempId,
+        server_message_id: null,
+        optimistic_status: "sending",
+        error_message: null,
+      };
+
+      const nextMessages = [...messagesRef.current, tempMessage];
+      messagesRef.current = nextMessages;
+      setMessages(nextMessages);
+      setLoadingMessages(false);
+      return clientTempId;
+    },
+    [currentProfile]
+  );
+
+  const markOptimisticMessageSent = useCallback(
+    (clientTempId: string, serverMessageId: number | null) => {
+      if (!serverMessageId) return;
+
+      const currentMessages = messagesRef.current;
+      const serverMessageExists = currentMessages.some(
+        (message) => message.id === serverMessageId
+      );
+      const nextMessages = serverMessageExists
+        ? currentMessages.filter(
+            (message) => message.client_temp_id !== clientTempId
+          )
+        : currentMessages.map((message) =>
+            message.client_temp_id === clientTempId
+              ? {
+                  ...message,
+                  server_message_id: serverMessageId,
+                  optimistic_status: "sent_pending_realtime" as const,
+                  error_message: null,
+                }
+              : message
+          );
+
+      if (nextMessages !== currentMessages) {
+        messagesRef.current = nextMessages;
+        setMessages(nextMessages);
+      }
+    },
+    []
+  );
+
+  const markOptimisticMessageFailed = useCallback(
+    (clientTempId: string, errorMessage: string) => {
+      const nextMessages = messagesRef.current.map((message) =>
+        message.client_temp_id === clientTempId
+          ? {
+              ...message,
+              optimistic_status: "failed" as const,
+              error_message: errorMessage,
+            }
+          : message
+      );
+      messagesRef.current = nextMessages;
+      setMessages(nextMessages);
+    },
+    []
   );
 
   const appendRealtimeFileToCurrentRoom = useCallback(
@@ -1426,7 +1533,13 @@ export function useWorkTalk() {
       }
       const loadedMessageIds = new Set(nextMessages.map((message) => message.id));
       const realtimeAppendedMessages = messagesRef.current.filter(
-        (message) => message.room_id === roomId && !loadedMessageIds.has(message.id)
+        (message) =>
+          message.room_id === roomId &&
+          !loadedMessageIds.has(message.id) &&
+          !(
+            message.server_message_id &&
+            loadedMessageIds.has(message.server_message_id)
+          )
       );
       const mergedMessages =
         realtimeAppendedMessages.length > 0
@@ -1721,16 +1834,17 @@ export function useWorkTalk() {
       const targetRoomId = selectedRoomIdRef.current;
       if (!targetRoomId || !body.trim() || sending) return false;
 
+      const trimmedBody = body.trim();
       const sendClickPerf = diagnostics?.sendClickTime ?? performance.now();
       const sendClickWallTime =
         diagnostics?.sendClickWallTime ||
         new Date().toLocaleTimeString("ko-KR", { hour12: false });
       const apiRequest = nowLatencyStamp();
       const messageKey = `pending-${targetRoomId}-${sendClickPerf}`;
-      const bodyPreview = previewLatencyBody(body);
+      const bodyPreview = previewLatencyBody(trimmedBody);
       console.info("[WorkTalk performance] Message Send Start", {
         roomId: targetRoomId,
-        bodyLength: body.trim().length,
+        bodyLength: trimmedBody.length,
       });
       upsertLatencyEvent(
         (event) => event.messageKey === messageKey,
@@ -1782,299 +1896,323 @@ export function useWorkTalk() {
         })
       );
       setSending(true);
-      try {
-        const rpcCallBefore = nowLatencyStamp();
-        setWorkTalkRpcTimingContext({
-          messageKey,
-          roomId: targetRoomId,
-          bodyPreview,
-        });
-        upsertLatencyEvent(
-          (event) => event.messageKey === messageKey,
-          () => ({
-            messageKey,
-            messageId: null,
-            roomId: targetRoomId,
-            direction: "send",
-            bodyPreview,
-            sendClickTime: sendClickWallTime,
-            apiRequestStart: apiRequest.wall,
-            dbInsertDone: null,
-            apiResponseReceived: null,
-            realtimeEventReceived: null,
-            uiRenderDone: null,
-            pushApiCalled: null,
-            pushShowNotification: null,
-            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
-            apiRoundTripMs: null,
-            sendToRealtimeMs: null,
-            realtimeToUiMs: null,
-            sendToUiMs: null,
-            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
-            dbInsertDurationMs: null,
-            dbCommitTimestamp: null,
-            realtimeDispatchDurationMs: null,
-            realtimeReceiveDurationMs: null,
-            sendButtonDisabledDurationMs: null,
-            buttonEnableTime: null,
-            inputClearTime: null,
-            rpcCallBeforeTime: rpcCallBefore.wall,
-            fetchStartTime: null,
-            httpRequestSentTime: null,
-            firstByteReceivedTime: null,
-            httpResponseCompleteTime: null,
-            promiseResolvedTime: null,
-            senderId: currentProfile?.id ?? null,
-            source: "rpc_call_before",
-            sendClickPerf,
-            apiRequestPerf: apiRequest.perf,
-            rpcCallBeforePerf: rpcCallBefore.perf,
-          }),
-          (event) => ({
-            ...event,
-            rpcCallBeforeTime: rpcCallBefore.wall,
-            rpcCallBeforePerf: rpcCallBefore.perf,
-            source: "rpc_call_before",
-          })
-        );
 
-        const rpcResult = await supabase.rpc("worktalk_send_message", {
-          target_room_id: targetRoomId,
-          message_body: body.trim(),
-        });
-        const promiseResolved = nowLatencyStamp();
-        const { error } = rpcResult;
-        const resolvedMessageId = Number(rpcResult.data);
-        const rpcMessageId = Number.isFinite(resolvedMessageId)
-          ? resolvedMessageId
-          : null;
-        upsertLatencyEvent(
-          (event) => event.messageKey === messageKey,
-          () => ({
-            messageKey,
-            messageId: rpcMessageId,
-            roomId: targetRoomId,
-            direction: "send",
-            bodyPreview,
-            sendClickTime: sendClickWallTime,
-            apiRequestStart: apiRequest.wall,
-            dbInsertDone: null,
-            apiResponseReceived: null,
-            realtimeEventReceived: null,
-            uiRenderDone: null,
-            pushApiCalled: null,
-            pushShowNotification: null,
-            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
-            apiRoundTripMs: null,
-            sendToRealtimeMs: null,
-            realtimeToUiMs: null,
-            sendToUiMs: null,
-            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
-            dbInsertDurationMs: null,
-            dbCommitTimestamp: null,
-            realtimeDispatchDurationMs: null,
-            realtimeReceiveDurationMs: null,
-            sendButtonDisabledDurationMs: null,
-            buttonEnableTime: null,
-            inputClearTime: null,
-            rpcCallBeforeTime: rpcCallBefore.wall,
-            fetchStartTime: null,
-            httpRequestSentTime: null,
-            firstByteReceivedTime: null,
-            httpResponseCompleteTime: null,
-            promiseResolvedTime: promiseResolved.wall,
-            senderId: currentProfile?.id ?? null,
-            source: "promise_resolved",
-            sendClickPerf,
-            apiRequestPerf: apiRequest.perf,
-            rpcCallBeforePerf: rpcCallBefore.perf,
-            promiseResolvedPerf: promiseResolved.perf,
-            rpcCallToPromiseResolveMs: roundLatency(
-              promiseResolved.perf - rpcCallBefore.perf
-            ),
-          }),
-          (event) => ({
+      const clientTempId = appendOptimisticTextMessage(
+        targetRoomId,
+        trimmedBody,
+        sendClickPerf
+      );
+      const sendButtonRelease = nowLatencyStamp();
+      const sendButtonDisabledDurationMs = roundLatency(
+        sendButtonRelease.perf - sendClickPerf
+      );
+      setMessageLatencyEvents((current) => {
+        let updated = false;
+        const next = current.map((event) => {
+          if (
+            updated ||
+            event.direction !== "send" ||
+            event.roomId !== targetRoomId ||
+            event.bodyPreview !== bodyPreview ||
+            event.sendClickPerf !== sendClickPerf
+          ) {
+            return event;
+          }
+          updated = true;
+          return {
             ...event,
-            messageId: event.messageId ?? rpcMessageId,
-            promiseResolvedTime: promiseResolved.wall,
-            promiseResolvedPerf: promiseResolved.perf,
-            rpcCallToPromiseResolveMs: event.rpcCallBeforePerf
-              ? roundLatency(promiseResolved.perf - event.rpcCallBeforePerf)
-              : roundLatency(promiseResolved.perf - rpcCallBefore.perf),
-            responseCompleteToPromiseResolveMs: event.httpResponseCompletePerf
-              ? roundLatency(promiseResolved.perf - event.httpResponseCompletePerf)
-              : event.responseCompleteToPromiseResolveMs ?? null,
-            source: "promise_resolved",
-          })
-        );
+            sendButtonDisabledDurationMs,
+            buttonEnableTime: sendButtonRelease.wall,
+            uiRenderDone: event.uiRenderDone ?? sendButtonRelease.wall,
+            sendToUiMs:
+              event.sendToUiMs ??
+              roundLatency(sendButtonRelease.perf - sendClickPerf),
+            source: "optimistic_ui_rendered",
+          };
+        });
+        if (!updated) return current;
+        pendingLatencyEventsRef.current = next;
+        return next;
+      });
+      setSending(false);
 
-        if (error) {
-          setErrorMessage(error.message);
-          return false;
-        }
-
-        const apiResponse = promiseResolved;
-        console.info("[WorkTalk performance] Message Insert Success", {
-          roomId: targetRoomId,
-          elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
-        });
-        upsertLatencyEvent(
-          (event) => event.messageKey === messageKey,
-          () => ({
-            messageKey,
-            messageId: rpcMessageId,
-            roomId: targetRoomId,
-            direction: "send",
-            bodyPreview,
-            sendClickTime: sendClickWallTime,
-            apiRequestStart: apiRequest.wall,
-            dbInsertDone: apiResponse.wall,
-            apiResponseReceived: apiResponse.wall,
-            realtimeEventReceived: null,
-            uiRenderDone: null,
-            pushApiCalled: null,
-            pushShowNotification: null,
-            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
-            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            sendToRealtimeMs: null,
-            realtimeToUiMs: null,
-            sendToUiMs: null,
-            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
-            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            dbCommitTimestamp: null,
-            realtimeDispatchDurationMs: null,
-            realtimeReceiveDurationMs: null,
-            sendButtonDisabledDurationMs: null,
-            buttonEnableTime: null,
-            inputClearTime: null,
-            rpcCallBeforeTime: rpcCallBefore.wall,
-            fetchStartTime: null,
-            httpRequestSentTime: null,
-            firstByteReceivedTime: null,
-            httpResponseCompleteTime: null,
-            promiseResolvedTime: promiseResolved.wall,
-            senderId: currentProfile?.id ?? null,
-            source: "sendMessage:response",
-            sendClickPerf,
-            apiRequestPerf: apiRequest.perf,
-            apiResponsePerf: apiResponse.perf,
-            rpcCallBeforePerf: rpcCallBefore.perf,
-            promiseResolvedPerf: promiseResolved.perf,
-          }),
-          (event) => ({
-            ...event,
-            messageId: event.messageId ?? rpcMessageId,
-            dbInsertDone: apiResponse.wall,
-            apiResponseReceived: apiResponse.wall,
-            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            source: "sendMessage:response",
-            sendClickPerf: event.sendClickPerf ?? sendClickPerf,
-            apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
-            apiResponsePerf: apiResponse.perf,
-            promiseResolvedTime: event.promiseResolvedTime ?? promiseResolved.wall,
-            promiseResolvedPerf: event.promiseResolvedPerf ?? promiseResolved.perf,
-          })
-        );
-        const pushCall = nowLatencyStamp();
-        upsertLatencyEvent(
-          (event) => event.messageKey === messageKey,
-          () => ({
-            messageKey,
-            messageId: rpcMessageId,
-            roomId: targetRoomId,
-            direction: "send",
-            bodyPreview,
-            sendClickTime: sendClickWallTime,
-            apiRequestStart: apiRequest.wall,
-            dbInsertDone: apiResponse.wall,
-            apiResponseReceived: apiResponse.wall,
-            realtimeEventReceived: null,
-            uiRenderDone: null,
-            pushApiCalled: pushCall.wall,
-            pushShowNotification: null,
-            sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
-            apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            sendToRealtimeMs: null,
-            realtimeToUiMs: null,
-            sendToUiMs: null,
-            apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
-            dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
-            dbCommitTimestamp: null,
-            realtimeDispatchDurationMs: null,
-            realtimeReceiveDurationMs: null,
-            sendButtonDisabledDurationMs: null,
-            buttonEnableTime: null,
-            inputClearTime: null,
-            rpcCallBeforeTime: rpcCallBefore.wall,
-            fetchStartTime: null,
-            httpRequestSentTime: null,
-            firstByteReceivedTime: null,
-            httpResponseCompleteTime: null,
-            promiseResolvedTime: promiseResolved.wall,
-            senderId: currentProfile?.id ?? null,
-            source: "push_api_called",
-            sendClickPerf,
-            apiRequestPerf: apiRequest.perf,
-            apiResponsePerf: apiResponse.perf,
-            rpcCallBeforePerf: rpcCallBefore.perf,
-            promiseResolvedPerf: promiseResolved.perf,
-          }),
-          (event) => ({
-            ...event,
-            messageId: event.messageId ?? rpcMessageId,
-            pushApiCalled: pushCall.wall,
-            source: "push_api_called",
-            sendClickPerf: event.sendClickPerf ?? sendClickPerf,
-            apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
-          })
-        );
-        void requestPushDelivery(targetRoomId);
-        scheduleRoomRefresh(selectedRoomIdRef.current ?? targetRoomId);
-        return true;
-      } catch (error) {
-        const message = formatWorkTalkError(error);
-        console.warn("[WorkTalk stability] Fetch Failed", {
-          scope: "sendMessage",
-          roomId: targetRoomId,
-          message,
-        });
-        setErrorMessage(message);
+      if (!clientTempId) {
         return false;
-      } finally {
-        clearWorkTalkRpcTimingContext(messageKey);
-        const sendButtonRelease = nowLatencyStamp();
-        const sendButtonDisabledDurationMs = roundLatency(
-          sendButtonRelease.perf - sendClickPerf
-        );
-        setMessageLatencyEvents((current) => {
-          let updated = false;
-          const next = current.map((event) => {
-            if (
-              updated ||
-              event.direction !== "send" ||
-              event.roomId !== targetRoomId ||
-              event.bodyPreview !== bodyPreview ||
-              event.sendClickPerf !== sendClickPerf
-            ) {
-              return event;
-            }
-            updated = true;
-            return {
-              ...event,
+      }
+
+      void (async () => {
+        const rpcCallBefore = nowLatencyStamp();
+        try {
+          setWorkTalkRpcTimingContext({
+            messageKey,
+            roomId: targetRoomId,
+            bodyPreview,
+          });
+          upsertLatencyEvent(
+            (event) => event.messageKey === messageKey,
+            () => ({
+              messageKey,
+              messageId: null,
+              roomId: targetRoomId,
+              direction: "send",
+              bodyPreview,
+              sendClickTime: sendClickWallTime,
+              apiRequestStart: apiRequest.wall,
+              dbInsertDone: null,
+              apiResponseReceived: null,
+              realtimeEventReceived: null,
+              uiRenderDone: sendButtonRelease.wall,
+              pushApiCalled: null,
+              pushShowNotification: null,
+              sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+              apiRoundTripMs: null,
+              sendToRealtimeMs: null,
+              realtimeToUiMs: null,
+              sendToUiMs: roundLatency(sendButtonRelease.perf - sendClickPerf),
+              apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+              dbInsertDurationMs: null,
+              dbCommitTimestamp: null,
+              realtimeDispatchDurationMs: null,
+              realtimeReceiveDurationMs: null,
               sendButtonDisabledDurationMs,
               buttonEnableTime: sendButtonRelease.wall,
-            };
+              inputClearTime: null,
+              rpcCallBeforeTime: rpcCallBefore.wall,
+              fetchStartTime: null,
+              httpRequestSentTime: null,
+              firstByteReceivedTime: null,
+              httpResponseCompleteTime: null,
+              promiseResolvedTime: null,
+              senderId: currentProfile?.id ?? null,
+              source: "rpc_call_before",
+              sendClickPerf,
+              apiRequestPerf: apiRequest.perf,
+              rpcCallBeforePerf: rpcCallBefore.perf,
+            }),
+            (event) => ({
+              ...event,
+              rpcCallBeforeTime: rpcCallBefore.wall,
+              rpcCallBeforePerf: rpcCallBefore.perf,
+              source: "rpc_call_before",
+            })
+          );
+
+          const rpcResult = await supabase.rpc("worktalk_send_message", {
+            target_room_id: targetRoomId,
+            message_body: trimmedBody,
           });
-          if (!updated) return current;
-          pendingLatencyEventsRef.current = next;
-          return next;
-        });
-        setSending(false);
-      }
+          const promiseResolved = nowLatencyStamp();
+          const { error } = rpcResult;
+          const resolvedMessageId = Number(rpcResult.data);
+          const rpcMessageId = Number.isFinite(resolvedMessageId)
+            ? resolvedMessageId
+            : null;
+          upsertLatencyEvent(
+            (event) => event.messageKey === messageKey,
+            () => ({
+              messageKey,
+              messageId: rpcMessageId,
+              roomId: targetRoomId,
+              direction: "send",
+              bodyPreview,
+              sendClickTime: sendClickWallTime,
+              apiRequestStart: apiRequest.wall,
+              dbInsertDone: null,
+              apiResponseReceived: null,
+              realtimeEventReceived: null,
+              uiRenderDone: sendButtonRelease.wall,
+              pushApiCalled: null,
+              pushShowNotification: null,
+              sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+              apiRoundTripMs: null,
+              sendToRealtimeMs: null,
+              realtimeToUiMs: null,
+              sendToUiMs: roundLatency(sendButtonRelease.perf - sendClickPerf),
+              apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+              dbInsertDurationMs: null,
+              dbCommitTimestamp: null,
+              realtimeDispatchDurationMs: null,
+              realtimeReceiveDurationMs: null,
+              sendButtonDisabledDurationMs,
+              buttonEnableTime: sendButtonRelease.wall,
+              inputClearTime: null,
+              rpcCallBeforeTime: rpcCallBefore.wall,
+              fetchStartTime: null,
+              httpRequestSentTime: null,
+              firstByteReceivedTime: null,
+              httpResponseCompleteTime: null,
+              promiseResolvedTime: promiseResolved.wall,
+              senderId: currentProfile?.id ?? null,
+              source: "promise_resolved",
+              sendClickPerf,
+              apiRequestPerf: apiRequest.perf,
+              rpcCallBeforePerf: rpcCallBefore.perf,
+              promiseResolvedPerf: promiseResolved.perf,
+              rpcCallToPromiseResolveMs: roundLatency(
+                promiseResolved.perf - rpcCallBefore.perf
+              ),
+            }),
+            (event) => ({
+              ...event,
+              messageId: event.messageId ?? rpcMessageId,
+              promiseResolvedTime: promiseResolved.wall,
+              promiseResolvedPerf: promiseResolved.perf,
+              rpcCallToPromiseResolveMs: event.rpcCallBeforePerf
+                ? roundLatency(promiseResolved.perf - event.rpcCallBeforePerf)
+                : roundLatency(promiseResolved.perf - rpcCallBefore.perf),
+              responseCompleteToPromiseResolveMs: event.httpResponseCompletePerf
+                ? roundLatency(promiseResolved.perf - event.httpResponseCompletePerf)
+                : event.responseCompleteToPromiseResolveMs ?? null,
+              source: "promise_resolved",
+            })
+          );
+
+          if (error) {
+            markOptimisticMessageFailed(clientTempId, error.message);
+            setErrorMessage(error.message);
+            return;
+          }
+
+          const apiResponse = promiseResolved;
+          console.info("[WorkTalk performance] Message Insert Success", {
+            roomId: targetRoomId,
+            elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
+          });
+          upsertLatencyEvent(
+            (event) => event.messageKey === messageKey,
+            () => ({
+              messageKey,
+              messageId: rpcMessageId,
+              roomId: targetRoomId,
+              direction: "send",
+              bodyPreview,
+              sendClickTime: sendClickWallTime,
+              apiRequestStart: apiRequest.wall,
+              dbInsertDone: apiResponse.wall,
+              apiResponseReceived: apiResponse.wall,
+              realtimeEventReceived: null,
+              uiRenderDone: sendButtonRelease.wall,
+              pushApiCalled: null,
+              pushShowNotification: null,
+              sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+              apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              sendToRealtimeMs: null,
+              realtimeToUiMs: null,
+              sendToUiMs: roundLatency(sendButtonRelease.perf - sendClickPerf),
+              apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+              dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              dbCommitTimestamp: null,
+              realtimeDispatchDurationMs: null,
+              realtimeReceiveDurationMs: null,
+              sendButtonDisabledDurationMs,
+              buttonEnableTime: sendButtonRelease.wall,
+              inputClearTime: null,
+              rpcCallBeforeTime: rpcCallBefore.wall,
+              fetchStartTime: null,
+              httpRequestSentTime: null,
+              firstByteReceivedTime: null,
+              httpResponseCompleteTime: null,
+              promiseResolvedTime: promiseResolved.wall,
+              senderId: currentProfile?.id ?? null,
+              source: "sendMessage:response",
+              sendClickPerf,
+              apiRequestPerf: apiRequest.perf,
+              apiResponsePerf: apiResponse.perf,
+              rpcCallBeforePerf: rpcCallBefore.perf,
+              promiseResolvedPerf: promiseResolved.perf,
+            }),
+            (event) => ({
+              ...event,
+              messageId: event.messageId ?? rpcMessageId,
+              dbInsertDone: apiResponse.wall,
+              apiResponseReceived: apiResponse.wall,
+              apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              source: "sendMessage:response",
+              sendClickPerf: event.sendClickPerf ?? sendClickPerf,
+              apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
+              apiResponsePerf: apiResponse.perf,
+              promiseResolvedTime: event.promiseResolvedTime ?? promiseResolved.wall,
+              promiseResolvedPerf: event.promiseResolvedPerf ?? promiseResolved.perf,
+            })
+          );
+          markOptimisticMessageSent(clientTempId, rpcMessageId);
+          const pushCall = nowLatencyStamp();
+          upsertLatencyEvent(
+            (event) => event.messageKey === messageKey,
+            () => ({
+              messageKey,
+              messageId: rpcMessageId,
+              roomId: targetRoomId,
+              direction: "send",
+              bodyPreview,
+              sendClickTime: sendClickWallTime,
+              apiRequestStart: apiRequest.wall,
+              dbInsertDone: apiResponse.wall,
+              apiResponseReceived: apiResponse.wall,
+              realtimeEventReceived: null,
+              uiRenderDone: sendButtonRelease.wall,
+              pushApiCalled: pushCall.wall,
+              pushShowNotification: null,
+              sendToApiMs: roundLatency(apiRequest.perf - sendClickPerf),
+              apiRoundTripMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              sendToRealtimeMs: null,
+              realtimeToUiMs: null,
+              sendToUiMs: roundLatency(sendButtonRelease.perf - sendClickPerf),
+              apiRequestDurationMs: roundLatency(apiRequest.perf - sendClickPerf),
+              dbInsertDurationMs: roundLatency(apiResponse.perf - apiRequest.perf),
+              dbCommitTimestamp: null,
+              realtimeDispatchDurationMs: null,
+              realtimeReceiveDurationMs: null,
+              sendButtonDisabledDurationMs,
+              buttonEnableTime: sendButtonRelease.wall,
+              inputClearTime: null,
+              rpcCallBeforeTime: rpcCallBefore.wall,
+              fetchStartTime: null,
+              httpRequestSentTime: null,
+              firstByteReceivedTime: null,
+              httpResponseCompleteTime: null,
+              promiseResolvedTime: promiseResolved.wall,
+              senderId: currentProfile?.id ?? null,
+              source: "push_api_called",
+              sendClickPerf,
+              apiRequestPerf: apiRequest.perf,
+              apiResponsePerf: apiResponse.perf,
+              rpcCallBeforePerf: rpcCallBefore.perf,
+              promiseResolvedPerf: promiseResolved.perf,
+            }),
+            (event) => ({
+              ...event,
+              messageId: event.messageId ?? rpcMessageId,
+              pushApiCalled: pushCall.wall,
+              source: "push_api_called",
+              sendClickPerf: event.sendClickPerf ?? sendClickPerf,
+              apiRequestPerf: event.apiRequestPerf ?? apiRequest.perf,
+            })
+          );
+          void requestPushDelivery(targetRoomId);
+          scheduleRoomRefresh(selectedRoomIdRef.current ?? targetRoomId);
+        } catch (error) {
+          const message = formatWorkTalkError(error);
+          console.warn("[WorkTalk stability] Fetch Failed", {
+            scope: "sendMessage",
+            roomId: targetRoomId,
+            message,
+          });
+          markOptimisticMessageFailed(clientTempId, message);
+          setErrorMessage(message);
+        } finally {
+          clearWorkTalkRpcTimingContext(messageKey);
+        }
+      })();
+
+      return true;
     },
     [
+      appendOptimisticTextMessage,
       currentProfile?.id,
+      markOptimisticMessageFailed,
+      markOptimisticMessageSent,
       scheduleRoomRefresh,
       sending,
       upsertLatencyEvent,

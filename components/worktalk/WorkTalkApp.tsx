@@ -527,6 +527,9 @@ function getRemainingReaderCount(
   currentUserId?: string
 ) {
   if (!currentUserId || message.sender_id !== currentUserId) return null;
+  if (message.optimistic_status && message.optimistic_status !== "sent") {
+    return null;
+  }
   const messageCreatedAt = new Date(message.created_at).getTime();
 
   return room.members.filter((member) => {
@@ -1757,7 +1760,13 @@ export function WorkTalkApp() {
   useEffect(() => {
     if (!selectedRoomId || !selectedRoom || messages.length === 0) return;
 
-    const latestMessage = messages.at(-1);
+    const latestMessage = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.id > 0 &&
+          (!message.optimistic_status || message.optimistic_status === "sent")
+      );
     if (!latestMessage) return;
 
     const isNarrowLayout =
@@ -4366,6 +4375,12 @@ export function WorkTalkApp() {
                 filteredMessages.map((message, index) => {
                   const mine = message.sender_id === currentProfile?.id;
                   const isSystem = message.message_type === "system";
+                  const optimisticLabel =
+                    message.optimistic_status === "sending"
+                      ? "전송중"
+                      : message.optimistic_status === "failed"
+                        ? "전송 실패"
+                        : null;
                   const remainingReaderCount = getRemainingReaderCount(
                     selectedRoom,
                     message,
@@ -4384,8 +4399,8 @@ export function WorkTalkApp() {
 
                   return (
                     <div
-                      key={message.id}
-                      data-message-id={message.id}
+                      key={message.client_temp_id ?? message.id}
+                      data-message-id={message.server_message_id ?? message.id}
                       className={
                         focusedMessageId === message.id
                           ? styles.focusedMessage
@@ -4405,6 +4420,15 @@ export function WorkTalkApp() {
                         <article
                           className={`${styles.messageRow} ${
                             mine ? styles.messageMine : ""
+                          } ${
+                            message.optimistic_status === "sending" ||
+                            message.optimistic_status === "sent_pending_realtime"
+                              ? styles.messagePending
+                              : ""
+                          } ${
+                            message.optimistic_status === "failed"
+                              ? styles.messageFailed
+                              : ""
                           }`}
                           onContextMenu={(event) => {
                             if (selectedRoom.room_type !== "group" || isSystem) return;
@@ -4430,10 +4454,17 @@ export function WorkTalkApp() {
                           <div className={styles.bubbleLine}>
                             {mine && (
                               <span className={styles.mineMessageMeta}>
-                                <em>
-                                  {remainingReaderCount === 0
-                                    ? "읽음"
-                                    : remainingReaderCount}
+                                <em
+                                  className={
+                                    message.optimistic_status === "failed"
+                                      ? styles.failedMessageStatus
+                                      : undefined
+                                  }
+                                >
+                                  {optimisticLabel ??
+                                    (remainingReaderCount === 0
+                                      ? "읽음"
+                                      : remainingReaderCount)}
                                 </em>
                                 <time>
                                   {formatMessageTime(message.created_at)}

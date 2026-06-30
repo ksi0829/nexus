@@ -43,6 +43,10 @@ export type WorkTalkMessage = {
   } | null;
   created_at: string;
   files: WorkTalkFile[];
+  client_temp_id?: string;
+  server_message_id?: number | null;
+  optimistic_status?: "sending" | "sent_pending_realtime" | "sent" | "failed";
+  error_message?: string | null;
 };
 
 export type WorkTalkFile = {
