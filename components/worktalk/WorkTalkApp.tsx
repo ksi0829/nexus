@@ -139,6 +139,18 @@ type AuthDebugState = {
   email: string | null;
   sessionError: string | null;
 };
+type SendMessageDiagnosticsRow = {
+  message_id: number;
+  created_at: string;
+  total_ms: number | null;
+  membership_check_ms: number | null;
+  profile_select_ms: number | null;
+  message_insert_ms: number | null;
+  notification_insert_ms: number | null;
+  notification_trigger_total_ms: number | null;
+  notification_insert_only_ms: number | null;
+  message_insert_core_estimated_ms: number | null;
+};
 type PresenceRow = {
   user_id: string;
   visible: boolean;
@@ -722,6 +734,10 @@ export function WorkTalkApp() {
   const [debugPanelOverride, setDebugPanelOverride] = useState<boolean | null>(
     null
   );
+  const [sendMessageDiagnosticsByMessageId, setSendMessageDiagnosticsByMessageId] =
+    useState<Record<number, SendMessageDiagnosticsRow>>({});
+  const [sendMessageDiagnosticsStatus, setSendMessageDiagnosticsStatus] =
+    useState("waiting");
   const [uxDebugEvents, setUxDebugEvents] = useState<WorkTalkUxDebugEvent[]>(
     []
   );
@@ -884,6 +900,18 @@ export function WorkTalkApp() {
         .slice(0, 10),
     };
   }, [messageLatencyEvents]);
+  const slowMessageIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          messagePerformanceSummary.slow
+            .map(({ event }) => event.messageId)
+            .filter((messageId): messageId is number => typeof messageId === "number")
+        )
+      ),
+    [messagePerformanceSummary.slow]
+  );
+  const slowMessageIdKey = slowMessageIds.join(",");
 
   const appendReadReceiptDebugEvent = useCallback(
     (event: Omit<ReadReceiptDebugEvent, "timestamp"> & { timestamp?: string }) => {
@@ -936,6 +964,62 @@ export function WorkTalkApp() {
       parseDebugPanelFlag(window.localStorage.getItem(WORKTALK_DEBUG_STORAGE_KEY))
     );
   }, []);
+
+  useEffect(() => {
+    if (!showReadReceiptDebugPanel) return;
+    if (slowMessageIds.length === 0) {
+      setSendMessageDiagnosticsStatus("waiting for slow message");
+      return;
+    }
+
+    let cancelled = false;
+    setSendMessageDiagnosticsStatus(`loading ${slowMessageIds.length} rows`);
+
+    void workTalkSupabase
+      .from("worktalk_send_message_diagnostics")
+      .select(
+        [
+          "message_id",
+          "created_at",
+          "total_ms",
+          "membership_check_ms",
+          "profile_select_ms",
+          "message_insert_ms",
+          "notification_insert_ms",
+          "notification_trigger_total_ms",
+          "notification_insert_only_ms",
+          "message_insert_core_estimated_ms",
+        ].join(",")
+      )
+      .in("message_id", slowMessageIds)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+
+        if (error) {
+          setSendMessageDiagnosticsStatus(`error: ${error.message}`);
+          return;
+        }
+
+        const nextRows: Record<number, SendMessageDiagnosticsRow> = {};
+        const rows = (data || []) as unknown as SendMessageDiagnosticsRow[];
+        for (const row of rows) {
+          if (typeof row.message_id !== "number") continue;
+          if (!nextRows[row.message_id]) {
+            nextRows[row.message_id] = row;
+          }
+        }
+
+        setSendMessageDiagnosticsByMessageId(nextRows);
+        setSendMessageDiagnosticsStatus(
+          `matched ${Object.keys(nextRows).length} / ${slowMessageIds.length}`
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showReadReceiptDebugPanel, slowMessageIdKey, slowMessageIds]);
 
   useEffect(() => {
     if (!showReadReceiptDebugPanel) return;
@@ -5227,6 +5311,9 @@ export function WorkTalkApp() {
                   >
                     SLOW &gt;1S
                   </strong>
+                  <div style={{ marginBottom: 6 }}>
+                    DB diagnostics: {sendMessageDiagnosticsStatus}
+                  </div>
                   {messagePerformanceSummary.slow.map(
                     ({ event, latencyMs, sendWaitMs, slowMs }, index) => {
                       const timestamp =
@@ -5235,6 +5322,14 @@ export function WorkTalkApp() {
                         event.apiResponseReceived ||
                         event.sendClickTime ||
                         "null";
+                      const dbDiagnostics = event.messageId
+                        ? sendMessageDiagnosticsByMessageId[event.messageId]
+                        : null;
+                      const appDbDelta =
+                        typeof event.dbInsertDurationMs === "number" &&
+                        typeof dbDiagnostics?.total_ms === "number"
+                          ? event.dbInsertDurationMs - dbDiagnostics.total_ms
+                          : null;
 
                       return (
                         <div
@@ -5252,6 +5347,37 @@ export function WorkTalkApp() {
                             messageId: {event.messageId ?? "pending"} · latency:{" "}
                             {latencyMs ?? "null"}ms · send_wait:{" "}
                             {sendWaitMs ?? "null"}ms · slow: {slowMs}ms
+                          </div>
+                          <div>
+                            app latency: {latencyMs ?? "null"}ms · app send_wait:{" "}
+                            {sendWaitMs ?? "null"}ms · app TTFB:{" "}
+                            {event.fetchStartToFirstByteMs ?? "null"}ms · app
+                            db_insert_duration:{" "}
+                            {event.dbInsertDurationMs ?? "null"}ms
+                          </div>
+                          <div>
+                            DB total_ms: {dbDiagnostics?.total_ms ?? "null"}ms ·
+                            delta(app-db): {appDbDelta ?? "null"}ms · created:{" "}
+                            {dbDiagnostics?.created_at || "null"}
+                          </div>
+                          <div>
+                            DB message_insert_ms:{" "}
+                            {dbDiagnostics?.message_insert_ms ?? "null"}ms ·
+                            core_estimated:{" "}
+                            {dbDiagnostics?.message_insert_core_estimated_ms ??
+                              "null"}
+                            ms · notification_trigger_total:{" "}
+                            {dbDiagnostics?.notification_trigger_total_ms ??
+                              "null"}
+                            ms
+                          </div>
+                          <div>
+                            DB notification_insert_only:{" "}
+                            {dbDiagnostics?.notification_insert_only_ms ?? "null"}
+                            ms · notification_insert_ms:{" "}
+                            {dbDiagnostics?.notification_insert_ms ?? "null"}ms ·
+                            membership_check:{" "}
+                            {dbDiagnostics?.membership_check_ms ?? "null"}ms
                           </div>
                           <div>body: {event.bodyPreview || "null"}</div>
                           <div>
