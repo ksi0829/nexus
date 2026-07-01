@@ -230,8 +230,6 @@ const workTalkSupabase = createSupabaseBrowser();
 const NEXUS_DOCUMENT_BUCKET = "nexus-documents";
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 const WORKTALK_MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
-const WORKTALK_DEBUG_STORAGE_KEY = "nexusWorkTalkDebugPanel";
-const WORKTALK_DEBUG_PROFILE_NAMES = new Set(["김선일"]);
 const ROOM_TAP_MOVE_THRESHOLD = 10;
 const ROOM_TAP_MAX_DURATION = 800;
 const ORG_GROUP_ORDER = [
@@ -260,13 +258,6 @@ const ALLOWED_EXTENSIONS = new Set([
   "zip",
 ]);
 
-function parseDebugPanelFlag(value: string | null) {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "on", "yes"].includes(normalized)) return true;
-  if (["0", "false", "off", "no"].includes(normalized)) return false;
-  return null;
-}
 const FILE_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.xlsx,.xls,.csv,.docx,.doc,.pptx,.ppt,.dwg,.dxf,.zip";
 
@@ -868,9 +859,6 @@ export function WorkTalkApp() {
     email: null,
     sessionError: null,
   });
-  const [debugPanelOverride, setDebugPanelOverride] = useState<boolean | null>(
-    null
-  );
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileAuthInfo, setProfileAuthInfo] = useState<{
     email: string | null;
@@ -1060,14 +1048,7 @@ export function WorkTalkApp() {
       ? "conversation-pane-visible"
       : "conversation-pane-hidden"
   } / ${conversationRenderBranch}`;
-  const isDebugAllowedProfile = currentProfile
-    ? WORKTALK_DEBUG_PROFILE_NAMES.has(currentProfile.name)
-    : false;
-  const showReadReceiptDebugPanel =
-    process.env.NODE_ENV === "development" ||
-    currentProfile?.role === "admin" ||
-    debugPanelOverride === true ||
-    (debugPanelOverride !== false && isDebugAllowedProfile);
+  const showReadReceiptDebugPanel = currentProfile?.role === "admin";
   const canManageTestCleanup = currentProfile?.role === "admin";
   const pushUxDebugEvents = uxDebugEvents
     .filter(
@@ -1156,29 +1137,6 @@ export function WorkTalkApp() {
     },
     []
   );
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-    const queryFlag =
-      parseDebugPanelFlag(params.get("debug")) ??
-      parseDebugPanelFlag(params.get("worktalkDebug")) ??
-      parseDebugPanelFlag(params.get("nexusDebug"));
-
-    if (queryFlag !== null) {
-      window.localStorage.setItem(
-        WORKTALK_DEBUG_STORAGE_KEY,
-        queryFlag ? "1" : "0"
-      );
-      setDebugPanelOverride(queryFlag);
-      return;
-    }
-
-    setDebugPanelOverride(
-      parseDebugPanelFlag(window.localStorage.getItem(WORKTALK_DEBUG_STORAGE_KEY))
-    );
-  }, []);
 
   useEffect(() => {
     if (!showReadReceiptDebugPanel) return;
