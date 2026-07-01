@@ -2469,19 +2469,21 @@ export function useWorkTalk() {
   const downloadFile = useCallback(async (file: WorkTalkFile) => {
     const { data, error } = await supabase.storage
       .from(file.storage_bucket || WORKTALK_FILE_BUCKET)
-      .createSignedUrl(file.storage_path, 60);
+      .download(file.storage_path);
 
-    if (error || !data?.signedUrl) {
-      setErrorMessage(error?.message || "파일 다운로드 주소를 만들 수 없습니다.");
+    if (error || !data) {
+      setErrorMessage(error?.message || "파일을 다운로드할 수 없습니다.");
       return;
     }
 
+    const objectUrl = URL.createObjectURL(data);
     const anchor = document.createElement("a");
-    anchor.href = data.signedUrl;
+    anchor.href = objectUrl;
     anchor.download = file.original_name;
-    anchor.target = "_blank";
-    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
     anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   }, []);
 
   const getFileUrl = useCallback(async (file: WorkTalkFile) => {

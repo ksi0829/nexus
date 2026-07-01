@@ -1811,19 +1811,16 @@
   background: #fbfdfc;
 }
 
-.fileOpenButton {
+.fileInfoBlock {
   display: grid;
   min-width: 0;
   flex: 1;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   padding: 9px;
-  border: 0;
-  background: transparent;
   color: var(--wt-ink);
   text-align: left;
-  cursor: pointer;
 }
 
 .fileDownloadButton {
@@ -1855,7 +1852,7 @@
   text-transform: uppercase;
 }
 
-.fileOpenButton > span:nth-child(2) {
+.fileInfoBlock > span:nth-child(2) {
   min-width: 0;
 }
 

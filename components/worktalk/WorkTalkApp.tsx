@@ -3065,16 +3065,6 @@ export function WorkTalkApp() {
     if (url) setPreviewPdf({ file, url });
   }
 
-  async function openFile(file: WorkTalkFile) {
-    const url = await getFileUrl(file);
-    if (!url) return;
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.target = "_blank";
-    anchor.rel = "noopener";
-    anchor.click();
-  }
-
   async function togglePdfFullscreen() {
     const preview = pdfPreviewRef.current;
     if (!preview) return;
@@ -4692,11 +4682,7 @@ export function WorkTalkApp() {
                                     key={file.id}
                                     className={styles.fileCard}
                                   >
-                                    <button
-                                      type="button"
-                                      className={styles.fileOpenButton}
-                                      onClick={() => void openFile(file)}
-                                    >
+                                    <div className={styles.fileInfoBlock}>
                                       <span className={styles.fileType}>
                                         {getFileTypeLabel(
                                           file.original_name,
@@ -4707,8 +4693,7 @@ export function WorkTalkApp() {
                                         <strong>{file.original_name}</strong>
                                         <small>{formatFileSize(file.size_bytes)}</small>
                                       </span>
-                                      <em>열기</em>
-                                    </button>
+                                    </div>
                                     <button
                                       type="button"
                                       className={styles.fileDownloadButton}
