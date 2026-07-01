@@ -49,7 +49,7 @@ import { WorkTalkIcon } from "./WorkTalkIcon";
 import styles from "./WorkTalkApp.module.css";
 
 type CreateMode = "direct" | "group" | null;
-type RoomFilter = "all" | "unread" | "team" | "direct";
+type RoomFilter = "system" | "direct" | "group" | "approval";
 type SearchMode = "room" | WorkTalkSearchScope;
 type WorkTalkSection = "chat" | "people" | "notifications";
 type PendingFileStatus = "selected" | "uploading" | "sending" | "failed";
@@ -72,6 +72,13 @@ type TestCleanupCandidate = {
   documentIds: number[];
   reasons: string[];
 };
+
+const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
+  ["system", "기본채널"],
+  ["direct", "1:1"],
+  ["group", "그룹"],
+  ["approval", "결재"],
+];
 type ReadReceiptDebugEvent = {
   roomId: number | null;
   selectedRoomId: number | null;
@@ -578,12 +585,17 @@ function validateFiles(files: File[]) {
 }
 
 function roomMatchesFilter(room: WorkTalkRoom, filter: RoomFilter) {
-  if (filter === "unread") return room.unreadCount > 0;
-  if (filter === "team")
-    return room.room_type === "team" || room.room_type === "idea";
-  if (filter === "direct")
-    return room.room_type === "direct" || room.room_type === "group";
-  return true;
+  if (filter === "system") return room.is_fixed;
+  if (filter === "approval") return room.room_type === "approval";
+  if (filter === "direct") return room.room_type === "direct";
+  return room.room_type === "group" && !room.is_fixed;
+}
+
+function getRoomFilterEmptyText(filter: RoomFilter) {
+  if (filter === "system") return "제공된 기본채널이 없습니다.";
+  if (filter === "direct") return "사람을 선택해 1:1 대화를 시작할 수 있습니다.";
+  if (filter === "group") return "참여자를 선택해 그룹채팅을 만들 수 있습니다.";
+  return "결재를 올리면 결재방이 자동으로 표시됩니다.";
 }
 
 function getRemainingReaderCount(
@@ -795,7 +807,7 @@ export function WorkTalkApp() {
   const [searchResults, setSearchResults] = useState<WorkTalkSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
-  const [filter, setFilter] = useState<RoomFilter>("all");
+  const [filter, setFilter] = useState<RoomFilter>("system");
   const [draft, setDraft] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFileItem[]>([]);
   const [fileError, setFileError] = useState("");
@@ -2169,7 +2181,7 @@ export function WorkTalkApp() {
     notificationFilter === "unread"
       ? notifications.filter((notification) => !notification.read_at)
       : notifications;
-  const canReorderRooms = filter === "all" && !roomSearch.trim();
+  const canReorderRooms = !roomSearch.trim() && filter !== "system";
   const clearBottomScrollTimers = useCallback(() => {
     if (bottomScrollRafRef.current !== null) {
       window.cancelAnimationFrame(bottomScrollRafRef.current);
@@ -3925,14 +3937,7 @@ export function WorkTalkApp() {
             </div>
 
             <div className={styles.filterTabs}>
-              {(
-                [
-                  ["all", "전체"],
-                  ["unread", "안 읽음"],
-                  ["team", "팀"],
-                  ["direct", "대화"],
-                ] as [RoomFilter, string][]
-              ).map(([value, label]) => (
+              {ROOM_FILTER_OPTIONS.map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -4005,7 +4010,7 @@ export function WorkTalkApp() {
           ) : filteredRooms.length === 0 ? (
             <div className={styles.emptyRooms}>
               <span>대화방이 없습니다</span>
-              <p>1:1 대화나 그룹채팅을 시작할 수 있습니다.</p>
+              <p>{getRoomFilterEmptyText(filter)}</p>
             </div>
           ) : (
             filteredRooms.map((room) => {
