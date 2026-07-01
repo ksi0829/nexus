@@ -414,6 +414,10 @@ export function useWorkTalk() {
   const roomsRef = useRef<WorkTalkRoom[]>([]);
   const messagesRef = useRef<WorkTalkMessage[]>([]);
   const pendingRealtimeFilesRef = useRef<Map<number, WorkTalkFile[]>>(new Map());
+  const textSendQueuesRef = useRef<Map<number, Promise<void>>>(new Map());
+  const failedOptimisticMessagesRef = useRef<Map<number, WorkTalkMessage[]>>(
+    new Map()
+  );
   const channelStatusRef = useRef({
     messages: "waiting",
     files: "waiting",
@@ -630,28 +634,12 @@ export function useWorkTalk() {
       }
 
       const currentMessages = messagesRef.current;
-      let optimisticIndex = currentMessages.findIndex(
+      const optimisticIndex = currentMessages.findIndex(
         (item) =>
           item.optimistic_status &&
           item.optimistic_status !== "failed" &&
           item.server_message_id === message.id
       );
-      if (
-        optimisticIndex < 0 &&
-        message.sender_id === currentProfile?.id &&
-        message.message_type === "text"
-      ) {
-        optimisticIndex = currentMessages.findIndex(
-          (item) =>
-            item.optimistic_status &&
-            item.optimistic_status !== "failed" &&
-            !item.server_message_id &&
-            item.room_id === message.room_id &&
-            item.sender_id === message.sender_id &&
-            item.message_type === message.message_type &&
-            item.body === message.body
-        );
-      }
 
       const existingServerIndex = currentMessages.findIndex(
         (item) => item.id === message.id
@@ -733,7 +721,7 @@ export function useWorkTalk() {
             : "appended_realtime_message",
       };
     },
-    [currentProfile?.id, markLatencyUiRendered]
+    [markLatencyUiRendered]
   );
 
   const appendOptimisticTextMessage = useCallback(
@@ -800,23 +788,50 @@ export function useWorkTalk() {
         messagesRef.current = nextMessages;
         setMessages(nextMessages);
       }
+      failedOptimisticMessagesRef.current.forEach((messages, roomId) => {
+        const nextFailedMessages = messages.filter(
+          (message) => message.client_temp_id !== clientTempId
+        );
+        if (nextFailedMessages.length > 0) {
+          failedOptimisticMessagesRef.current.set(roomId, nextFailedMessages);
+        } else {
+          failedOptimisticMessagesRef.current.delete(roomId);
+        }
+      });
     },
     []
   );
 
   const markOptimisticMessageFailed = useCallback(
     (clientTempId: string, errorMessage: string) => {
-      const nextMessages = messagesRef.current.map((message) =>
-        message.client_temp_id === clientTempId
-          ? {
-              ...message,
-              optimistic_status: "failed" as const,
-              error_message: errorMessage,
-            }
-          : message
+      const currentMessages = messagesRef.current;
+      const failedSource = currentMessages.find(
+        (message) => message.client_temp_id === clientTempId
       );
+      const failedMessage = failedSource
+        ? {
+            ...failedSource,
+            optimistic_status: "failed" as const,
+            error_message: errorMessage,
+          }
+        : null;
+      const nextMessages = failedMessage
+        ? currentMessages.map((message) =>
+            message.client_temp_id === clientTempId ? failedMessage : message
+          )
+        : currentMessages;
       messagesRef.current = nextMessages;
       setMessages(nextMessages);
+      if (failedMessage) {
+        const roomFailedMessages =
+          failedOptimisticMessagesRef.current.get(failedMessage.room_id) || [];
+        failedOptimisticMessagesRef.current.set(failedMessage.room_id, [
+          ...roomFailedMessages.filter(
+            (message) => message.client_temp_id !== clientTempId
+          ),
+          failedMessage,
+        ]);
+      }
     },
     []
   );
@@ -1581,18 +1596,31 @@ export function useWorkTalk() {
         return;
       }
       const loadedMessageIds = new Set(nextMessages.map((message) => message.id));
+      const failedOptimisticMessages =
+        failedOptimisticMessagesRef.current.get(roomId) || [];
       const realtimeAppendedMessages = messagesRef.current.filter(
         (message) =>
           message.room_id === roomId &&
           !loadedMessageIds.has(message.id) &&
+          message.optimistic_status !== "failed" &&
           !(
             message.server_message_id &&
             loadedMessageIds.has(message.server_message_id)
           )
       );
+      const transientMessages = [
+        ...failedOptimisticMessages,
+        ...realtimeAppendedMessages,
+      ].filter(
+        (message, index, allMessages) =>
+          !message.client_temp_id ||
+          allMessages.findIndex(
+            (item) => item.client_temp_id === message.client_temp_id
+          ) === index
+      );
       const mergedMessages =
-        realtimeAppendedMessages.length > 0
-          ? [...nextMessages, ...realtimeAppendedMessages].sort(
+        transientMessages.length > 0
+          ? [...nextMessages, ...transientMessages].sort(
               (left, right) =>
                 new Date(left.created_at).getTime() -
                   new Date(right.created_at).getTime() || left.id - right.id
@@ -1989,7 +2017,7 @@ export function useWorkTalk() {
         return false;
       }
 
-      void (async () => {
+      const runQueuedRpc = async () => {
         const rpcCallBefore = nowLatencyStamp();
         try {
           setWorkTalkRpcTimingContext({
@@ -2259,7 +2287,19 @@ export function useWorkTalk() {
         } finally {
           clearWorkTalkRpcTimingContext(messageKey);
         }
-      })();
+      };
+
+      const previousQueue =
+        textSendQueuesRef.current.get(targetRoomId) || Promise.resolve();
+      const nextQueue = previousQueue
+        .catch(() => undefined)
+        .then(runQueuedRpc);
+      textSendQueuesRef.current.set(targetRoomId, nextQueue);
+      void nextQueue.finally(() => {
+        if (textSendQueuesRef.current.get(targetRoomId) === nextQueue) {
+          textSendQueuesRef.current.delete(targetRoomId);
+        }
+      });
 
       return true;
     },
