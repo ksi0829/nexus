@@ -62,6 +62,11 @@ type LoadRoomsOptions = {
   background?: boolean;
   reason?: string;
 };
+type WorkTalkFileSendProgress = {
+  phase: "uploading" | "sending";
+  fileIndex?: number;
+  fileName?: string;
+};
 type WorkTalkRealtimeDebugStatus = {
   lastEvent: string;
   payloadRoomId: number | null;
@@ -2381,7 +2386,11 @@ export function useWorkTalk() {
   );
 
   const sendFiles = useCallback(
-    async (files: File[], body = "") => {
+    async (
+      files: File[],
+      body = "",
+      onProgress?: (progress: WorkTalkFileSendProgress) => void
+    ) => {
       const targetRoomId = selectedRoomIdRef.current;
       if (!targetRoomId || files.length === 0 || sending) return false;
       setSending(true);
@@ -2390,7 +2399,13 @@ export function useWorkTalk() {
       try {
         const attachmentRows = [];
 
-        for (const file of files) {
+        for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+          const file = files[fileIndex];
+          onProgress?.({
+            phase: "uploading",
+            fileIndex,
+            fileName: file.name,
+          });
           const extension = file.name
             .split(".")
             .pop()
@@ -2417,6 +2432,7 @@ export function useWorkTalk() {
           });
         }
 
+        onProgress?.({ phase: "sending" });
         const { error } = await supabase.rpc("worktalk_send_files", {
           target_room_id: targetRoomId,
           message_body: body.trim(),

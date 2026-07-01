@@ -43,6 +43,14 @@ type CreateMode = "direct" | "group" | null;
 type RoomFilter = "all" | "unread" | "team" | "direct";
 type SearchMode = "room" | WorkTalkSearchScope;
 type WorkTalkSection = "chat" | "people" | "notifications";
+type PendingFileStatus = "selected" | "uploading" | "sending" | "failed";
+type PendingFileItem = {
+  id: string;
+  file: File;
+  previewUrl: string | null;
+  status: PendingFileStatus;
+  errorMessage: string | null;
+};
 type ReadReceiptDebugEvent = {
   roomId: number | null;
   selectedRoomId: number | null;
@@ -486,6 +494,20 @@ function fileExtension(name: string) {
   return name.split(".").pop()?.toLocaleLowerCase() || "";
 }
 
+function getFileTypeLabel(name: string, mimeType?: string | null) {
+  const extension = fileExtension(name);
+  if (mimeType?.startsWith("image/")) return "IMG";
+  if (extension === "pdf") return "PDF";
+  if (["xls", "xlsx", "csv"].includes(extension)) return "XLSX";
+  if (["ppt", "pptx"].includes(extension)) return "PPT";
+  if (["doc", "docx"].includes(extension)) return "DOC";
+  if (["zip", "7z", "rar"].includes(extension)) return "ZIP";
+  if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extension)) {
+    return "IMG";
+  }
+  return extension ? extension.slice(0, 4).toUpperCase() : "FILE";
+}
+
 function isImageFile(file: WorkTalkFile) {
   return (
     file.mime_type?.startsWith("image/") ||
@@ -493,6 +515,20 @@ function isImageFile(file: WorkTalkFile) {
       fileExtension(file.original_name)
     )
   );
+}
+
+function isImageUploadFile(file: File) {
+  return (
+    file.type.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(fileExtension(file.name))
+  );
+}
+
+function getPendingFileStatusLabel(status: PendingFileStatus) {
+  if (status === "uploading") return "업로드 중";
+  if (status === "sending") return "전송 중";
+  if (status === "failed") return "전송 실패";
+  return "첨부 예정";
 }
 
 function validateFiles(files: File[]) {
@@ -732,7 +768,7 @@ export function WorkTalkApp() {
   const [messageSearch, setMessageSearch] = useState("");
   const [filter, setFilter] = useState<RoomFilter>("all");
   const [draft, setDraft] = useState("");
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingFileItem[]>([]);
   const [fileError, setFileError] = useState("");
   const [imageUrls, setImageUrls] = useState<Record<number, string>>({});
   const [previewImage, setPreviewImage] = useState<{
@@ -835,6 +871,7 @@ export function WorkTalkApp() {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
+  const pendingFilePreviewUrlsRef = useRef<Set<string>>(new Set());
   const roomPaneRef = useRef<HTMLElement>(null);
   const conversationPaneRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
@@ -867,11 +904,62 @@ export function WorkTalkApp() {
     unsubscribe: unsubscribeFromPush,
   } = useWorkTalkPush(Boolean(currentProfile) && !isNexusDesktopApp);
 
+  function releasePendingFilePreviews(items: PendingFileItem[]) {
+    items.forEach((item) => {
+      if (!item.previewUrl) return;
+      URL.revokeObjectURL(item.previewUrl);
+      pendingFilePreviewUrlsRef.current.delete(item.previewUrl);
+    });
+  }
+
+  function createPendingFileItem(file: File): PendingFileItem {
+    const previewUrl = isImageUploadFile(file) ? URL.createObjectURL(file) : null;
+    if (previewUrl) pendingFilePreviewUrlsRef.current.add(previewUrl);
+    const randomPart =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+
+    return {
+      id: `pending-file-${Date.now()}-${randomPart}`,
+      file,
+      previewUrl,
+      status: "selected",
+      errorMessage: null,
+    };
+  }
+
+  function clearPendingFiles() {
+    setPendingFiles((current) => {
+      releasePendingFilePreviews(current);
+      return [];
+    });
+  }
+
+  function removePendingFile(fileId: string) {
+    setPendingFiles((current) => {
+      const removed = current.filter((item) => item.id === fileId);
+      releasePendingFilePreviews(removed);
+      return current.filter((item) => item.id !== fileId);
+    });
+  }
+
   const isNarrowLayoutNow =
     typeof window !== "undefined" &&
     window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches;
   const isActualMobileListView =
     isNarrowLayoutNow && activeSection === "chat" && !mobileConversationOpen;
+
+  useEffect(() => {
+    const previewUrls = pendingFilePreviewUrlsRef.current;
+    return () => {
+      previewUrls.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      previewUrls.clear();
+    };
+  }, []);
+
   const hasPendingDeepLinkTarget = Boolean(
     pendingDeepLinkRoomId || serviceWorkerDeepLink
   );
@@ -2977,6 +3065,16 @@ export function WorkTalkApp() {
     if (url) setPreviewPdf({ file, url });
   }
 
+  async function openFile(file: WorkTalkFile) {
+    const url = await getFileUrl(file);
+    if (!url) return;
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
+    anchor.click();
+  }
+
   async function togglePdfFullscreen() {
     const preview = pdfPreviewRef.current;
     if (!preview) return;
@@ -3182,11 +3280,45 @@ export function WorkTalkApp() {
         );
       }
     }
-    const sent =
-      isApprovalCommand
-        ? Boolean(approvalResult)
-        : pendingFiles.length > 0
-        ? await sendFiles(pendingFiles, nextBody)
+    const sendingFileAttachments = !isApprovalCommand && pendingFiles.length > 0;
+    if (sendingFileAttachments) {
+      setFileError("");
+      setPendingFiles((current) =>
+        current.map((item) => ({
+          ...item,
+          status: "uploading",
+          errorMessage: null,
+        }))
+      );
+    }
+
+    const sent = isApprovalCommand
+      ? Boolean(approvalResult)
+      : sendingFileAttachments
+        ? await sendFiles(
+            pendingFiles.map((item) => item.file),
+            nextBody,
+            (progress) => {
+              setPendingFiles((current) =>
+                current.map((item, index) => {
+                  if (progress.phase === "sending") {
+                    return {
+                      ...item,
+                      status: "sending",
+                      errorMessage: null,
+                    };
+                  }
+                  return index === progress.fileIndex
+                    ? {
+                        ...item,
+                        status: "uploading",
+                        errorMessage: null,
+                      }
+                    : item;
+                })
+              );
+            }
+          )
         : replyTarget
           ? await sendReplyMessage(nextBody, replyTarget.id)
           : await sendMessage(nextBody, {
@@ -3201,7 +3333,7 @@ export function WorkTalkApp() {
         recordMessageInputCleared(selectedRoomId, nextBody);
       }
       setReplyTarget(null);
-      setPendingFiles([]);
+      clearPendingFiles();
       setFileError("");
       scheduleBottomScroll();
       if (shouldKeepComposerFocused) {
@@ -3218,18 +3350,31 @@ export function WorkTalkApp() {
           }
         });
       }
+    } else if (sendingFileAttachments) {
+      const failedFileNames = pendingFiles.map((item) => item.file.name).join(", ");
+      setPendingFiles((current) =>
+        current.map((item) => ({
+          ...item,
+          status: "failed",
+          errorMessage: "전송 실패",
+        }))
+      );
+      setFileError(`파일 전송 실패: ${failedFileNames}`);
     }
   }
 
   function addFiles(nextFiles: File[]) {
-    const merged = [...pendingFiles, ...nextFiles];
+    const merged = [...pendingFiles.map((item) => item.file), ...nextFiles];
     const validationError = validateFiles(merged);
     if (validationError) {
       setFileError(validationError);
       return;
     }
     setFileError("");
-    setPendingFiles(merged);
+    setPendingFiles((current) => [
+      ...current,
+      ...nextFiles.map((file) => createPendingFileItem(file)),
+    ]);
   }
 
   function handleDrop(event: DragEvent<HTMLElement>) {
@@ -4516,7 +4661,7 @@ export function WorkTalkApp() {
                                         type="button"
                                         onClick={() => void downloadFile(file)}
                                       >
-                                        받기
+                                        다운로드
                                       </button>
                                     </div>
                                   </article>
@@ -4532,33 +4677,46 @@ export function WorkTalkApp() {
                                         <strong>{file.original_name}</strong>
                                         <small>{formatFileSize(file.size_bytes)}</small>
                                       </span>
-                                      <em>크게 보기</em>
+                                      <em>열기</em>
                                     </button>
                                     <button
                                       type="button"
                                       className={styles.pdfDownloadButton}
                                       onClick={() => void downloadFile(file)}
                                     >
-                                      받기
+                                      다운로드
                                     </button>
                                   </article>
                                 ) : (
-                                  <button
+                                  <article
                                     key={file.id}
-                                    type="button"
                                     className={styles.fileCard}
-                                    onClick={() => void downloadFile(file)}
                                   >
-                                    <span className={styles.fileType}>
-                                      {fileExtension(file.original_name).slice(0, 4) ||
-                                        "FILE"}
-                                    </span>
-                                    <span>
-                                      <strong>{file.original_name}</strong>
-                                      <small>{formatFileSize(file.size_bytes)}</small>
-                                    </span>
-                                    <em>받기</em>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      className={styles.fileOpenButton}
+                                      onClick={() => void openFile(file)}
+                                    >
+                                      <span className={styles.fileType}>
+                                        {getFileTypeLabel(
+                                          file.original_name,
+                                          file.mime_type
+                                        )}
+                                      </span>
+                                      <span>
+                                        <strong>{file.original_name}</strong>
+                                        <small>{formatFileSize(file.size_bytes)}</small>
+                                      </span>
+                                      <em>열기</em>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={styles.fileDownloadButton}
+                                      onClick={() => void downloadFile(file)}
+                                    >
+                                      다운로드
+                                    </button>
+                                  </article>
                                 )
                               )}
                             </div>
@@ -4582,21 +4740,37 @@ export function WorkTalkApp() {
               )}
               {pendingFiles.length > 0 && (
                 <div className={styles.pendingFiles}>
-                  {pendingFiles.map((file, index) => (
-                    <span key={`${file.name}-${file.size}-${index}`}>
-                      <i>{fileExtension(file.name).slice(0, 4) || "FILE"}</i>
+                  {pendingFiles.map((item) => (
+                    <span
+                      key={item.id}
+                      className={`${styles.pendingFileItem} ${
+                        item.status === "failed" ? styles.pendingFileFailed : ""
+                      }`}
+                    >
+                      {item.previewUrl ? (
+                        <img
+                          className={styles.pendingFileThumb}
+                          src={item.previewUrl}
+                          alt={item.file.name}
+                        />
+                      ) : (
+                        <i>{getFileTypeLabel(item.file.name, item.file.type)}</i>
+                      )}
                       <span>
-                        <strong>{file.name}</strong>
-                        <small>{formatFileSize(file.size)}</small>
+                        <strong>{item.file.name}</strong>
+                        <small>
+                          {formatFileSize(item.file.size)} ·{" "}
+                          {getPendingFileStatusLabel(item.status)}
+                        </small>
+                        {item.errorMessage && <em>{item.errorMessage}</em>}
                       </span>
                       <button
                         type="button"
-                        onClick={() =>
-                          setPendingFiles((current) =>
-                            current.filter((_, fileIndex) => fileIndex !== index)
-                          )
+                        onClick={() => removePendingFile(item.id)}
+                        disabled={
+                          item.status === "uploading" || item.status === "sending"
                         }
-                        aria-label={`${file.name} 첨부 취소`}
+                        aria-label={`${item.file.name} 첨부 취소`}
                       >
                         <WorkTalkIcon name="close" />
                       </button>
@@ -5089,7 +5263,7 @@ export function WorkTalkApp() {
                 type="button"
                 onClick={() => void downloadFile(previewImage.file)}
               >
-                원본 받기
+                원본 다운로드
               </button>
             </footer>
           </section>
@@ -5116,7 +5290,7 @@ export function WorkTalkApp() {
                   type="button"
                   onClick={() => void downloadFile(previewPdf.file)}
                 >
-                  받기
+                  다운로드
                 </button>
                 <button
                   type="button"
@@ -5127,7 +5301,12 @@ export function WorkTalkApp() {
                 </button>
               </div>
             </header>
-            <iframe src={previewPdf.url} title={previewPdf.file.original_name} />
+            <div className={styles.pdfPreviewFrame}>
+              <iframe src={previewPdf.url} title={previewPdf.file.original_name} />
+              <p className={styles.pdfPreviewFallback}>
+                미리보기가 보이지 않으면 다운로드로 확인해 주세요.
+              </p>
+            </div>
           </section>
         </div>
       )}
