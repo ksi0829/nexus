@@ -6,6 +6,10 @@ export async function middleware(req: NextRequest) {
   const response = NextResponse.next();
   const pathname = req.nextUrl.pathname;
 
+  if (pathname.startsWith("/api")) {
+    return response;
+  }
+
   const isPwaAsset =
     pathname === "/manifest.webmanifest" ||
     pathname === "/worktalk-sw.js" ||
@@ -131,6 +135,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|brand|favicon.ico).*)",
+    "/((?!api|_next/static|_next/image|brand|favicon.ico).*)",
   ],
 };
