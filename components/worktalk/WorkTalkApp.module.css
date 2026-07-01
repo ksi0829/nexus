@@ -149,6 +149,18 @@
   height: 19px;
 }
 
+.serviceFooter .myAvatar {
+  border: 0;
+  background: #dceee9;
+  color: #185f52;
+  cursor: pointer;
+}
+
+.serviceFooter .myAvatar:hover {
+  background: #e9f6f2;
+  color: #0f6f5c;
+}
+
 .roomPane {
   z-index: 2;
   display: flex;
@@ -1284,6 +1296,18 @@
   font-size: 10px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.profileStrip .profileAvatarButton {
+  flex: 0 0 auto;
+  border: 0;
+  background: #dceee9;
+  color: #185f52;
+}
+
+.profileStrip .profileAvatarButton:hover {
+  background: #e9f6f2;
+  color: #0f6f5c;
 }
 
 .conversationPane {
@@ -2784,6 +2808,215 @@
   backdrop-filter: blur(4px);
 }
 
+.profileModal {
+  display: flex;
+  width: min(520px, 100%);
+  max-height: min(760px, calc(100dvh - 32px));
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid #dbe6e2;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgb(15 35 30 / 24%);
+}
+
+.profileModalHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid #edf3f1;
+  padding: 22px 24px;
+}
+
+.profileModalHeader h2,
+.profileModalHeader p {
+  margin: 0;
+}
+
+.profileModalHeader h2 {
+  color: #132a25;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.profileModalHeader span {
+  color: #0f7a62;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.profileModalHeader p {
+  margin-top: 4px;
+  color: #6c7d78;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.profileModalHeader button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: #f2f7f5;
+  color: #526761;
+  cursor: pointer;
+}
+
+.profileModalHeader button:hover {
+  background: #e6f3ef;
+  color: #0f7a62;
+}
+
+.profileModalAvatar {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #e9f7f3, #d4eee7);
+  color: #0f7a62;
+}
+
+.profileModalAvatar svg {
+  width: 25px;
+  height: 25px;
+}
+
+.profileInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 20px 24px;
+}
+
+.profileInfoGrid div {
+  min-width: 0;
+  border: 1px solid #edf3f1;
+  border-radius: 16px;
+  background: #f8fbfa;
+  padding: 13px 14px;
+}
+
+.profileInfoGrid dt {
+  margin: 0 0 6px;
+  color: #7a8b86;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.profileInfoGrid dd {
+  overflow: hidden;
+  margin: 0;
+  color: #182f29;
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.passwordForm {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #edf3f1;
+  padding: 20px 24px;
+}
+
+.passwordForm > div span {
+  color: #152d27;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.passwordForm > div p {
+  margin: 4px 0 0;
+  color: #6d7f79;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.passwordField {
+  display: grid;
+  gap: 7px;
+}
+
+.passwordField span {
+  color: #40554f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.passwordField input {
+  height: 44px;
+  border: 1px solid #dce8e4;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #152d27;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+  outline: none;
+}
+
+.passwordField input:focus {
+  border-color: #0f9f7d;
+  box-shadow: 0 0 0 3px rgb(15 159 125 / 12%);
+}
+
+.passwordForm > button {
+  height: 46px;
+  border: 0;
+  border-radius: 14px;
+  background: #0f7a62;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.passwordForm > button:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
+.passwordMessage {
+  margin: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.passwordMessageSuccess {
+  background: #e8f7f1;
+  color: #0c6a55;
+}
+
+.passwordMessageError {
+  background: #fff0ef;
+  color: #bd352d;
+}
+
+.profileVersion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #edf3f1;
+  padding: 16px 24px 20px;
+  color: #667873;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.profileVersion strong {
+  color: #132a25;
+  letter-spacing: 0.08em;
+}
+
 .messageContextMenu {
   position: fixed;
   z-index: 90;
@@ -3300,6 +3533,28 @@
 
   .composerTools span {
     display: none;
+  }
+
+  .profileModal {
+    max-height: calc(100dvh - 20px);
+    border-radius: 22px;
+  }
+
+  .profileModalHeader {
+    padding: 18px;
+  }
+
+  .profileInfoGrid {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .passwordForm {
+    padding: 18px;
+  }
+
+  .profileVersion {
+    padding: 14px 18px 18px;
   }
 }
 

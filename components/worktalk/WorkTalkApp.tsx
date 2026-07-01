@@ -47,6 +47,7 @@ import type {
 } from "@/types/worktalk";
 import { WorkTalkIcon } from "./WorkTalkIcon";
 import styles from "./WorkTalkApp.module.css";
+import packageInfo from "@/package.json";
 
 type CreateMode = "direct" | "group" | null;
 type RoomFilter = "system" | "direct" | "group" | "approval";
@@ -79,6 +80,7 @@ const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
   ["group", "그룹"],
   ["approval", "결재"],
 ];
+const NEXUS_APP_VERSION = packageInfo.version || "1.0.0";
 type ReadReceiptDebugEvent = {
   roomId: number | null;
   selectedRoomId: number | null;
@@ -869,6 +871,19 @@ export function WorkTalkApp() {
   const [debugPanelOverride, setDebugPanelOverride] = useState<boolean | null>(
     null
   );
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileAuthInfo, setProfileAuthInfo] = useState<{
+    email: string | null;
+    createdAt: string | null;
+  }>({ email: null, createdAt: null });
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [passwordChangeBusy, setPasswordChangeBusy] = useState(false);
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [sendMessageDiagnosticsByMessageId, setSendMessageDiagnosticsByMessageId] =
     useState<Record<number, SendMessageDiagnosticsRow>>({});
   const [sendMessageDiagnosticsStatus, setSendMessageDiagnosticsStatus] =
@@ -1254,6 +1269,26 @@ export function WorkTalkApp() {
       cancelled = true;
     };
   }, [currentProfile?.id, showReadReceiptDebugPanel]);
+
+  useEffect(() => {
+    if (!currentProfile) {
+      setProfileAuthInfo({ email: null, createdAt: null });
+      return;
+    }
+
+    let cancelled = false;
+    void workTalkSupabase.auth.getUser().then(({ data, error }) => {
+      if (cancelled) return;
+      setProfileAuthInfo({
+        email: error ? null : data.user?.email ?? null,
+        createdAt: error ? null : data.user?.created_at ?? null,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof screen === "undefined") return;
@@ -1783,6 +1818,107 @@ export function WorkTalkApp() {
     localStorage.removeItem("team");
     localStorage.removeItem("name");
     router.replace("/login");
+  }
+
+  function closeProfileModal() {
+    setProfileModalOpen(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setNewPasswordConfirm("");
+    setPasswordChangeBusy(false);
+    setPasswordChangeMessage(null);
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordChangeMessage(null);
+
+    const email = profileAuthInfo.email;
+    if (!email) {
+      setPasswordChangeMessage({
+        type: "error",
+        text: "현재 로그인 이메일을 확인할 수 없습니다. 다시 로그인 후 시도해 주세요.",
+      });
+      return;
+    }
+
+    if (!currentPassword || !newPassword || !newPasswordConfirm) {
+      setPasswordChangeMessage({
+        type: "error",
+        text: "현재 비밀번호와 새 비밀번호를 모두 입력해 주세요.",
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordChangeMessage({
+        type: "error",
+        text: "새 비밀번호는 최소 6자 이상이어야 합니다.",
+      });
+      return;
+    }
+
+    if (newPassword !== newPasswordConfirm) {
+      setPasswordChangeMessage({
+        type: "error",
+        text: "새 비밀번호와 확인 비밀번호가 일치하지 않습니다.",
+      });
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setPasswordChangeMessage({
+        type: "error",
+        text: "새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.",
+      });
+      return;
+    }
+
+    setPasswordChangeBusy(true);
+    try {
+      const { error: verifyError } = await workTalkSupabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+      if (verifyError) {
+        setPasswordChangeMessage({
+          type: "error",
+          text: "현재 비밀번호가 일치하지 않습니다.",
+        });
+        return;
+      }
+
+      const { error: updateError } = await workTalkSupabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        setPasswordChangeMessage({
+          type: "error",
+          text: `비밀번호 변경 실패: ${updateError.message}`,
+        });
+        return;
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setPasswordChangeMessage({
+        type: "success",
+        text: "비밀번호가 변경되었습니다.",
+      });
+    } catch (error) {
+      setPasswordChangeMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "비밀번호 변경 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setPasswordChangeBusy(false);
+    }
   }
 
   const requestApprovedDocumentBackup = useCallback(async (
@@ -3727,6 +3863,9 @@ export function WorkTalkApp() {
   const approvalBackupCompletedCount =
     approvalBackupStatus?.documents?.filter((record) => record.status === "completed")
       .length || 0;
+  const profileCreatedAt = profileAuthInfo.createdAt
+    ? new Date(profileAuthInfo.createdAt).toLocaleString("ko-KR")
+    : "확인 불가";
   const approvalBackupLastResult = approvalBackupStatus?.lastResult || null;
 
   if (setupState === "loading") {
@@ -3846,9 +3985,14 @@ export function WorkTalkApp() {
           <button type="button" title="로그아웃" onClick={() => void handleLogout()}>
             <WorkTalkIcon name="logout" />
           </button>
-          <span className={styles.myAvatar}>
+          <button
+            type="button"
+            className={styles.myAvatar}
+            title="내 정보"
+            onClick={() => setProfileModalOpen(true)}
+          >
             <WorkTalkIcon name="person" />
-          </span>
+          </button>
         </div>
       </aside>
 
@@ -4088,9 +4232,14 @@ export function WorkTalkApp() {
         </div>
 
         <footer className={styles.profileStrip}>
-          <span className={styles.myAvatar}>
+          <button
+            type="button"
+            className={`${styles.myAvatar} ${styles.profileAvatarButton}`}
+            title="내 정보"
+            onClick={() => setProfileModalOpen(true)}
+          >
             <WorkTalkIcon name="person" />
-          </span>
+          </button>
           <span>
             <strong>{currentProfile?.name}</strong>
             <small>{currentProfile?.team || "소속 미지정"}</small>
@@ -4204,9 +4353,14 @@ export function WorkTalkApp() {
               )}
             </div>
             <footer className={styles.profileStrip}>
-              <span className={styles.myAvatar}>
+              <button
+                type="button"
+                className={`${styles.myAvatar} ${styles.profileAvatarButton}`}
+                title="내 정보"
+                onClick={() => setProfileModalOpen(true)}
+              >
                 <WorkTalkIcon name="person" />
-              </span>
+              </button>
               <span>
                 <strong>{currentProfile?.name}</strong>
                 <small>{currentProfile?.team || "소속 미지정"}</small>
@@ -4572,9 +4726,14 @@ export function WorkTalkApp() {
               )}
             </div>
             <footer className={styles.profileStrip}>
-              <span className={styles.myAvatar}>
+              <button
+                type="button"
+                className={`${styles.myAvatar} ${styles.profileAvatarButton}`}
+                title="내 정보"
+                onClick={() => setProfileModalOpen(true)}
+              >
                 <WorkTalkIcon name="person" />
-              </span>
+              </button>
               <span>
                 <strong>{currentProfile?.name}</strong>
                 <small>미확인 알림 {unreadNotificationCount}건</small>
@@ -5626,6 +5785,111 @@ export function WorkTalkApp() {
                     : "나가기"}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {profileModalOpen && (
+        <div className={styles.modalBackdrop} onClick={closeProfileModal}>
+          <section
+            className={styles.profileModal}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className={styles.profileModalHeader}>
+              <span className={styles.profileModalAvatar}>
+                <WorkTalkIcon name="person" />
+              </span>
+              <div>
+                <span>내 정보</span>
+                <h2>{currentProfile?.name || "사용자"}</h2>
+                <p>NEXUS 계정 정보와 비밀번호를 관리합니다.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeProfileModal}
+                aria-label="내 정보 닫기"
+              >
+                <WorkTalkIcon name="close" />
+              </button>
+            </header>
+
+            <dl className={styles.profileInfoGrid}>
+              <div>
+                <dt>이름</dt>
+                <dd>{currentProfile?.name || "-"}</dd>
+              </div>
+              <div>
+                <dt>이메일</dt>
+                <dd>{profileAuthInfo.email || "-"}</dd>
+              </div>
+              <div>
+                <dt>부서</dt>
+                <dd>{currentProfile?.team || "소속 미지정"}</dd>
+              </div>
+              <div>
+                <dt>직급</dt>
+                <dd>{currentProfile?.role || "미지정"}</dd>
+              </div>
+              <div>
+                <dt>계정 생성일</dt>
+                <dd>{profileCreatedAt}</dd>
+              </div>
+            </dl>
+
+            <form className={styles.passwordForm} onSubmit={handlePasswordChange}>
+              <div>
+                <span>비밀번호 변경</span>
+                <p>현재 비밀번호 확인 후 새 비밀번호로 변경합니다.</p>
+              </div>
+              <label className={styles.passwordField}>
+                <span>현재 비밀번호</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                />
+              </label>
+              <label className={styles.passwordField}>
+                <span>새 비밀번호</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  minLength={6}
+                />
+              </label>
+              <label className={styles.passwordField}>
+                <span>새 비밀번호 확인</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPasswordConfirm}
+                  onChange={(event) => setNewPasswordConfirm(event.target.value)}
+                  minLength={6}
+                />
+              </label>
+              {passwordChangeMessage && (
+                <p
+                  className={`${styles.passwordMessage} ${
+                    passwordChangeMessage.type === "success"
+                      ? styles.passwordMessageSuccess
+                      : styles.passwordMessageError
+                  }`}
+                >
+                  {passwordChangeMessage.text}
+                </p>
+              )}
+              <button type="submit" disabled={passwordChangeBusy}>
+                {passwordChangeBusy ? "변경 중..." : "비밀번호 변경"}
+              </button>
+            </form>
+
+            <footer className={styles.profileVersion}>
+              <strong>NEXUS</strong>
+              <span>Version {NEXUS_APP_VERSION}</span>
+            </footer>
           </section>
         </div>
       )}
