@@ -642,6 +642,206 @@
   color: #64736f;
 }
 
+.backupStatusCard {
+  display: grid;
+  gap: 8px;
+  margin: 0 18px 10px;
+  padding: 11px;
+  border: 1px solid #dce8e4;
+  border-radius: 12px;
+  background: #fbfcfc;
+  color: #425751;
+}
+
+.backupStatusCard > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #324942;
+  font-size: 10.5px;
+  font-weight: 900;
+}
+
+.backupStatusCard svg {
+  width: 15px;
+}
+
+.backupStatusCard small {
+  color: #697974;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.backupStatusCard small strong {
+  color: #2e423c;
+  font-weight: 900;
+}
+
+.backupStatusCard button {
+  width: fit-content;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--wt-primary);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.backupStatusCard dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.backupStatusCard dl > div {
+  padding: 8px;
+  border-radius: 9px;
+  background: #f1f6f4;
+}
+
+.backupStatusCard dt {
+  color: #7b8b87;
+  font-size: 8.5px;
+  font-weight: 800;
+}
+
+.backupStatusCard dd {
+  margin: 3px 0 0;
+  color: #293d37;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.backupPathText {
+  word-break: break-all;
+}
+
+.backupFailureList {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backupFailureList li {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  background: #fff3f1;
+  color: #8f4f49;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.backupFailureList strong {
+  color: #703d38;
+  font-size: 9.5px;
+}
+
+.testCleanupCard {
+  display: grid;
+  gap: 8px;
+  margin: 0 18px 10px;
+  padding: 11px;
+  border: 1px solid #eadbd8;
+  border-radius: 12px;
+  background: #fffdfc;
+  color: #5b4945;
+}
+
+.testCleanupCard > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #4f3731;
+  font-size: 10.5px;
+  font-weight: 900;
+}
+
+.testCleanupCard svg {
+  width: 15px;
+}
+
+.testCleanupCard small {
+  color: #7c6964;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.testCleanupActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.testCleanupActions button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #293d37;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.testCleanupActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.testCleanupActions .testCleanupDangerButton {
+  background: #b8493d;
+}
+
+.testCleanupSelectAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  color: #5c4742;
+  font-size: 9.5px;
+  font-weight: 850;
+}
+
+.testCleanupList {
+  display: grid;
+  max-height: 220px;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.testCleanupList li {
+  padding: 7px;
+  border: 1px solid #f0e0dd;
+  border-radius: 9px;
+  background: #fff8f6;
+}
+
+.testCleanupList label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.testCleanupList span {
+  display: grid;
+  gap: 2px;
+}
+
+.testCleanupList strong {
+  color: #4d3630;
+  font-size: 9.5px;
+}
+
 .notificationTabs {
   display: flex;
   gap: 4px;

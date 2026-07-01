@@ -23,6 +23,15 @@ import {
 import { useWorkTalk } from "@/hooks/useWorkTalk";
 import { useWorkTalkPush } from "@/hooks/useWorkTalkPush";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
+import {
+  NEXUS_APPROVAL_BACKUP_ROOT,
+  type ApprovalBackupDocument,
+  type ApprovalBackupRecord,
+  type ApprovalBackupStatus,
+  isApprovalBackupCompleted,
+  postNexusDesktopMessage,
+  requestApprovalPdfBackup,
+} from "@/lib/nexus/approvalBackup";
 import { createManufacturingPdf } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
@@ -50,6 +59,18 @@ type PendingFileItem = {
   previewUrl: string | null;
   status: PendingFileStatus;
   errorMessage: string | null;
+};
+type TestCleanupCandidate = {
+  roomId: number;
+  title: string;
+  roomType: string;
+  createdAt: string | null;
+  lastMessageAt: string | null;
+  messageCount: number;
+  memberCount: number;
+  documentCount: number;
+  documentIds: number[];
+  reasons: string[];
 };
 type ReadReceiptDebugEvent = {
   roomId: number | null;
@@ -139,6 +160,14 @@ type NexusDesktopWindow = Window & {
   chrome?: {
     webview?: {
       postMessage: (message: string) => void;
+      addEventListener?: (
+        eventName: "message",
+        handler: (event: MessageEvent) => void
+      ) => void;
+      removeEventListener?: (
+        eventName: "message",
+        handler: (event: MessageEvent) => void
+      ) => void;
     };
   };
 };
@@ -835,6 +864,17 @@ export function WorkTalkApp() {
   const [uxDebugEvents, setUxDebugEvents] = useState<WorkTalkUxDebugEvent[]>(
     []
   );
+  const [approvalBackupStatus, setApprovalBackupStatus] =
+    useState<ApprovalBackupStatus | null>(null);
+  const [approvalBackupMessage, setApprovalBackupMessage] = useState("");
+  const [testCleanupCandidates, setTestCleanupCandidates] = useState<
+    TestCleanupCandidate[]
+  >([]);
+  const [selectedCleanupRoomIds, setSelectedCleanupRoomIds] = useState<number[]>(
+    []
+  );
+  const [testCleanupMessage, setTestCleanupMessage] = useState("");
+  const [testCleanupBusy, setTestCleanupBusy] = useState(false);
   const [deepLinkDebugStatus, setDeepLinkDebugStatus] =
     useState<DeepLinkDebugStatus>({
       pendingDeepLinkRoomId: null,
@@ -892,6 +932,7 @@ export function WorkTalkApp() {
   const bottomScrollTimersRef = useRef<number[]>([]);
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
+  const approvalBackupCatchupRequestedRef = useRef(false);
   const {
     status: pushStatus,
     errorMessage: pushErrorMessage,
@@ -1000,6 +1041,7 @@ export function WorkTalkApp() {
     currentProfile?.role === "admin" ||
     debugPanelOverride === true ||
     (debugPanelOverride !== false && isDebugAllowedProfile);
+  const canManageTestCleanup = currentProfile?.role === "admin";
   const pushUxDebugEvents = uxDebugEvents
     .filter(
       (event) => event.scope === "notification" || event.scope === "vibration"
@@ -1730,6 +1772,127 @@ export function WorkTalkApp() {
     localStorage.removeItem("name");
     router.replace("/login");
   }
+
+  const requestApprovedDocumentBackup = useCallback(async (
+    document: ApprovalBackupDocument
+  ) => {
+    if (!isNexusDesktopApp) return false;
+    try {
+      const sent = await requestApprovalPdfBackup(workTalkSupabase, document);
+      if (sent) {
+        setApprovalBackupMessage(
+          `${document.document_no || "승인 문서"} 백업을 요청했습니다.`
+        );
+      }
+      return sent;
+    } catch (error) {
+      setApprovalBackupMessage(
+        `백업 요청 실패: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }, [isNexusDesktopApp]);
+
+  const runApprovalBackupCatchup = useCallback(async () => {
+    if (!isNexusDesktopApp) return;
+    setApprovalBackupMessage("완료 문서 백업 상태를 확인하는 중입니다.");
+
+    const { data, error } = await workTalkSupabase
+      .from("approval_documents")
+      .select(
+        "id,document_no,template_key,title,status,completed_at,approved_pdf_path,approved_pdf_created_at,form_data"
+      )
+      .eq("status", "approved")
+      .not("approved_pdf_path", "is", null)
+      .not("approved_pdf_created_at", "is", null)
+      .order("approved_pdf_created_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      setApprovalBackupMessage(`백업 대상 조회 실패: ${error.message}`);
+      return;
+    }
+
+    const documents = (data || []) as ApprovalBackupDocument[];
+    let requestedCount = 0;
+    for (const document of documents) {
+      if (isApprovalBackupCompleted(approvalBackupStatus, document)) continue;
+      const sent = await requestApprovedDocumentBackup(document);
+      if (sent) requestedCount += 1;
+    }
+
+    setApprovalBackupMessage(
+      requestedCount > 0
+        ? `미백업 완료 문서 ${requestedCount}건의 백업을 요청했습니다.`
+        : "최근 완료 문서 백업 상태가 최신입니다."
+    );
+  }, [approvalBackupStatus, isNexusDesktopApp, requestApprovedDocumentBackup]);
+
+  const requestTestCleanup = useCallback(
+    async (mode: "preview" | "delete", roomIds: number[] = []) => {
+      if (!canManageTestCleanup) {
+        setTestCleanupMessage("관리자 계정에서만 테스트 데이터 정리를 실행할 수 있습니다.");
+        return;
+      }
+
+      setTestCleanupBusy(true);
+      setTestCleanupMessage(
+        mode === "delete" ? "선택한 테스트방을 정리하는 중입니다." : "정리 후보를 확인하는 중입니다."
+      );
+
+      try {
+        const {
+          data: { session },
+        } = await workTalkSupabase.auth.getSession();
+
+        if (!session?.access_token) {
+          setTestCleanupMessage("로그인 세션을 확인할 수 없습니다.");
+          return;
+        }
+
+        const response = await fetch("/api/worktalk/test-cleanup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ mode, roomIds }),
+        });
+
+        const result = (await response.json().catch(() => null)) as {
+          candidates?: TestCleanupCandidate[];
+          count?: number;
+          deletedRooms?: number;
+          deletedDocuments?: number;
+          error?: string;
+        } | null;
+
+        if (!response.ok) {
+          throw new Error(result?.error || "테스트 데이터 정리 요청 실패");
+        }
+
+        const candidates = result?.candidates || [];
+        setTestCleanupCandidates(candidates);
+        setSelectedCleanupRoomIds(candidates.map((candidate) => candidate.roomId));
+        setTestCleanupMessage(
+          mode === "delete"
+            ? `테스트방 ${result?.deletedRooms || 0}개, 결재문서 ${result?.deletedDocuments || 0}건을 정리했습니다. 남은 후보 ${candidates.length}개.`
+            : `정리 후보 ${candidates.length}개를 찾았습니다. 기본 채널과 운영 결재방은 제외됩니다.`
+        );
+
+        if (mode === "delete" && (result?.deletedRooms || 0) > 0) {
+          void reload();
+        }
+      } catch (error) {
+        setTestCleanupMessage(
+          `테스트 데이터 정리 실패: ${error instanceof Error ? error.message : String(error)}`
+        );
+      } finally {
+        setTestCleanupBusy(false);
+      }
+    },
+    [canManageTestCleanup, reload]
+  );
 
   const filteredRooms = useMemo(() => {
     const query = roomSearch.trim().toLocaleLowerCase("ko");
@@ -2759,6 +2922,65 @@ export function WorkTalkApp() {
 
   useEffect(() => {
     if (!isNexusDesktopApp) return;
+    const webview = (window as NexusDesktopWindow).chrome?.webview;
+    const handleBackupMessage = (event: MessageEvent) => {
+      let payload: unknown = event.data;
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+
+      if (!payload || typeof payload !== "object") return;
+      const message = payload as {
+        type?: string;
+        rootPath?: string;
+        documents?: ApprovalBackupRecord[];
+        lastResult?: ApprovalBackupRecord | null;
+        supported?: boolean;
+        fixedPath?: boolean;
+        error?: string | null;
+      };
+
+      if (message.type !== "NEXUS_BACKUP_STATUS") return;
+      setApprovalBackupStatus({
+        type: "NEXUS_BACKUP_STATUS",
+        supported: Boolean(message.supported),
+        rootPath: String(message.rootPath || NEXUS_APPROVAL_BACKUP_ROOT),
+        fixedPath: Boolean(message.fixedPath),
+        documents: Array.isArray(message.documents) ? message.documents : [],
+        lastResult: message.lastResult || null,
+        error: message.error || null,
+      });
+    };
+
+    webview?.addEventListener?.("message", handleBackupMessage);
+    postNexusDesktopMessage({ type: "NEXUS_BACKUP_GET_SETTINGS" });
+    postNexusDesktopMessage({ type: "NEXUS_BACKUP_GET_STATUS" });
+    return () => {
+      webview?.removeEventListener?.("message", handleBackupMessage);
+    };
+  }, [isNexusDesktopApp]);
+
+  useEffect(() => {
+    if (!isNexusDesktopApp) return;
+    if (!currentProfile || setupState !== "ready") return;
+    if (!approvalBackupStatus) return;
+    if (approvalBackupCatchupRequestedRef.current) return;
+    approvalBackupCatchupRequestedRef.current = true;
+    void runApprovalBackupCatchup();
+  }, [
+    approvalBackupStatus,
+    currentProfile,
+    isNexusDesktopApp,
+    runApprovalBackupCatchup,
+    setupState,
+  ]);
+
+  useEffect(() => {
+    if (!isNexusDesktopApp) return;
     if (setupState === "loading") return;
     (window as NexusDesktopWindow).chrome?.webview?.postMessage(
       JSON.stringify({
@@ -3087,7 +3309,7 @@ export function WorkTalkApp() {
     const { data: document, error } = await workTalkSupabase
       .from("approval_documents")
       .select(
-        "id,status,approved_pdf_path,document_no,template_key,title,requester_name,requester_team,form_data,approval_lines(step_order,role_label,approver_name,status,acted_at)"
+        "id,status,completed_at,approved_pdf_path,document_no,template_key,title,requester_name,requester_team,form_data,approval_lines(step_order,role_label,approver_name,status,acted_at)"
       )
       .eq("id", result.document_id)
       .single();
@@ -3191,6 +3413,18 @@ export function WorkTalkApp() {
       target_size_bytes: pdfBlob.size,
     });
     if (attachError) throw attachError;
+
+    await requestApprovedDocumentBackup({
+      id: document.id,
+      document_no: document.document_no,
+      template_key: document.template_key,
+      title: document.title,
+      status: "approved",
+      completed_at: document.completed_at || new Date().toISOString(),
+      approved_pdf_path: storagePath,
+      approved_pdf_created_at: new Date().toISOString(),
+      form_data: document.form_data,
+    });
   }
 
   async function startDirectChat(profile: WorkTalkProfile) {
@@ -3473,6 +3707,15 @@ export function WorkTalkApp() {
     setMessageMenu(null);
     setReplyTarget(message);
   }
+
+  const approvalBackupFailedRecords =
+    approvalBackupStatus?.documents
+      ?.filter((record) => record.status === "failed")
+      .slice(0, 3) || [];
+  const approvalBackupCompletedCount =
+    approvalBackupStatus?.documents?.filter((record) => record.status === "completed")
+      .length || 0;
+  const approvalBackupLastResult = approvalBackupStatus?.lastResult || null;
 
   if (setupState === "loading") {
     return (
@@ -4068,6 +4311,168 @@ export function WorkTalkApp() {
                           : "Chrome이 설치 가능하다고 판단하면 이 영역에 ‘설치하기’ 버튼이 표시됩니다. 주소창에 ‘앱에서 열기’가 보이면 이미 설치된 앱으로 인식 중일 수 있으니 chrome://apps를 확인하세요."}
               </small>
             </div>
+            <div className={styles.backupStatusCard}>
+              <span>
+                <WorkTalkIcon name="document" />
+                결재 완료 PDF 자동 백업
+              </span>
+              {isNexusDesktopApp ? (
+                <>
+                  <em className={styles.installReadyBadge}>Windows 앱 전용</em>
+                  <small>
+                    승인 완료 PDF를 <strong>{approvalBackupStatus?.rootPath || NEXUS_APPROVAL_BACKUP_ROOT}</strong>
+                    에 문서종류/월별 폴더로 자동 저장합니다.
+                  </small>
+                  <dl>
+                    <div>
+                      <dt>완료</dt>
+                      <dd>{approvalBackupCompletedCount}건</dd>
+                    </div>
+                    <div>
+                      <dt>실패</dt>
+                      <dd>{approvalBackupFailedRecords.length}건</dd>
+                    </div>
+                    <div>
+                      <dt>마지막</dt>
+                      <dd>
+                        {approvalBackupLastResult
+                          ? approvalBackupLastResult.status === "completed"
+                            ? "성공"
+                            : "실패"
+                          : "대기"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {approvalBackupLastResult?.localPath && (
+                    <small className={styles.backupPathText}>
+                      최근: {approvalBackupLastResult.localPath}
+                    </small>
+                  )}
+                  {approvalBackupMessage && (
+                    <small className={styles.backupPathText}>{approvalBackupMessage}</small>
+                  )}
+                  {approvalBackupFailedRecords.length > 0 && (
+                    <ul className={styles.backupFailureList}>
+                      {approvalBackupFailedRecords.map((record) => (
+                        <li key={`${record.documentId}-${record.storagePath}`}>
+                          <strong>{record.documentNo || `문서 ${record.documentId}`}</strong>
+                          <span>{record.lastError || "백업 실패"}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void runApprovalBackupCatchup()}
+                  >
+                    미백업 문서 다시 확인
+                  </button>
+                </>
+              ) : (
+                <>
+                  <em className={styles.installUnavailableBadge}>지원 안 함</em>
+                  <small>
+                    자동 로컬 백업은 Windows 설치형 NEXUS 앱에서만 지원됩니다.
+                    현재 환경에서는 완료 PDF를 직접 다운로드할 수 있습니다.
+                  </small>
+                </>
+              )}
+            </div>
+            {canManageTestCleanup && (
+              <div className={styles.testCleanupCard}>
+                <span>
+                  <WorkTalkIcon name="settings" />
+                  관리자 테스트 데이터 정리
+                </span>
+                <small>
+                  기본 채널과 운영 결재방은 제외하고, 테스트 마커가 있거나 연결 문서가
+                  없는 테스트성 WorkTalk 방만 후보로 표시합니다.
+                </small>
+                <div className={styles.testCleanupActions}>
+                  <button
+                    type="button"
+                    onClick={() => void requestTestCleanup("preview")}
+                    disabled={testCleanupBusy}
+                  >
+                    삭제 후보 확인
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.testCleanupDangerButton}
+                    onClick={() =>
+                      void requestTestCleanup("delete", selectedCleanupRoomIds)
+                    }
+                    disabled={
+                      testCleanupBusy || selectedCleanupRoomIds.length === 0
+                    }
+                  >
+                    선택 후보 삭제
+                  </button>
+                </div>
+                {testCleanupMessage && (
+                  <small className={styles.backupPathText}>{testCleanupMessage}</small>
+                )}
+                {testCleanupCandidates.length > 0 && (
+                  <>
+                    <label className={styles.testCleanupSelectAll}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          selectedCleanupRoomIds.length ===
+                          testCleanupCandidates.length
+                        }
+                        onChange={(event) =>
+                          setSelectedCleanupRoomIds(
+                            event.target.checked
+                              ? testCleanupCandidates.map(
+                                  (candidate) => candidate.roomId
+                                )
+                              : []
+                          )
+                        }
+                      />
+                      후보 전체 선택
+                    </label>
+                    <ul className={styles.testCleanupList}>
+                      {testCleanupCandidates.map((candidate) => (
+                        <li key={candidate.roomId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={selectedCleanupRoomIds.includes(
+                                candidate.roomId
+                              )}
+                              onChange={(event) =>
+                                setSelectedCleanupRoomIds((previous) =>
+                                  event.target.checked
+                                    ? Array.from(
+                                        new Set([...previous, candidate.roomId])
+                                      )
+                                    : previous.filter(
+                                        (roomId) => roomId !== candidate.roomId
+                                      )
+                                )
+                              }
+                            />
+                            <span>
+                              <strong>
+                                #{candidate.roomId} {candidate.title}
+                              </strong>
+                              <small>
+                                {candidate.roomType} · 메시지{" "}
+                                {candidate.messageCount} · 문서{" "}
+                                {candidate.documentCount} · 사유{" "}
+                                {candidate.reasons.join(", ")}
+                              </small>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
             {!isNexusDesktopApp && pushStatus === "denied" && (
               <p className={styles.pushError}>
                 브라우저 설정에서 NEXUS 알림 권한을 허용해야 합니다.

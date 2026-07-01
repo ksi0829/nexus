@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Net;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -28,6 +30,7 @@ internal static class NexusClient
     [STAThread]
     private static void Main()
     {
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new NexusApplicationContext());
@@ -207,6 +210,282 @@ internal sealed class NexusApplicationContext : ApplicationContext
     }
 }
 
+internal sealed class NexusBackupRecord
+{
+    public int documentId { get; set; }
+    public string documentNo { get; set; }
+    public string storagePath { get; set; }
+    public string localPath { get; set; }
+    public string status { get; set; }
+    public int attempts { get; set; }
+    public string lastError { get; set; }
+    public string backedUpAt { get; set; }
+}
+
+internal sealed class NexusBackupState
+{
+    public System.Collections.Generic.Dictionary<string, NexusBackupRecord> documents { get; set; }
+    public string updatedAt { get; set; }
+
+    public NexusBackupState()
+    {
+        documents = new System.Collections.Generic.Dictionary<string, NexusBackupRecord>();
+    }
+}
+
+internal static class NexusBackupService
+{
+    private const string BackupRoot = @"D:\NEXUS_결재문서";
+    private static readonly object SyncRoot = new object();
+    private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
+    private static readonly string DataDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "NEXUS"
+    );
+    private static readonly string StatePath = Path.Combine(
+        DataDirectory,
+        "approval-backup-state.json"
+    );
+
+    internal static void HandleMessage(
+        System.Collections.Generic.Dictionary<string, object> payload,
+        NexusWindow window
+    )
+    {
+        object typeValue;
+        if (!payload.TryGetValue("type", out typeValue)) return;
+        string type = Convert.ToString(typeValue);
+
+        if (string.Equals(type, "NEXUS_BACKUP_GET_SETTINGS", StringComparison.Ordinal) ||
+            string.Equals(type, "NEXUS_BACKUP_SELECT_FOLDER", StringComparison.Ordinal) ||
+            string.Equals(type, "NEXUS_BACKUP_SAVE_SETTINGS", StringComparison.Ordinal))
+        {
+            PostSettings(window);
+            return;
+        }
+
+        if (string.Equals(type, "NEXUS_BACKUP_GET_STATUS", StringComparison.Ordinal))
+        {
+            PostStatus(window, null);
+            return;
+        }
+
+        if (string.Equals(type, "NEXUS_BACKUP_DOWNLOAD_PDF", StringComparison.Ordinal))
+        {
+            Task.Run(delegate
+            {
+                NexusBackupRecord result;
+                try
+                {
+                    result = SaveApprovalPdf(payload);
+                }
+                catch (Exception error)
+                {
+                    result = new NexusBackupRecord();
+                    result.documentId = ParseInt(GetValue(payload, "documentId"));
+                    result.documentNo = Convert.ToString(GetValue(payload, "documentNo"));
+                    result.storagePath = Convert.ToString(GetValue(payload, "storagePath"));
+                    result.localPath = null;
+                    result.status = "failed";
+                    result.attempts = 1;
+                    result.lastError = error.Message;
+                    result.backedUpAt = DateTimeOffset.Now.ToString("o");
+                }
+                PostStatus(window, result);
+            });
+        }
+    }
+
+    private static void PostSettings(NexusWindow window)
+    {
+        System.Collections.Generic.Dictionary<string, object> response =
+            new System.Collections.Generic.Dictionary<string, object>();
+        response["type"] = "NEXUS_BACKUP_SETTINGS";
+        response["supported"] = true;
+        response["enabled"] = true;
+        response["fixedPath"] = true;
+        response["rootPath"] = BackupRoot;
+        response["overwriteExisting"] = true;
+        response["message"] = "1차 자동 백업은 고정 경로를 사용합니다.";
+        window.PostWebMessage(response);
+        PostStatus(window, null);
+    }
+
+    private static void PostStatus(NexusWindow window, NexusBackupRecord lastResult)
+    {
+        NexusBackupState state = LoadState();
+        System.Collections.Generic.List<NexusBackupRecord> records =
+            new System.Collections.Generic.List<NexusBackupRecord>(state.documents.Values);
+        records.Sort(delegate(NexusBackupRecord left, NexusBackupRecord right)
+        {
+            return string.Compare(
+                right.backedUpAt ?? string.Empty,
+                left.backedUpAt ?? string.Empty,
+                StringComparison.Ordinal
+            );
+        });
+
+        System.Collections.Generic.Dictionary<string, object> response =
+            new System.Collections.Generic.Dictionary<string, object>();
+        response["type"] = "NEXUS_BACKUP_STATUS";
+        response["supported"] = true;
+        response["rootPath"] = BackupRoot;
+        response["fixedPath"] = true;
+        response["documents"] = records;
+        response["lastResult"] = lastResult;
+        window.PostWebMessage(response);
+    }
+
+    private static NexusBackupRecord SaveApprovalPdf(
+        System.Collections.Generic.Dictionary<string, object> payload
+    )
+    {
+        int documentId = ParseInt(GetValue(payload, "documentId"));
+        string documentNo = Convert.ToString(GetValue(payload, "documentNo"));
+        string documentType = Convert.ToString(GetValue(payload, "documentType"));
+        string completedAt = Convert.ToString(GetValue(payload, "completedAt"));
+        string downloadUrl = Convert.ToString(GetValue(payload, "downloadUrl"));
+        string storagePath = Convert.ToString(GetValue(payload, "storagePath"));
+
+        if (documentId <= 0) throw new InvalidOperationException("documentId is required.");
+        if (string.IsNullOrWhiteSpace(documentNo)) throw new InvalidOperationException("documentNo is required.");
+        if (string.IsNullOrWhiteSpace(documentType)) documentType = "기타 결재문서";
+        if (string.IsNullOrWhiteSpace(downloadUrl)) throw new InvalidOperationException("downloadUrl is required.");
+
+        string safeDocumentType = SanitizePathSegment(documentType);
+        string safeDocumentNo = SanitizeFileName(documentNo);
+        string monthKey = ToMonthKey(completedAt);
+        string directory = Path.Combine(BackupRoot, safeDocumentType, monthKey);
+        string localPath = Path.Combine(
+            directory,
+            safeDocumentNo + "_" + safeDocumentType + ".pdf"
+        );
+        string key = Convert.ToString(documentId);
+        NexusBackupRecord previous = GetRecord(key);
+
+        if (previous != null &&
+            string.Equals(previous.status, "completed", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(previous.storagePath, storagePath, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(previous.localPath) &&
+            File.Exists(previous.localPath))
+        {
+            return previous;
+        }
+
+        int attempts = previous == null ? 1 : previous.attempts + 1;
+
+        NexusBackupRecord record = new NexusBackupRecord();
+        record.documentId = documentId;
+        record.documentNo = documentNo;
+        record.storagePath = storagePath;
+        record.localPath = localPath;
+        record.attempts = attempts;
+        record.backedUpAt = DateTimeOffset.Now.ToString("o");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            using (WebClient client = new WebClient())
+            {
+                client.DownloadFile(downloadUrl, localPath);
+            }
+
+            record.status = "completed";
+            record.lastError = null;
+        }
+        catch (Exception error)
+        {
+            record.status = "failed";
+            record.lastError = error.Message;
+        }
+
+        UpsertRecord(key, record);
+        return record;
+    }
+
+    private static object GetValue(
+        System.Collections.Generic.Dictionary<string, object> payload,
+        string key
+    )
+    {
+        object value;
+        return payload.TryGetValue(key, out value) ? value : null;
+    }
+
+    private static int ParseInt(object value)
+    {
+        if (value == null) return 0;
+        int result;
+        return int.TryParse(Convert.ToString(value), out result) ? result : 0;
+    }
+
+    private static string ToMonthKey(string completedAt)
+    {
+        DateTimeOffset date;
+        if (!string.IsNullOrWhiteSpace(completedAt) &&
+            DateTimeOffset.TryParse(completedAt, out date))
+        {
+            return date.ToString("yyyy-MM");
+        }
+        return DateTimeOffset.Now.ToString("yyyy-MM");
+    }
+
+    private static string SanitizePathSegment(string value)
+    {
+        string sanitized = SanitizeFileName(value);
+        return string.IsNullOrWhiteSpace(sanitized) ? "기타 결재문서" : sanitized;
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        string sanitized = Regex.Replace(value ?? string.Empty, "[\\\\/:*?\"<>|]", "_");
+        sanitized = sanitized.Trim().TrimEnd('.');
+        return string.IsNullOrWhiteSpace(sanitized) ? "NEXUS" : sanitized;
+    }
+
+    private static NexusBackupRecord GetRecord(string key)
+    {
+        NexusBackupState state = LoadState();
+        NexusBackupRecord record;
+        return state.documents.TryGetValue(key, out record) ? record : null;
+    }
+
+    private static void UpsertRecord(string key, NexusBackupRecord record)
+    {
+        lock (SyncRoot)
+        {
+            NexusBackupState state = LoadState();
+            state.documents[key] = record;
+            state.updatedAt = DateTimeOffset.Now.ToString("o");
+            SaveState(state);
+        }
+    }
+
+    private static NexusBackupState LoadState()
+    {
+        lock (SyncRoot)
+        {
+            try
+            {
+                if (!File.Exists(StatePath)) return new NexusBackupState();
+                string json = File.ReadAllText(StatePath);
+                NexusBackupState state = Serializer.Deserialize<NexusBackupState>(json);
+                return state ?? new NexusBackupState();
+            }
+            catch
+            {
+                return new NexusBackupState();
+            }
+        }
+    }
+
+    private static void SaveState(NexusBackupState state)
+    {
+        Directory.CreateDirectory(DataDirectory);
+        File.WriteAllText(StatePath, Serializer.Serialize(state));
+    }
+}
+
 internal class NexusWindow : Form
 {
     private readonly NexusApplicationContext applicationContext;
@@ -349,6 +628,12 @@ internal class NexusWindow : Form
             }
 
             string type = Convert.ToString(typeValue);
+            if (type != null && type.StartsWith("NEXUS_BACKUP_", StringComparison.Ordinal))
+            {
+                NexusBackupService.HandleMessage(payload, this);
+                return;
+            }
+
             if (string.Equals(type, "auth-state", StringComparison.Ordinal))
             {
                 object authenticatedValue;
@@ -389,6 +674,40 @@ internal class NexusWindow : Form
         {
             // Invalid web messages are ignored.
         }
+    }
+
+    internal void PostWebMessage(object payload)
+    {
+        if (IsDisposed) return;
+
+        Action send = delegate
+        {
+            if (
+                webView.CoreWebView2 == null ||
+                webView.IsDisposed
+            )
+            {
+                return;
+            }
+
+            try
+            {
+                JavaScriptSerializer serializer = new JavaScriptSerializer();
+                webView.CoreWebView2.PostWebMessageAsString(serializer.Serialize(payload));
+            }
+            catch
+            {
+                // Backup status messages are best-effort diagnostics for the web UI.
+            }
+        };
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(send);
+            return;
+        }
+
+        send();
     }
 
     private void HandleSourceChanged(object sender, CoreWebView2SourceChangedEventArgs eventArgs)

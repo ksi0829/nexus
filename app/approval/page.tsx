@@ -26,6 +26,7 @@ import {
 } from "@/app/_lib/nexusDocuments";
 import { isActualMobileDevice } from "@/app/_lib/device";
 import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
+import { requestApprovalPdfBackup } from "@/lib/nexus/approvalBackup";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NexusNavigation,
@@ -1990,7 +1991,7 @@ export default function ApprovalPage() {
             requesterName: currentName || "작성자",
             formData: finalFormData,
           });
-          const fileName = `${nexusDocumentNo}_${title}_제출본.pdf`;
+          const fileName = `${nexusDocumentNo}_${title}_작업지시서.pdf`;
           downloadPdf(pdfBlob, fileName);
 
           const issueDateValue = String(
@@ -2009,7 +2010,7 @@ export default function ApprovalPage() {
             String(date.getMonth() + 1).padStart(2, "0"),
             String(date.getDate()).padStart(2, "0"),
             safeWorkOrderKey,
-            "submitted.pdf",
+            "approved.pdf",
           ].join("/");
           const { error: uploadError } = await supabase.storage
             .from("nexus-documents")
@@ -2035,7 +2036,29 @@ export default function ApprovalPage() {
           if (attachError) {
             throw new Error(`작업지시방 파일 연결 실패: ${attachError.message}`);
           }
+          const approvedPdfCreatedAt = new Date().toISOString();
+          const { error: approvedPathError } = await supabase
+            .from("approval_documents")
+            .update({
+              approved_pdf_path: storagePath,
+              approved_pdf_created_at: approvedPdfCreatedAt,
+            })
+            .eq("id", Number(documentId));
+          if (approvedPathError) {
+            throw new Error(`작업지시서 승인 PDF 경로 저장 실패: ${approvedPathError.message}`);
+          }
           await assertWorkTalkFileAttached(storagePath);
+          await requestApprovalPdfBackup(supabase, {
+            id: Number(documentId),
+            document_no: nexusDocumentNo,
+            template_key: selectedTemplate.key,
+            title,
+            status: "approved",
+            completed_at: approvedPdfCreatedAt,
+            approved_pdf_path: storagePath,
+            approved_pdf_created_at: approvedPdfCreatedAt,
+            form_data: finalFormData,
+          });
           nexusPdfAttached = true;
         } catch (pdfError) {
           nexusPdfErrorMessage = `${nexusDocumentNo} 문서는 발행됐지만 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
@@ -2451,6 +2474,17 @@ export default function ApprovalPage() {
             throw new Error(`채팅방 파일 연결 실패: ${attachError.message}`);
           }
           await assertWorkTalkFileAttached(approvedPath);
+          await requestApprovalPdfBackup(supabase, {
+            id: selectedDocument.id,
+            document_no: selectedDocument.document_no,
+            template_key: selectedDocument.template_key,
+            title: selectedDocument.title,
+            status: "approved",
+            completed_at: completedDate,
+            approved_pdf_path: approvedPath,
+            approved_pdf_created_at: new Date().toISOString(),
+            form_data: selectedDocument.form_data,
+          });
         } catch (pdfError) {
           approvalMessage = `승인은 완료됐지만 최종 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
         }
@@ -2518,6 +2552,17 @@ export default function ApprovalPage() {
             }
           );
           if (attachError) throw attachError;
+          await requestApprovalPdfBackup(supabase, {
+            id: selectedDocument.id,
+            document_no: selectedDocument.document_no,
+            template_key: selectedDocument.template_key,
+            title: selectedDocument.title,
+            status: "approved",
+            completed_at: completedDate,
+            approved_pdf_path: approvedPath,
+            approved_pdf_created_at: new Date().toISOString(),
+            form_data: selectedDocument.form_data,
+          });
         } catch (pdfError) {
           approvalMessage = `승인은 완료됐지만 최종 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
         }
@@ -2584,6 +2629,17 @@ export default function ApprovalPage() {
             }
           );
           if (attachError) throw attachError;
+          await requestApprovalPdfBackup(supabase, {
+            id: selectedDocument.id,
+            document_no: selectedDocument.document_no,
+            template_key: selectedDocument.template_key,
+            title: selectedDocument.title,
+            status: "approved",
+            completed_at: completedDate,
+            approved_pdf_path: approvedPath,
+            approved_pdf_created_at: new Date().toISOString(),
+            form_data: selectedDocument.form_data,
+          });
         } catch (pdfError) {
           approvalMessage = `승인은 완료됐지만 구매결의서 최종 PDF 저장에 실패했습니다. ${getErrorMessage(pdfError)}`;
         }
