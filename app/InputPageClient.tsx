@@ -125,6 +125,54 @@ function isExecutive(team?: string | null) {
   return t.includes("경영진") || t.includes("회장") || t.includes("대표이사") || t.includes("고문");
 }
 
+const WORKLOG_DISABLED_AUTHORS = new Set(["관리자", "신상민", "신영호", "정대용"]);
+
+const WORKLOG_SHARE_ROOM_KEYS_BY_NAME: Record<string, string[]> = {
+  권현진: ["__company_development__"],
+  김선일: ["__company_admin_sales__"],
+  김혜정: ["__company_admin_sales__"],
+  반준영: ["__company_admin_sales__"],
+  신훈식: ["__company_admin_sales__"],
+  이양로: ["__company_admin_sales__"],
+  최인혜: ["__company_admin_sales__"],
+  최하영: ["__company_admin_sales__", "__company_development__"],
+  장동철: ["__company_production__"],
+  권영일: ["__company_production__"],
+  김성종: ["__company_production__"],
+  김종혁: ["__company_production__"],
+  김학: ["__company_production__"],
+  박상현: ["__company_production__"],
+  서중석: ["__company_development__"],
+  양희원: ["__company_production__"],
+  윤지환: ["__company_development__"],
+  이승준: ["__company_production__"],
+  한재영: ["__company_production__"],
+  한차현: ["__company_production__"],
+};
+
+function isWorklogAuthorDisabled(profile: Profile) {
+  return (
+    WORKLOG_DISABLED_AUTHORS.has(profile.name || "") ||
+    isExecutive(profile.team)
+  );
+}
+
+function getWorklogShareRoomKeys(profile: Profile) {
+  const byName = WORKLOG_SHARE_ROOM_KEYS_BY_NAME[profile.name || ""];
+
+  if (byName?.length) return byName;
+
+  const team = profile.team || "";
+  const lowerTeam = team.toLocaleLowerCase("ko");
+
+  if (/생산|기술/.test(team)) return ["__company_production__"];
+  if (/r&d|qa|품질|개발|제어|신사업/.test(lowerTeam)) {
+    return ["__company_development__"];
+  }
+
+  return ["__company_admin_sales__"];
+}
+
 function getViewport(): Viewport {
   if (typeof window === "undefined") return "desktop";
   if (window.innerWidth <= 768) return "mobile";
@@ -374,7 +422,7 @@ export default function InputPageClient({
 
     setProfile(prof);
 
-    if (isExecutive(prof.team)) {
+    if (isWorklogAuthorDisabled(prof)) {
       location.href = "/worktalk";
       return null;
     }
@@ -626,27 +674,19 @@ export default function InputPageClient({
 
     if (roomError) throw new Error(roomError.message);
 
-    const normalize = (value: string | null) =>
-      (value || "").replaceAll(" ", "").toLocaleLowerCase("ko");
-    const teamName = normalize(profile.team);
     const rooms = roomRows || [];
-    let targetRoom = rooms.find(
-      (room) =>
-        normalize(room.team_key) === teamName || normalize(room.title) === teamName
-    );
+    const targetKeys = getWorklogShareRoomKeys(profile);
+    const targetRooms = targetKeys
+      .map((key) => rooms.find((room) => room.team_key === key))
+      .filter((room): room is NonNullable<typeof room> => Boolean(room));
 
-    if (!targetRoom) {
-      const fallbackKey =
-        /생산/.test(profile.team)
-          ? "__company_production__"
-          : /기술|개발|r&d|제어/.test(profile.team.toLocaleLowerCase("ko"))
-            ? "__company_development__"
-            : "__company_admin_sales__";
-      targetRoom = rooms.find((room) => room.team_key === fallbackKey);
-    }
-
-    if (!targetRoom) {
-      throw new Error(`${profile.team} 소속의 고정 채팅방을 찾을 수 없습니다.`);
+    if (targetRooms.length !== targetKeys.length) {
+      const missingKeys = targetKeys.filter(
+        (key) => !rooms.some((room) => room.team_key === key)
+      );
+      throw new Error(
+        `업무일지 공유 대상 고정 채팅방을 찾을 수 없습니다. (${missingKeys.join(", ")})`
+      );
     }
 
     const pdfBlob = await createNexusWorklogPdf({
@@ -659,35 +699,47 @@ export default function InputPageClient({
     const compactDate = date.replaceAll("-", "");
     const safeName = (profile.name || "작성자").replace(/[\\/:*?"<>|]/g, "_");
     const fileName = `업무일지_${safeName}_${compactDate}.pdf`;
-    const storagePath = `${targetRoom.id}/${profile.id}/${crypto.randomUUID()}.pdf`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("worktalk-files")
-      .upload(storagePath, pdfBlob, {
-        contentType: "application/pdf",
-        upsert: false,
+    const uploadedPaths: string[] = [];
+
+    for (const targetRoom of targetRooms) {
+      const storagePath = `${targetRoom.id}/${profile.id}/${crypto.randomUUID()}.pdf`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("worktalk-files")
+        .upload(storagePath, pdfBlob, {
+          contentType: "application/pdf",
+          upsert: false,
+        });
+      if (uploadError) {
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from("worktalk-files").remove(uploadedPaths);
+        }
+        throw new Error(uploadError.message);
+      }
+
+      uploadedPaths.push(storagePath);
+
+      const { error: sendError } = await supabase.rpc("worktalk_send_files", {
+        target_room_id: targetRoom.id,
+        message_body: `${profile.name || "작성자"}님이 ${date} 업무일지를 공유했습니다.`,
+        attachment_rows: [
+          {
+            storage_path: storagePath,
+            original_name: fileName,
+            mime_type: "application/pdf",
+            size_bytes: pdfBlob.size,
+          },
+        ],
       });
-    if (uploadError) throw new Error(uploadError.message);
 
-    const { error: sendError } = await supabase.rpc("worktalk_send_files", {
-      target_room_id: targetRoom.id,
-      message_body: `${profile.name || "작성자"}님이 ${date} 업무일지를 공유했습니다.`,
-      attachment_rows: [
-        {
-          storage_path: storagePath,
-          original_name: fileName,
-          mime_type: "application/pdf",
-          size_bytes: pdfBlob.size,
-        },
-      ],
-    });
-
-    if (sendError) {
-      await supabase.storage.from("worktalk-files").remove([storagePath]);
-      throw new Error(sendError.message);
+      if (sendError) {
+        await supabase.storage.from("worktalk-files").remove([storagePath]);
+        throw new Error(sendError.message);
+      }
     }
 
-    return targetRoom.title as string;
+    return targetRooms.map((room) => room?.title).join(", ");
   }, [date, prevRows, profile, supabase, todayRows]);
 
   const save = useCallback(async () => {
