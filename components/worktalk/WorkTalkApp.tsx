@@ -2014,6 +2014,24 @@ export function WorkTalkApp() {
         .includes(query);
     });
   }, [currentProfile?.id, filter, roomSearch, rooms]);
+  const unreadRoomFilters = useMemo(() => {
+    const next: Record<RoomFilter, boolean> = {
+      system: false,
+      direct: false,
+      group: false,
+      approval: false,
+    };
+
+    rooms.forEach((room) => {
+      if ((room.unreadCount || 0) <= 0) return;
+      const match = ROOM_FILTER_OPTIONS.find(([value]) =>
+        roomMatchesFilter(room, value)
+      );
+      if (match) next[match[0]] = true;
+    });
+
+    return next;
+  }, [rooms]);
 
   const filteredMessages = useMemo(() => {
     const query = messageSearch.trim().toLocaleLowerCase("ko");
@@ -3290,6 +3308,7 @@ export function WorkTalkApp() {
     }
 
     userOpenedRoomRef.current = true;
+    setActiveSection("chat");
 
     if (normalizedRoomId === selectedRoomId) {
       if (focusMessageId) {
@@ -3539,6 +3558,13 @@ export function WorkTalkApp() {
     const roomId = await createDirectRoom(profile.id);
     setStartingDirectChat(false);
     if (!roomId) return;
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches
+    ) {
+      setFilter("direct");
+      setSelectedProfileId(null);
+    }
     openRoom(roomId);
   }
 
@@ -4047,6 +4073,13 @@ export function WorkTalkApp() {
                   onClick={() => setFilter(value)}
                 >
                   {label}
+                  {unreadRoomFilters[value] ? (
+                    <span
+                      className={styles.filterUnreadDot}
+                      aria-hidden="true"
+                      title={`${label}에 읽지 않은 메시지 있음`}
+                    />
+                  ) : null}
                 </button>
               ))}
             </div>

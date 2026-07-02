@@ -318,7 +318,12 @@
 }
 
 .filterTabs button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
+  gap: 5px;
   padding: 8px 10px;
   border: 0;
   border-radius: 9px;
@@ -333,6 +338,19 @@
 .filterTabs .filterActive {
   background: var(--wt-accent);
   color: var(--wt-primary-deep);
+}
+
+.filterUnreadDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ec6258;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.filterTabs .filterActive .filterUnreadDot {
+  box-shadow: 0 0 0 2px var(--wt-accent);
 }
 
 .roomList {
