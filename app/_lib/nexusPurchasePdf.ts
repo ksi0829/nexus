@@ -45,7 +45,19 @@ function renderApprovalStatus(approval?: PurchaseApproval) {
   if (!approval) return "";
 
   if (approval.status === "승인" && approval.signatureDataUrl) {
+    console.info("[Approval PDF]", "purchase:render_signature", {
+      role: approval.role,
+      name: approval.name,
+      dataUrlLength: approval.signatureDataUrl.length,
+    });
     return `<img class="signature-image" src="${escapeHtml(approval.signatureDataUrl)}" alt="승인 서명">`;
+  }
+
+  if (approval.status === "승인") {
+    console.info("[Approval PDF]", "purchase:fallback_approval_mark", {
+      role: approval.role,
+      name: approval.name,
+    });
   }
 
   return `<em class="${approval.status === "승인" ? "ok" : ""}">${escapeHtml(approval.status || "")}</em>`;
@@ -71,6 +83,17 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
     { role: "본부장", name: "장동철 이사", status: "대기" },
     { role: "대표이사", name: "신영호 대표이사", status: "대기" },
   ];
+  console.info("[Approval PDF]", "purchase:create", {
+    documentNo: input.documentNo,
+    version: input.version || "submitted",
+    approvals: approvals.map((approval) => ({
+      role: approval.role,
+      name: approval.name,
+      status: approval.status,
+      hasSignature: Boolean(approval.signatureDataUrl),
+      signatureDataUrlLength: approval.signatureDataUrl?.length || 0,
+    })),
+  });
   const usageOptions = ["원자재", "재공품", "공용품", "판매", "무상", "사무용품", "기타"];
   const sheet = document.createElement("div");
   sheet.style.cssText =

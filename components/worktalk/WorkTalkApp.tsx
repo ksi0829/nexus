@@ -3630,6 +3630,19 @@ export function WorkTalkApp() {
       workTalkSupabase,
       approvalLines
     );
+    console.info("[Approval signatures]", "worktalk:pdf_context", {
+      documentId: document.id,
+      documentNo: document.document_no,
+      templateKey: document.template_key,
+      approvalLines: approvalLines.map((line) => ({
+        approverId: line.approver_id,
+        approverName: line.approver_name,
+        status: line.status,
+        hasSignature: Boolean(
+          approvalLineSignatureDataUrl(approvalSignatureDataUrls, line)
+        ),
+      })),
+    });
     let pdfBlob: Blob;
     let storagePath: string;
     let originalName: string;

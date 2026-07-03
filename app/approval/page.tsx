@@ -2445,6 +2445,21 @@ export default function ApprovalPage() {
         supabase,
         approvedLines
       );
+      console.info("[Approval signatures]", "approval_page:pdf_context", {
+        documentId: selectedDocument.id,
+        documentNo: selectedDocument.document_no,
+        templateKey: selectedDocument.template_key,
+        actionLineId: actionLine.id,
+        approvedLines: approvedLines.map((line) => ({
+          id: line.id,
+          approverId: line.approver_id,
+          approverName: line.approver_name,
+          status: line.status,
+          hasSignature: Boolean(
+            approvalLineSignatureDataUrl(approvalSignatureDataUrls, line)
+          ),
+        })),
+      });
 
       if (
         selectedDocument.template_key === "manufacturing_request" &&
