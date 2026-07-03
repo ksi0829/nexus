@@ -1227,7 +1227,8 @@
 
 .roomTitleRow strong {
   overflow: hidden;
-  font-size: 13.5px;
+  font-size: 15px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1238,7 +1239,7 @@
   border-radius: 5px;
   background: #e2efeb;
   color: #568079;
-  font-size: 8px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 800;
 }
@@ -1248,7 +1249,8 @@
   overflow: hidden;
   margin-top: 5px;
   color: #84918e;
-  font-size: 11.5px;
+  font-size: 13px;
+  line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1264,7 +1266,7 @@
 
 .roomMeta time {
   color: #9ba6a3;
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .roomMeta em {
@@ -1298,20 +1300,21 @@
 }
 
 .profileStrip strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .profileStrip small {
   margin-top: 2px;
   color: var(--wt-muted);
-  font-size: 10px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .profileStrip button {
   border: 0;
   background: transparent;
   color: var(--wt-primary);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1611,7 +1614,8 @@
 
 .conversationIdentity strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1619,7 +1623,8 @@
 .conversationIdentity span {
   margin-top: 4px;
   color: var(--wt-muted);
-  font-size: 10.5px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .memberCountButton {
@@ -1628,7 +1633,7 @@
   border: 0;
   background: transparent;
   color: var(--wt-muted);
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -1658,7 +1663,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .headerAction,
@@ -1744,14 +1749,14 @@
 }
 
 .noticeBar strong {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .noticeBar em {
   overflow: hidden;
   color: #62716d;
-  font-size: 11px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -1781,7 +1786,7 @@
   border-radius: 999px;
   background: rgb(80 106 99 / 9%);
   color: #74817e;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1797,8 +1802,8 @@
   border-radius: 999px;
   background: rgb(80 106 99 / 9%);
   color: #6d7b77;
-  font-size: 10px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   text-align: center;
 }
 
@@ -1840,7 +1845,7 @@
   border-radius: 13px;
   background: #fff;
   color: #52635f;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 850;
   box-shadow: 0 2px 8px rgb(23 54 47 / 7%);
 }
@@ -1859,7 +1864,8 @@
 .messageContent > strong {
   margin: 0 0 5px 3px;
   color: #52615e;
-  font-size: 10.5px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .bubbleLine {
@@ -1892,13 +1898,13 @@
 
 .replyQuote strong {
   color: #17362f;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .replyQuote span {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1915,7 +1921,7 @@
 
 .mineMessageMeta em {
   color: #237a68;
-  font-size: 8.5px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 850;
 }
@@ -1926,8 +1932,8 @@
   border: 1px solid #e4eae8;
   border-radius: 6px 16px 16px;
   background: #fff;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.58;
   white-space: pre-wrap;
   word-break: break-word;
   box-shadow: 0 3px 10px rgb(24 50 44 / 4%);
@@ -1972,8 +1978,8 @@
   border-radius: 9px;
   background: #f3faf7;
   color: #61716d;
-  font-size: 9px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .approvalCommandHint b {
@@ -2009,14 +2015,14 @@
 
 .replyComposer strong {
   color: #17362f;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .replyComposer span {
   overflow: hidden;
   color: #62716d;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2074,7 +2080,7 @@
   border-left: 1px solid var(--wt-line);
   background: #f5f9f8;
   color: var(--wt-primary);
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 850;
   cursor: pointer;
 }
@@ -2091,7 +2097,7 @@
   border-radius: 11px;
   background: #e3f1ed;
   color: var(--wt-primary);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -2107,7 +2113,7 @@
 
 .fileCard strong {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2115,12 +2121,12 @@
 .fileCard small {
   margin-top: 3px;
   color: var(--wt-muted);
-  font-size: 8.5px;
+  font-size: 12px;
 }
 
 .fileCard em {
   color: var(--wt-primary);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 850;
 }
@@ -2171,7 +2177,7 @@
 
 .imageFileMeta strong {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2179,7 +2185,7 @@
 .imageFileMeta small {
   margin-top: 3px;
   color: var(--wt-muted);
-  font-size: 8.5px;
+  font-size: 12px;
 }
 
 .imageFileMeta button {
@@ -2189,7 +2195,7 @@
   border-radius: 8px;
   background: var(--wt-soft);
   color: var(--wt-primary);
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 850;
   cursor: pointer;
 }
@@ -2229,7 +2235,7 @@
 
 .pdfPreviewButton strong {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2237,12 +2243,12 @@
 .pdfPreviewButton small {
   margin-top: 3px;
   color: var(--wt-muted);
-  font-size: 8.5px;
+  font-size: 12px;
 }
 
 .pdfPreviewButton em {
   color: var(--wt-primary);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 850;
 }
@@ -2254,7 +2260,7 @@
   border-left: 1px solid var(--wt-line);
   background: #f5f9f8;
   color: var(--wt-primary);
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 850;
   cursor: pointer;
 }
@@ -2461,7 +2467,7 @@
   flex: 0 0 auto;
   padding-bottom: 2px;
   color: #939e9b;
-  font-size: 8.5px;
+  font-size: 12px;
 }
 
 .mineMessageMeta time {
@@ -2507,7 +2513,7 @@
   border-radius: 9px;
   background: #dceee9;
   color: var(--wt-primary);
-  font-size: 7px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 900;
   text-transform: uppercase;
@@ -2532,7 +2538,7 @@
 
 .pendingFiles strong {
   overflow: hidden;
-  font-size: 9.5px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2540,14 +2546,14 @@
 .pendingFiles small {
   margin-top: 2px;
   color: var(--wt-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .pendingFiles em {
   display: block;
   margin-top: 2px;
   color: #b64f49;
-  font-size: 8px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 800;
 }
@@ -2576,7 +2582,7 @@
 .fileError {
   margin: 0 0 7px;
   color: #b64f49;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .composerTools {
@@ -2585,7 +2591,7 @@
   align-items: center;
   justify-content: space-between;
   color: #98a39f;
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .composerTools button {
@@ -2632,7 +2638,7 @@
   outline: 0;
   background: transparent;
   color: var(--wt-ink);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.55;
 }
 
@@ -2860,7 +2866,7 @@
 
 .profileModalHeader span {
   color: #0f7a62;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.02em;
 }
@@ -2868,7 +2874,8 @@
 .profileModalHeader p {
   margin-top: 4px;
   color: #6c7d78;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   font-weight: 650;
 }
 
@@ -2923,7 +2930,7 @@
 .profileInfoGrid dt {
   margin: 0 0 6px;
   color: #7a8b86;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -2931,7 +2938,7 @@
   overflow: hidden;
   margin: 0;
   color: #182f29;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 850;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2961,7 +2968,8 @@
 .signatureControls p {
   margin: 4px 0 0;
   color: #6d7f79;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   font-weight: 650;
 }
 
@@ -2971,7 +2979,7 @@
   background: #e8f7f1;
   color: #0c6a55;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -3001,7 +3009,7 @@
 
 .signaturePreviewBox span {
   color: #8a9b96;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -3026,7 +3034,7 @@
   justify-content: center;
   border-radius: 13px;
   padding: 0 14px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -3069,7 +3077,8 @@
 .passwordForm > div p {
   margin: 4px 0 0;
   color: #6d7f79;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   font-weight: 650;
 }
 
@@ -3080,7 +3089,7 @@
 
 .passwordField span {
   color: #40554f;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -3091,7 +3100,7 @@
   background: #ffffff;
   color: #152d27;
   padding: 0 14px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   outline: none;
 }
@@ -3107,7 +3116,7 @@
   border-radius: 14px;
   background: #0f7a62;
   color: #ffffff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -3121,7 +3130,8 @@
   margin: 0;
   border-radius: 12px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   font-weight: 800;
 }
 
@@ -3142,7 +3152,7 @@
   border-top: 1px solid #edf3f1;
   padding: 16px 24px 20px;
   color: #667873;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -3174,7 +3184,7 @@
   background: transparent;
   color: #263a36;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
   cursor: pointer;
 }
