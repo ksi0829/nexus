@@ -28,6 +28,11 @@ import { isActualMobileDevice } from "@/app/_lib/device";
 import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
 import { requestApprovalPdfBackup } from "@/lib/nexus/approvalBackup";
 import {
+  NEXUS_APPROVAL_AUTHOR_ROLE,
+  NEXUS_APPROVAL_COLUMN_ROLES,
+  nexusApprovalStepRole,
+} from "@/lib/nexus/approvalLabels";
+import {
   approvalLineSignatureDataUrl,
   loadApprovalSignatureDataUrls,
 } from "@/lib/nexus/approvalSignatures";
@@ -233,7 +238,7 @@ const templates: TemplateDef[] = [
     title: "구매의뢰서",
     category: "구매",
     description: "장비, 원자재, 공용품 구매 요청",
-    approvalRoles: ["담당", "팀장", "본부장", "부사장", "대표이사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "controlNo", label: "부서 관리 번호", type: "text" },
       {
@@ -268,7 +273,7 @@ const templates: TemplateDef[] = [
     title: "기안서",
     category: "공통",
     description: "사내 의사결정, 보고, 협조 요청",
-    approvalRoles: ["담당", "차장", "팀장", "본부장", "부사장", "사장"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "documentNo", label: "문서번호", type: "text" },
       { key: "classification", label: "분류기호", type: "text" },
@@ -290,7 +295,7 @@ const templates: TemplateDef[] = [
     title: "외주의뢰서",
     category: "구매",
     description: "외주 제작, 가공, 협력사 의뢰",
-    approvalRoles: ["담당", "팀장", "본부장", "부사장", "대표이사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "controlNo", label: "부서 관리 번호", type: "text" },
       { key: "client", label: "수주처", type: "text" },
@@ -328,7 +333,7 @@ const templates: TemplateDef[] = [
     title: "제조요구서",
     category: "제조",
     description: "제품 제조 요청과 생산 조건 정리",
-    approvalRoles: ["담당", "팀장", "이사", "부사장", "사장"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       {
         key: "orderCategory",
@@ -388,7 +393,7 @@ const templates: TemplateDef[] = [
     title: "제품검사요청서",
     category: "QA",
     description: "생산 완료 후 제품 검사 요청",
-    approvalRoles: ["담당", "팀장"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "client", label: "발주처", type: "text" },
       { key: "contact", label: "담당자", type: "text" },
@@ -415,7 +420,7 @@ const templates: TemplateDef[] = [
     title: "구매결의서",
     category: "구매",
     description: "구매처, 결제조건, 품목과 금액 확정",
-    approvalRoles: ["담당", "팀장", "본부장", "대표이사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "resolutionDate", label: "작성일", type: "date" },
       { key: "vendorName", label: "매입처명", type: "text" },
@@ -450,7 +455,7 @@ const templates: TemplateDef[] = [
     title: "지출품의서",
     category: "재무",
     description: "비용 지출 승인 요청",
-    approvalRoles: ["담당", "팀장", "재무", "대표이사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "title", label: "제목", type: "text", span: 2 },
       { key: "expenseDate", label: "지출 예정일", type: "date" },
@@ -466,7 +471,7 @@ const templates: TemplateDef[] = [
     title: "휴가신청서",
     category: "인사",
     description: "연차, 반차, 기타 휴가 신청",
-    approvalRoles: ["신청자", "팀장", "인사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "applicant", label: "신청자", type: "text" },
       { key: "team", label: "부서", type: "text" },
@@ -485,7 +490,7 @@ const templates: TemplateDef[] = [
     title: "휴일근무신청서",
     category: "인사",
     description: "휴일 또는 연장 근무 사전 신청",
-    approvalRoles: ["신청자", "팀장", "인사"],
+    approvalRoles: NEXUS_APPROVAL_COLUMN_ROLES,
     fields: [
       { key: "applicant", label: "신청자", type: "text" },
       { key: "team", label: "부서", type: "text" },
@@ -526,37 +531,27 @@ const templateRows = [
 
 function createDefaultApproverSlots(count = DEFAULT_APPROVER_COUNT): ApproverSlot[] {
   return Array.from({ length: count }, (_, index) => ({
-    roleLabel: `${index + 1}차 결재`,
+    roleLabel: nexusApprovalStepRole(index, count),
     approverId: "",
   }));
 }
 
 function defaultApprovalRole(index: number, total: number) {
-  if (total === 1) return "1차 최종 결재";
-  if (index === total - 1) return `${index + 1}차 최종 결재`;
-  return `${index + 1}차 결재`;
+  return nexusApprovalStepRole(index, total);
 }
 
-function purchasePdfRole(roleLabel: string, index: number, total: number) {
-  if (roleLabel.includes("대표") || roleLabel.includes("사장")) return "대표이사";
-  if (roleLabel.includes("본부")) return "본부장";
-  if (roleLabel.includes("부사")) return "부사장";
-  if (roleLabel.includes("팀장")) return "팀장";
-  if (total <= 1) return "대표이사";
-  if (index === 0) return "팀장";
-  if (index === total - 1) return "대표이사";
-  return "본부장";
-}
-
-function purchaseResolutionPdfRole(roleLabel: string, index: number, total: number) {
-  if (roleLabel.includes("대표") || roleLabel.includes("사장")) return "사장";
-  if (roleLabel.includes("전무")) return "전무";
-  if (roleLabel.includes("본부")) return "본부장";
-  if (roleLabel.includes("이사") || roleLabel.includes("팀장")) return "이사";
-  if (total <= 1) return "사장";
-  if (index === 0) return "이사";
-  if (index === total - 1) return "사장";
-  return "본부장";
+function approvalLineDisplayRole(
+  line: ApprovalLineRow,
+  lines: ApprovalLineRow[]
+) {
+  const sortedLines = [...lines].sort(
+    (left, right) => left.step_order - right.step_order
+  );
+  const index = sortedLines.findIndex((item) => item.id === line.id);
+  return nexusApprovalStepRole(
+    index >= 0 ? index : Math.max(0, line.step_order - 1),
+    Math.max(1, sortedLines.length)
+  );
 }
 
 function getDisplayTeam(profile: ProfileRow) {
@@ -732,7 +727,12 @@ function progressText(document: ApprovalDocumentRow) {
   if (document.status === "rejected") return "반려 처리됨";
 
   const pendingLine = getFirstPendingLine(document);
-  return pendingLine ? `${pendingLine.approver_name} (${pendingLine.role_label}) 결재 대기` : "결재 진행 중";
+  return pendingLine
+    ? `${pendingLine.approver_name} (${approvalLineDisplayRole(
+        pendingLine,
+        document.approval_lines || []
+      )}) 결재 대기`
+    : "결재 진행 중";
 }
 
 function deriveDocumentTitle(template: TemplateDef, data: Record<string, unknown>) {
@@ -828,7 +828,7 @@ function documentMatchesSearch(document: ApprovalDocumentRow, query: string) {
     ...(document.approval_lines || []).flatMap((line) => [
       line.approver_name,
       line.approver_team || "",
-      line.role_label,
+      approvalLineDisplayRole(line, document.approval_lines || []),
       statusText(line.status),
     ]),
     ...getReferenceInfos(document.form_data).flatMap((reference) => [
@@ -901,10 +901,21 @@ function createApprovalListSheet(documents: ApprovalDocumentRow[]): ExcelSheet {
           document.requester_name,
           document.requester_team || "",
           statusText(document.status),
-          pendingLine ? `${pendingLine.approver_name} (${pendingLine.role_label})` : "",
+          pendingLine
+            ? `${pendingLine.approver_name} (${approvalLineDisplayRole(
+                pendingLine,
+                document.approval_lines || []
+              )})`
+            : "",
           formatDate(document.completed_at),
           (document.approval_lines || [])
-            .map((line) => `${line.role_label}:${line.approver_name}/${statusText(line.status)}`)
+            .map(
+              (line) =>
+                `${approvalLineDisplayRole(
+                  line,
+                  document.approval_lines || []
+                )}:${line.approver_name}/${statusText(line.status)}`
+            )
             .join(" → "),
         ];
       }),
@@ -927,7 +938,7 @@ function createApprovalDocumentSheet(document: ApprovalDocumentRow): ExcelSheet 
     [""],
     ["결재순서", "결재자", "부서", "상태", "처리일"],
     ...(document.approval_lines || []).map((line) => [
-      line.role_label,
+      approvalLineDisplayRole(line, document.approval_lines || []),
       line.approver_name,
       line.approver_team || "",
       statusText(line.status),
@@ -1412,7 +1423,10 @@ export default function ApprovalPage() {
     const timeoutId = window.setTimeout(() => {
       setApproverSlots(
         NEXUS_MANUFACTURING_APPROVERS.map((name, index) => ({
-          roleLabel: index === 0 ? "1차 결재" : "2차 최종 결재",
+          roleLabel: nexusApprovalStepRole(
+            index,
+            NEXUS_MANUFACTURING_APPROVERS.length
+          ),
           approverId: profileByName.get(name)?.id || "",
         }))
       );
@@ -1435,8 +1449,7 @@ export default function ApprovalPage() {
     const timeoutId = window.setTimeout(() => {
       setApproverSlots(
         NEXUS_PURCHASE_APPROVERS.map((name, index) => ({
-          roleLabel:
-            index === 0 ? "팀장" : index === 1 ? "본부장" : "대표이사",
+          roleLabel: nexusApprovalStepRole(index, NEXUS_PURCHASE_APPROVERS.length),
           approverId: profileByName.get(name)?.id || "",
         }))
       );
@@ -1463,8 +1476,7 @@ export default function ApprovalPage() {
     const timeoutId = window.setTimeout(() => {
       setApproverSlots(
         NEXUS_PURCHASE_APPROVERS.map((name, index) => ({
-          roleLabel:
-            index === 0 ? "팀장" : index === 1 ? "본부장" : "대표이사",
+          roleLabel: nexusApprovalStepRole(index, NEXUS_PURCHASE_APPROVERS.length),
           approverId: profileByName.get(name)?.id || "",
         }))
       );
@@ -1585,17 +1597,22 @@ export default function ApprovalPage() {
   }
 
   function addApproverSlot() {
-    setApproverSlots((prev) => [
-      ...prev,
-      { roleLabel: `${prev.length + 1}차 결재`, approverId: "" },
-    ]);
+    setApproverSlots((prev) =>
+      [...prev, { roleLabel: "", approverId: "" }].map((slot, index, slots) => ({
+        ...slot,
+        roleLabel: nexusApprovalStepRole(index, slots.length),
+      }))
+    );
   }
 
   function removeApproverSlot(index: number) {
     setApproverSlots((prev) =>
       prev
         .filter((_, slotIndex) => slotIndex !== index)
-        .map((slot, slotIndex) => ({ ...slot, roleLabel: `${slotIndex + 1}차 결재` }))
+        .map((slot, slotIndex, slots) => ({
+          ...slot,
+          roleLabel: nexusApprovalStepRole(slotIndex, slots.length),
+        }))
     );
   }
 
@@ -1934,7 +1951,7 @@ export default function ApprovalPage() {
       })),
     ];
     const submittedApprovalRows = linePayload.map((line) => ({
-      role: line.role_label,
+      role: nexusApprovalStepRole(line.step_order - 1, linePayload.length),
       name: line.approver_name,
       status: "대기",
     }));
@@ -2221,9 +2238,13 @@ export default function ApprovalPage() {
             requesterName: currentName || "작성자",
             formData: finalFormData,
             approvals: [
-              { role: "담당", name: currentName || "작성자", status: "작성" },
+              {
+                role: NEXUS_APPROVAL_AUTHOR_ROLE,
+                name: currentName || "작성자",
+                status: "작성",
+              },
               ...linePayload.map((line, index) => ({
-                role: purchasePdfRole(line.role_label, index, linePayload.length),
+                role: nexusApprovalStepRole(index, linePayload.length),
                 name: line.approver_name,
                 status: "대기",
               })),
@@ -2309,9 +2330,13 @@ export default function ApprovalPage() {
             requesterName: currentName || "작성자",
             formData: finalFormData,
             approvals: [
-              { role: "담당", name: currentName || "작성자", status: "작성" },
+              {
+                role: NEXUS_APPROVAL_AUTHOR_ROLE,
+                name: currentName || "작성자",
+                status: "작성",
+              },
               ...linePayload.map((line, index) => ({
-                role: purchaseResolutionPdfRole(line.role_label, index, linePayload.length),
+                role: nexusApprovalStepRole(index, linePayload.length),
                 name: line.approver_name,
                 status: "대기",
               })),
@@ -2480,7 +2505,10 @@ export default function ApprovalPage() {
             version: "approved",
             approvals: [
               ...approvedLines.map((line) => ({
-                role: line.role_label,
+                role: nexusApprovalStepRole(
+                  line.step_order - 1,
+                  approvedLines.length
+                ),
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
@@ -2558,12 +2586,15 @@ export default function ApprovalPage() {
             version: "approved",
             approvals: [
               {
-                role: "담당",
+                role: NEXUS_APPROVAL_AUTHOR_ROLE,
                 name: selectedDocument.requester_name,
                 status: "작성",
               },
               ...approvedLines.map((line) => ({
-                role: line.role_label,
+                role: nexusApprovalStepRole(
+                  line.step_order - 1,
+                  approvedLines.length
+                ),
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
@@ -2629,17 +2660,15 @@ export default function ApprovalPage() {
             version: "approved",
             approvals: [
               {
-                role: "담당",
+                role: NEXUS_APPROVAL_AUTHOR_ROLE,
                 name: selectedDocument.requester_name,
                 status: "작성",
               },
               ...approvedLines.map((line) => ({
-                role:
-                  line.role_label === "팀장"
-                    ? "이사"
-                    : line.role_label === "대표이사"
-                      ? "사장"
-                      : line.role_label,
+                role: nexusApprovalStepRole(
+                  line.step_order - 1,
+                  approvedLines.length
+                ),
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
                 signatureDataUrl: approvalLineSignatureDataUrl(
@@ -2918,11 +2947,14 @@ export default function ApprovalPage() {
           </div>`
       )
       .join("");
-    const approvalMarkup = (document.approval_lines || [])
+    const approvalLines = document.approval_lines || [];
+    const approvalMarkup = approvalLines
       .map(
-        (line) => `
+        (line, index) => `
           <div class="approval-cell">
-            <span>${escapePrintHtml(line.role_label)}</span>
+            <span>${escapePrintHtml(
+              nexusApprovalStepRole(index, approvalLines.length)
+            )}</span>
             <strong>${escapePrintHtml(line.approver_name)}</strong>
             <em>${escapePrintHtml(statusText(line.status))}</em>
             <small>${escapePrintHtml(formatDate(line.acted_at))}</small>
@@ -3065,6 +3097,13 @@ export default function ApprovalPage() {
   const renderProgressNotice = (document: ApprovalDocumentRow) => {
     const pendingLine = getFirstPendingLine(document);
     const myPendingLine = getCurrentUserPendingApprovalLine(document);
+    const lines = document.approval_lines || [];
+    const myPendingRole = myPendingLine
+      ? approvalLineDisplayRole(myPendingLine, lines)
+      : "결재";
+    const pendingRole = pendingLine
+      ? approvalLineDisplayRole(pendingLine, lines)
+      : "결재";
     const awaitingMyApproval = document.status === "pending" && Boolean(myPendingLine);
     const isBypassApprovalAvailable =
       awaitingMyApproval && pendingLine?.id !== myPendingLine?.id;
@@ -3084,11 +3123,11 @@ export default function ApprovalPage() {
         : document.status === "rejected"
           ? "반려된 문서는 첨부파일을 추가하거나 변경할 수 없습니다."
           : isBypassApprovalAvailable
-            ? `${myPendingLine?.role_label || "결재"} 단계의 승인 또는 반려를 진행할 수 있습니다. 승인 시 문서는 즉시 완료 처리됩니다.`
+            ? `${myPendingRole} 단계의 승인 또는 반려를 진행할 수 있습니다. 승인 시 문서는 즉시 완료 처리됩니다.`
             : awaitingMyApproval
-              ? `${myPendingLine?.role_label || "결재"} 단계의 승인 또는 반려를 진행해 주세요.`
+              ? `${myPendingRole} 단계의 승인 또는 반려를 진행해 주세요.`
             : pendingLine
-              ? `${pendingLine.role_label} 단계가 완료되면 다음 결재로 진행됩니다.`
+              ? `${pendingRole} 단계가 완료되면 다음 결재로 진행됩니다.`
               : "결재선 진행 상태를 확인해 주세요.";
 
     return (
@@ -3153,7 +3192,7 @@ export default function ApprovalPage() {
                     ...(current ? styles.approvalFlowStepCurrent : {}),
                   }}
                 >
-                  <span>{index + 1}차</span>
+                  <span>{nexusApprovalStepRole(index, lines.length)}</span>
                   <strong>{line.approver_name}</strong>
                   <em style={styles.approvalFlowStatus}>
                     {statusLabel}
@@ -4629,7 +4668,7 @@ function LegacyPurchaseOutsourcingForm({
             <tbody>
               <tr>
                 <th rowSpan={2}>결<br />재</th>
-                {["담 당", "팀 장", "본 부 장", "부 사 장", "대표이사"].map((role) => (
+                {NEXUS_APPROVAL_COLUMN_ROLES.map((role) => (
                   <th key={role}>{role}</th>
                 ))}
               </tr>
@@ -4846,7 +4885,7 @@ function LegacyPurchaseResolutionForm({
             <tbody>
               <tr>
                 <th rowSpan={2}>결<br />재</th>
-                {["담당", "이사", "본부장", "전무", "사장"].map((role) => <th key={role}>{role}</th>)}
+                {NEXUS_APPROVAL_COLUMN_ROLES.map((role) => <th key={role}>{role}</th>)}
               </tr>
               <tr><td /><td /><td /><td /><td /></tr>
               <tr>

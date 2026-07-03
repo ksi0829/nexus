@@ -38,6 +38,10 @@ import {
   approvalLineSignatureDataUrl,
   loadApprovalSignatureDataUrls,
 } from "@/lib/nexus/approvalSignatures";
+import {
+  NEXUS_APPROVAL_AUTHOR_ROLE,
+  nexusApprovalStepRole,
+} from "@/lib/nexus/approvalLabels";
 import { createManufacturingPdf } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
@@ -2425,13 +2429,7 @@ export function WorkTalkApp() {
           .sort((left, right) => (left.step_order || 0) - (right.step_order || 0))
           .forEach((line, index, lines) => {
             if (!line.approver_id) return;
-            roleByUser[line.approver_id] =
-              line.role_label?.trim() ||
-              (lines.length === 1
-                ? "1차 최종 결재"
-                : index === lines.length - 1
-                  ? `${index + 1}차 최종 결재`
-                  : `${index + 1}차 결재`);
+            roleByUser[line.approver_id] = nexusApprovalStepRole(index, lines.length);
           });
         (document?.approval_references || []).forEach((reference) => {
           if (reference.user_id && !roleByUser[reference.user_id]) {
@@ -3659,7 +3657,7 @@ export function WorkTalkApp() {
           document.form_data?._inputMode === "legacy" ? "legacy" : "modern",
         version: "approved",
         approvals: approvalLines.map((line) => ({
-          role: line.role_label,
+          role: nexusApprovalStepRole(line.step_order - 1, approvalLines.length),
           name: line.approver_name,
           status: approvalLinePdfStatus(line),
           actedAt: line.acted_at,
@@ -3683,9 +3681,13 @@ export function WorkTalkApp() {
         formData: document.form_data,
         version: "approved",
         approvals: [
-          { role: "담당", name: document.requester_name, status: "작성" },
+          {
+            role: NEXUS_APPROVAL_AUTHOR_ROLE,
+            name: document.requester_name,
+            status: "작성",
+          },
           ...approvalLines.map((line) => ({
-            role: line.role_label,
+            role: nexusApprovalStepRole(line.step_order - 1, approvalLines.length),
             name: line.approver_name,
             status: approvalLinePdfStatus(line),
             actedAt: line.acted_at,
@@ -3706,14 +3708,13 @@ export function WorkTalkApp() {
         formData: document.form_data,
         version: "approved",
         approvals: [
-          { role: "담당", name: document.requester_name, status: "작성" },
+          {
+            role: NEXUS_APPROVAL_AUTHOR_ROLE,
+            name: document.requester_name,
+            status: "작성",
+          },
           ...approvalLines.map((line) => ({
-            role:
-              line.role_label === "팀장"
-                ? "이사"
-                : line.role_label === "대표이사"
-                  ? "사장"
-                  : line.role_label,
+            role: nexusApprovalStepRole(line.step_order - 1, approvalLines.length),
             name: line.approver_name,
             status: approvalLinePdfStatus(line),
             signatureDataUrl: approvalLineSignatureDataUrl(

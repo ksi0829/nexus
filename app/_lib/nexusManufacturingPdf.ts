@@ -1,3 +1,5 @@
+import { nexusApprovalStepRole } from "@/lib/nexus/approvalLabels";
+
 type ManufacturingPdfInput = {
   documentNo: string;
   title: string;
@@ -54,8 +56,8 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
   const data = input.formData;
   const requestType = text(data, "requestType") === "협조" ? "협조" : "제조";
   const approvalRows = input.approvals || [
-    { role: "1차 결재", name: "장동철 이사", status: "대기" },
-    { role: "2차 최종", name: "신영호 대표", status: "대기" },
+    { role: nexusApprovalStepRole(0, 2), name: "장동철 이사", status: "대기" },
+    { role: nexusApprovalStepRole(1, 2), name: "신영호 대표", status: "대기" },
     { role: "참조", name: "신훈식 부장", status: "참조" },
     { role: "참조", name: "신상민 회장", status: "참조" },
   ];

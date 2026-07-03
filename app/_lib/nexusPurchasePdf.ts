@@ -1,3 +1,9 @@
+import {
+  NEXUS_APPROVAL_AUTHOR_ROLE,
+  NEXUS_APPROVAL_COLUMN_ROLES,
+  nexusApprovalStepRole,
+} from "@/lib/nexus/approvalLabels";
+
 type PurchaseApproval = {
   role: string;
   name: string;
@@ -78,10 +84,10 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
     return sum + (Number.isFinite(quantity) ? quantity : 0);
   }, 0);
   const approvals = input.approvals || [
-    { role: "담당", name: input.requesterName, status: "작성" },
-    { role: "팀장", name: "한차현 차장", status: "대기" },
-    { role: "본부장", name: "장동철 이사", status: "대기" },
-    { role: "대표이사", name: "신영호 대표이사", status: "대기" },
+    { role: NEXUS_APPROVAL_AUTHOR_ROLE, name: input.requesterName, status: "작성" },
+    { role: nexusApprovalStepRole(0, 3), name: "한차현 차장", status: "대기" },
+    { role: nexusApprovalStepRole(1, 3), name: "장동철 이사", status: "대기" },
+    { role: nexusApprovalStepRole(2, 3), name: "신영호 대표이사", status: "대기" },
   ];
   console.info("[Approval PDF]", "purchase:create", {
     documentNo: input.documentNo,
@@ -105,8 +111,8 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
         <small>⊙ 부서 관리 번호<br><strong>${escapeHtml(input.documentNo)}</strong></small>
       </div>
       <table class="approval"><tbody>
-        <tr><th rowspan="2">결<br>재</th>${["담당", "팀장", "본부장", "부사장", "대표이사"].map((role) => `<th>${role}</th>`).join("")}</tr>
-        <tr>${["담당", "팀장", "본부장", "부사장", "대표이사"]
+        <tr><th rowspan="2">결<br>재</th>${NEXUS_APPROVAL_COLUMN_ROLES.map((role) => `<th>${role}</th>`).join("")}</tr>
+        <tr>${NEXUS_APPROVAL_COLUMN_ROLES
           .map((role) => {
             const approval = approvals.find((item) => item.role === role);
             return `<td><b>${escapeHtml(approval?.name || "")}</b>${renderApprovalStatus(approval)}</td>`;
