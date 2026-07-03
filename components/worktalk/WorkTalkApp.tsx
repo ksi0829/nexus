@@ -835,6 +835,9 @@ export function WorkTalkApp() {
     file: WorkTalkFile;
     url: string;
   } | null>(null);
+  const [pdfPreviewLoadingFileId, setPdfPreviewLoadingFileId] = useState<
+    number | null
+  >(null);
   const [dragActive, setDragActive] = useState(false);
   const [mobileConversationOpen, setMobileConversationOpen] = useState(
     () => hasWorkTalkRoomParam()
@@ -3585,7 +3588,9 @@ export function WorkTalkApp() {
   }
 
   async function openPdfPreview(file: WorkTalkFile) {
+    setPdfPreviewLoadingFileId(file.id);
     const url = await getFileUrl(file);
+    setPdfPreviewLoadingFileId(null);
     if (url) setPreviewPdf({ file, url });
   }
 
@@ -5436,7 +5441,11 @@ export function WorkTalkApp() {
                                         <strong>{file.original_name}</strong>
                                         <small>{formatFileSize(file.size_bytes)}</small>
                                       </span>
-                                      <em>열기</em>
+                                      <em>
+                                        {pdfPreviewLoadingFileId === file.id
+                                          ? "불러오는 중"
+                                          : "열기"}
+                                      </em>
                                     </button>
                                     <button
                                       type="button"

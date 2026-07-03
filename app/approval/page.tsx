@@ -1253,70 +1253,92 @@ export default function ApprovalPage() {
     setCurrentRole(storedRole);
     setFormData((prev) => applyCurrentUserFields(prev, storedName, currentOrgTeam));
 
-    const { data: profileRows } = await supabase
-      .from("profiles")
-      .select("id,name,team,role")
-      .order("name", { ascending: true });
+    const equipmentOrdersPromise = (async () => {
+      const primaryEquipmentOrders = await supabase
+        .from("equipment_orders")
+        .select("id,category,order_date,country,customer,model,owner_name,serial_no,delivery_place,note,manufacturing_document_id,outsourcing_document_id")
+        .order("order_date", { ascending: false })
+        .limit(80);
 
-    setProfiles((profileRows || []) as ProfileRow[]);
+      if (!primaryEquipmentOrders.error?.message?.includes("outsourcing")) {
+        return primaryEquipmentOrders.data || [];
+      }
 
-    const { data: customerRows } = await supabase
-      .from("customers")
-      .select("id,name")
-      .eq("category", "customer")
-      .order("name", { ascending: true });
-
-    setCustomerOptions((customerRows || []) as CustomerOption[]);
-
-    const primaryEquipmentOrders = await supabase
-      .from("equipment_orders")
-      .select("id,category,order_date,country,customer,model,owner_name,serial_no,delivery_place,note,manufacturing_document_id,outsourcing_document_id")
-      .order("order_date", { ascending: false })
-      .limit(80);
-
-    let equipmentRows = primaryEquipmentOrders.data;
-
-    if (primaryEquipmentOrders.error?.message?.includes("outsourcing")) {
       const fallbackEquipmentOrders = await supabase
         .from("equipment_orders")
         .select("id,category,order_date,country,customer,model,owner_name,serial_no,delivery_place,note,manufacturing_document_id")
         .order("order_date", { ascending: false })
         .limit(80);
 
-      equipmentRows = (fallbackEquipmentOrders.data || []).map((order) => ({
+      return (fallbackEquipmentOrders.data || []).map((order) => ({
         ...order,
         outsourcing_document_id: null,
       }));
-    }
+    })();
 
+    const notificationPromise = user?.id
+      ? supabase
+          .from("approval_notifications")
+          .select("id,user_id,document_id,message,read_at,created_at")
+          .eq("user_id", user.id)
+          .is("read_at", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] });
+
+    const [
+      { data: profileRows },
+      { data: customerRows },
+      equipmentRows,
+      { data: documentRows, error: documentError },
+      { data: attachmentRows, error: attachmentError },
+      { data: notificationRows },
+    ] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id,name,team,role")
+        .order("name", { ascending: true }),
+      supabase
+        .from("customers")
+        .select("id,name")
+        .eq("category", "customer")
+        .order("name", { ascending: true }),
+      equipmentOrdersPromise,
+      supabase
+        .from("approval_documents")
+        .select(
+          [
+            "id",
+            "template_key",
+            "template_title",
+            "title",
+            "status",
+            "requester_id",
+            "requester_name",
+            "requester_team",
+            "current_step",
+            "form_data",
+            "submitted_at",
+            "completed_at",
+            "equipment_order_id",
+            "equipment_stage_key",
+            "created_at",
+            "updated_at",
+            "document_no",
+            "worktalk_room_id",
+            "approval_lines(id,document_id,step_order,role_label,approver_id,approver_name,approver_team,status,acted_at,memo)",
+          ].join(",")
+        )
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("approval_attachments")
+        .select("id,document_id,storage_path,original_name,mime_type,size_bytes,uploaded_by,created_at")
+        .order("created_at", { ascending: true }),
+      notificationPromise,
+    ]);
+
+    setProfiles((profileRows || []) as ProfileRow[]);
+    setCustomerOptions((customerRows || []) as CustomerOption[]);
     setEquipmentOrders((equipmentRows || []) as EquipmentOrderRow[]);
-
-    const { data: documentRows, error: documentError } = await supabase
-      .from("approval_documents")
-      .select(
-        [
-          "id",
-          "template_key",
-          "template_title",
-          "title",
-          "status",
-          "requester_id",
-          "requester_name",
-          "requester_team",
-          "current_step",
-          "form_data",
-          "submitted_at",
-          "completed_at",
-          "equipment_order_id",
-          "equipment_stage_key",
-          "created_at",
-          "updated_at",
-          "document_no",
-          "worktalk_room_id",
-          "approval_lines(id,document_id,step_order,role_label,approver_id,approver_name,approver_team,status,acted_at,memo)",
-        ].join(",")
-      )
-      .order("created_at", { ascending: false });
 
     if (documentError) {
       setSetupError(
@@ -1338,11 +1360,6 @@ export default function ApprovalPage() {
     setDocuments(normalizedDocuments);
     setSelectedDocumentId((prev) => prev || normalizedDocuments[0]?.id || null);
 
-    const { data: attachmentRows, error: attachmentError } = await supabase
-      .from("approval_attachments")
-      .select("id,document_id,storage_path,original_name,mime_type,size_bytes,uploaded_by,created_at")
-      .order("created_at", { ascending: true });
-
     if (attachmentError) {
       setAttachments([]);
       setAttachmentFeatureReady(false);
@@ -1351,16 +1368,7 @@ export default function ApprovalPage() {
       setAttachmentFeatureReady(true);
     }
 
-    if (user?.id) {
-      const { data: notificationRows } = await supabase
-        .from("approval_notifications")
-        .select("id,user_id,document_id,message,read_at,created_at")
-        .eq("user_id", user.id)
-        .is("read_at", null)
-        .order("created_at", { ascending: false });
-
-      setNotifications((notificationRows || []) as NotificationRow[]);
-    }
+    setNotifications((notificationRows || []) as NotificationRow[]);
 
     setLoading(false);
   }, []);

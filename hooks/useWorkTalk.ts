@@ -25,6 +25,8 @@ const supabase = createSupabaseBrowser();
 const MESSAGE_LIMIT = 100;
 const MESSAGE_LATENCY_EVENT_LIMIT = 100;
 const WORKTALK_FILE_BUCKET = "worktalk-files";
+const FILE_SIGNED_URL_TTL_SECONDS = 60 * 60;
+const FILE_SIGNED_URL_CACHE_TTL_MS = 50 * 60 * 1000;
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 const WORKTALK_MESSAGE_COLUMNS =
   "id,room_id,sender_id,sender_name,sender_team,message_type,body,metadata,reply_to_message_id,created_at";
@@ -61,6 +63,13 @@ type RoomReadGuard = (
 type LoadRoomsOptions = {
   background?: boolean;
   reason?: string;
+};
+type LoadMessagesOptions = {
+  background?: boolean;
+};
+type MessageCacheEntry = {
+  messages: WorkTalkMessage[];
+  cachedAt: number;
 };
 type WorkTalkFileSendProgress = {
   phase: "uploading" | "sending";
@@ -418,11 +427,16 @@ export function useWorkTalk() {
   const pendingLatencyEventsRef = useRef<WorkTalkLatencyDebugEvent[]>([]);
   const roomsRef = useRef<WorkTalkRoom[]>([]);
   const messagesRef = useRef<WorkTalkMessage[]>([]);
+  const messageCacheRef = useRef<Map<number, MessageCacheEntry>>(new Map());
   const pendingRealtimeFilesRef = useRef<Map<number, WorkTalkFile[]>>(new Map());
+  const fileSignedUrlCacheRef = useRef<
+    Map<string, { url: string; expiresAt: number }>
+  >(new Map());
   const textSendQueuesRef = useRef<Map<number, Promise<void>>>(new Map());
   const failedOptimisticMessagesRef = useRef<Map<number, WorkTalkMessage[]>>(
     new Map()
   );
+  const debugEnabledRef = useRef(false);
   const channelStatusRef = useRef({
     messages: "waiting",
     files: "waiting",
@@ -454,6 +468,10 @@ export function useWorkTalk() {
     [rooms, selectedRoomId]
   );
 
+  useEffect(() => {
+    debugEnabledRef.current = currentProfile?.role === "admin";
+  }, [currentProfile?.role]);
+
   const upsertLatencyEvent = useCallback(
     (
       matcher: (event: WorkTalkLatencyDebugEvent) => boolean,
@@ -462,6 +480,7 @@ export function useWorkTalk() {
         event: WorkTalkLatencyDebugEvent
       ) => WorkTalkLatencyDebugEvent
     ) => {
+      if (!debugEnabledRef.current) return;
       setMessageLatencyEvents((current) => {
         const index = current.findIndex(matcher);
         const next =
@@ -655,6 +674,10 @@ export function useWorkTalk() {
             (_item, index) => index !== optimisticIndex
           );
           messagesRef.current = nextMessages;
+          messageCacheRef.current.set(message.room_id, {
+            messages: nextMessages,
+            cachedAt: Date.now(),
+          });
           setMessages(nextMessages);
           setLoadingMessages(false);
           return {
@@ -704,19 +727,25 @@ export function useWorkTalk() {
                     optimistic_status: undefined,
                     error_message: null,
                   }
-                : item
+              : item
             )
           : [...currentMessages, nextMessage];
       messagesRef.current = nextMessages;
+      messageCacheRef.current.set(message.room_id, {
+        messages: nextMessages,
+        cachedAt: Date.now(),
+      });
       setMessages(nextMessages);
       setLoadingMessages(false);
       markLatencyUiRendered([message.id], "ui_render_done_append");
-      console.info("[WorkTalk performance] UI Updated", {
-        scope: "realtime_append",
-        roomId: message.room_id,
-        messageId: message.id,
-        messageCount: nextMessages.length,
-      });
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk performance] UI Updated", {
+          scope: "realtime_append",
+          roomId: message.room_id,
+          messageId: message.id,
+          messageCount: nextMessages.length,
+        });
+      }
       return {
         attempted: true,
         applied: true,
@@ -759,6 +788,10 @@ export function useWorkTalk() {
 
       const nextMessages = [...messagesRef.current, tempMessage];
       messagesRef.current = nextMessages;
+      messageCacheRef.current.set(roomId, {
+        messages: nextMessages,
+        cachedAt: Date.now(),
+      });
       setMessages(nextMessages);
       setLoadingMessages(false);
       return clientTempId;
@@ -771,6 +804,9 @@ export function useWorkTalk() {
       if (!serverMessageId) return;
 
       const currentMessages = messagesRef.current;
+      const optimisticRoomId = currentMessages.find(
+        (message) => message.client_temp_id === clientTempId
+      )?.room_id;
       const serverMessageExists = currentMessages.some(
         (message) => message.id === serverMessageId
       );
@@ -791,6 +827,12 @@ export function useWorkTalk() {
 
       if (nextMessages !== currentMessages) {
         messagesRef.current = nextMessages;
+        if (optimisticRoomId) {
+          messageCacheRef.current.set(optimisticRoomId, {
+            messages: nextMessages,
+            cachedAt: Date.now(),
+          });
+        }
         setMessages(nextMessages);
       }
       failedOptimisticMessagesRef.current.forEach((messages, roomId) => {
@@ -826,6 +868,12 @@ export function useWorkTalk() {
           )
         : currentMessages;
       messagesRef.current = nextMessages;
+      if (failedMessage) {
+        messageCacheRef.current.set(failedMessage.room_id, {
+          messages: nextMessages,
+          cachedAt: Date.now(),
+        });
+      }
       setMessages(nextMessages);
       if (failedMessage) {
         const roomFailedMessages =
@@ -905,14 +953,20 @@ export function useWorkTalk() {
           : message
       );
       messagesRef.current = nextMessages;
+      messageCacheRef.current.set(file.room_id, {
+        messages: nextMessages,
+        cachedAt: Date.now(),
+      });
       setMessages(nextMessages);
       markLatencyUiRendered([file.message_id], "ui_render_done_file_append");
-      console.info("[WorkTalk performance] UI Updated", {
-        scope: "realtime_file_append",
-        roomId: file.room_id,
-        messageId: file.message_id,
-        fileId: file.id,
-      });
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk performance] UI Updated", {
+          scope: "realtime_file_append",
+          roomId: file.room_id,
+          messageId: file.message_id,
+          fileId: file.id,
+        });
+      }
       return {
         attempted: true,
         applied: true,
@@ -1107,7 +1161,9 @@ export function useWorkTalk() {
     options: LoadRoomsOptions = {}
   ) => {
     const requestId = ++roomRequestIdRef.current;
-    setLoadingRooms(true);
+    if (!options.background) {
+      setLoadingRooms(true);
+    }
 
     try {
       const { data: summaryRows, error: summaryError } = await supabase.rpc(
@@ -1458,26 +1514,31 @@ export function useWorkTalk() {
 
   const loadMessages = useCallback(async (
     roomId: number,
-    focusMessageId?: number | null
+    focusMessageId?: number | null,
+    options: LoadMessagesOptions = {}
   ) => {
     const requestId = ++messageRequestIdRef.current;
-    console.log("[WorkTalk realtime debug] loadMessages:start", {
-      roomId,
-      focusMessageId: focusMessageId || null,
-      requestId,
-      selectedRoomId: selectedRoomIdRef.current,
-    });
-    setRealtimeDebugStatus((current) => ({
-      ...current,
-      lastEvent: "loadMessages:start",
-      activeRoomId: selectedRoomIdRef.current,
-      selectedRoomId: selectedRoomIdRef.current,
-      chatRoomId: selectedRoomIdRef.current,
-      messagesFetchRoomId: roomId,
-      messagesFetchStatus: "loading",
-      timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-    }));
-    setLoadingMessages(true);
+    if (debugEnabledRef.current) {
+      console.log("[WorkTalk realtime debug] loadMessages:start", {
+        roomId,
+        focusMessageId: focusMessageId || null,
+        requestId,
+        selectedRoomId: selectedRoomIdRef.current,
+      });
+      setRealtimeDebugStatus((current) => ({
+        ...current,
+        lastEvent: "loadMessages:start",
+        activeRoomId: selectedRoomIdRef.current,
+        selectedRoomId: selectedRoomIdRef.current,
+        chatRoomId: selectedRoomIdRef.current,
+        messagesFetchRoomId: roomId,
+        messagesFetchStatus: "loading",
+        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+      }));
+    }
+    if (!options.background) {
+      setLoadingMessages(true);
+    }
 
     try {
       let plainMessages: Omit<WorkTalkMessage, "files">[] = [];
@@ -1578,28 +1639,30 @@ export function useWorkTalk() {
         requestId !== messageRequestIdRef.current ||
         selectedRoomIdRef.current !== roomId
       ) {
-        console.log("[WorkTalk realtime debug] loadMessages:ignored", {
-          roomId,
-          requestId,
-          latestRequestId: messageRequestIdRef.current,
-          selectedRoomId: selectedRoomIdRef.current,
-          messageCount: nextMessages.length,
-        });
-        setRealtimeDebugStatus((current) => ({
-          ...current,
-          lastEvent: "loadMessages:ignored",
-          activeRoomId: selectedRoomIdRef.current,
-          selectedRoomId: selectedRoomIdRef.current,
-          chatRoomId: selectedRoomIdRef.current,
-          messagesFetchRoomId: roomId,
-          messagesFetchCount: nextMessages.length,
-          messagesFetchStatus: "ignored_stale_or_room_changed",
-          currentMessagesAppendSkippedReason:
-            selectedRoomIdRef.current !== roomId
-              ? "selected_room_changed_before_apply"
-              : "stale_message_request",
-          timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-        }));
+        if (debugEnabledRef.current) {
+          console.log("[WorkTalk realtime debug] loadMessages:ignored", {
+            roomId,
+            requestId,
+            latestRequestId: messageRequestIdRef.current,
+            selectedRoomId: selectedRoomIdRef.current,
+            messageCount: nextMessages.length,
+          });
+          setRealtimeDebugStatus((current) => ({
+            ...current,
+            lastEvent: "loadMessages:ignored",
+            activeRoomId: selectedRoomIdRef.current,
+            selectedRoomId: selectedRoomIdRef.current,
+            chatRoomId: selectedRoomIdRef.current,
+            messagesFetchRoomId: roomId,
+            messagesFetchCount: nextMessages.length,
+            messagesFetchStatus: "ignored_stale_or_room_changed",
+            currentMessagesAppendSkippedReason:
+              selectedRoomIdRef.current !== roomId
+                ? "selected_room_changed_before_apply"
+                : "stale_message_request",
+            timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+          }));
+        }
         return;
       }
       const loadedMessageIds = new Set(nextMessages.map((message) => message.id));
@@ -1636,57 +1699,65 @@ export function useWorkTalk() {
       const mergedMessageIds = mergedMessages.map((message) => message.id);
 
       messagesRef.current = mergedMessages;
+      messageCacheRef.current.set(roomId, {
+        messages: mergedMessages,
+        cachedAt: Date.now(),
+      });
       mergedMessageIds.forEach((messageId) => {
         pendingRealtimeFilesRef.current.delete(messageId);
       });
       setMessages(mergedMessages);
       markLatencyUiRendered(mergedMessageIds, "ui_render_done");
-      console.info("[WorkTalk performance] UI Updated", {
-        scope: "messages",
-        roomId,
-        requestId,
-        messageCount: mergedMessages.length,
-        lastMessageId: mergedMessages.at(-1)?.id || null,
-      });
-      console.log("[WorkTalk realtime debug] loadMessages:applied", {
-        roomId,
-        requestId,
-        messageCount: mergedMessages.length,
-        lastMessageId: mergedMessages.at(-1)?.id || null,
-        fileCount: files.length,
-      });
-      setRealtimeDebugStatus((current) => ({
-        ...current,
-        lastEvent: "loadMessages:applied",
-        activeRoomId: selectedRoomIdRef.current,
-        selectedRoomId: selectedRoomIdRef.current,
-        chatRoomId: selectedRoomIdRef.current,
-        messagesFetchRoomId: roomId,
-        messagesFetchCount: mergedMessages.length,
-        messagesFetchStatus: "applied",
-        currentMessagesAppendSkippedReason: "none",
-        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-      }));
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk performance] UI Updated", {
+          scope: "messages",
+          roomId,
+          requestId,
+          messageCount: mergedMessages.length,
+          lastMessageId: mergedMessages.at(-1)?.id || null,
+        });
+        console.log("[WorkTalk realtime debug] loadMessages:applied", {
+          roomId,
+          requestId,
+          messageCount: mergedMessages.length,
+          lastMessageId: mergedMessages.at(-1)?.id || null,
+          fileCount: files.length,
+        });
+        setRealtimeDebugStatus((current) => ({
+          ...current,
+          lastEvent: "loadMessages:applied",
+          activeRoomId: selectedRoomIdRef.current,
+          selectedRoomId: selectedRoomIdRef.current,
+          chatRoomId: selectedRoomIdRef.current,
+          messagesFetchRoomId: roomId,
+          messagesFetchCount: mergedMessages.length,
+          messagesFetchStatus: "applied",
+          currentMessagesAppendSkippedReason: "none",
+          timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+        }));
+      }
       setFocusedMessageId(focusMessageId || null);
       pendingFocusMessageIdRef.current = null;
     } catch (error) {
       if (requestId !== messageRequestIdRef.current) return;
-      console.log("[WorkTalk realtime debug] loadMessages:error", {
-        roomId,
-        requestId,
-        error,
-      });
-      setRealtimeDebugStatus((current) => ({
-        ...current,
-        lastEvent: "loadMessages:error",
-        activeRoomId: selectedRoomIdRef.current,
-        selectedRoomId: selectedRoomIdRef.current,
-        chatRoomId: selectedRoomIdRef.current,
-        messagesFetchRoomId: roomId,
-        messagesFetchStatus: "error",
-        currentMessagesAppendSkippedReason: formatWorkTalkError(error),
-        timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-      }));
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] loadMessages:error", {
+          roomId,
+          requestId,
+          error,
+        });
+        setRealtimeDebugStatus((current) => ({
+          ...current,
+          lastEvent: "loadMessages:error",
+          activeRoomId: selectedRoomIdRef.current,
+          selectedRoomId: selectedRoomIdRef.current,
+          chatRoomId: selectedRoomIdRef.current,
+          messagesFetchRoomId: roomId,
+          messagesFetchStatus: "error",
+          currentMessagesAppendSkippedReason: formatWorkTalkError(error),
+          timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+        }));
+      }
       const message = formatWorkTalkError(error);
       if (isTransientFetchError(message)) {
         console.warn("[WorkTalk stability] Fetch Failed", {
@@ -1786,9 +1857,17 @@ export function useWorkTalk() {
     }
     selectedRoomIdRef.current = roomId;
     messageRequestIdRef.current += 1;
-    setMessages([]);
+    const cachedMessages = messageCacheRef.current.get(roomId)?.messages;
+    if (cachedMessages) {
+      messagesRef.current = cachedMessages;
+      setMessages(cachedMessages);
+      setLoadingMessages(false);
+    } else {
+      messagesRef.current = [];
+      setMessages([]);
+      setLoadingMessages(true);
+    }
     setFocusedMessageId(null);
-    setLoadingMessages(true);
     setSelectedRoomId(roomId);
   }, [loadMessages]);
 
@@ -1926,10 +2005,12 @@ export function useWorkTalk() {
       const apiRequest = nowLatencyStamp();
       const messageKey = `pending-${targetRoomId}-${sendClickPerf}`;
       const bodyPreview = previewLatencyBody(trimmedBody);
-      console.info("[WorkTalk performance] Message Send Start", {
-        roomId: targetRoomId,
-        bodyLength: trimmedBody.length,
-      });
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk performance] Message Send Start", {
+          roomId: targetRoomId,
+          bodyLength: trimmedBody.length,
+        });
+      }
       upsertLatencyEvent(
         (event) => event.messageKey === messageKey,
         () => ({
@@ -2158,10 +2239,12 @@ export function useWorkTalk() {
           }
 
           const apiResponse = promiseResolved;
-          console.info("[WorkTalk performance] Message Insert Success", {
-            roomId: targetRoomId,
-            elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
-          });
+          if (debugEnabledRef.current) {
+            console.info("[WorkTalk performance] Message Insert Success", {
+              roomId: targetRoomId,
+              elapsedMs: Math.round(apiResponse.perf - apiRequest.perf),
+            });
+          }
           upsertLatencyEvent(
             (event) => event.messageKey === messageKey,
             () => ({
@@ -2489,15 +2572,26 @@ export function useWorkTalk() {
   }, []);
 
   const getFileUrl = useCallback(async (file: WorkTalkFile) => {
+    const bucket = file.storage_bucket || WORKTALK_FILE_BUCKET;
+    const cacheKey = `${bucket}:${file.storage_path}`;
+    const cached = fileSignedUrlCacheRef.current.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.url;
+    }
+
     const { data, error } = await supabase.storage
-      .from(file.storage_bucket || WORKTALK_FILE_BUCKET)
-      .createSignedUrl(file.storage_path, 60 * 60);
+      .from(bucket)
+      .createSignedUrl(file.storage_path, FILE_SIGNED_URL_TTL_SECONDS);
 
     if (error || !data?.signedUrl) {
       setErrorMessage(error?.message || "파일 미리보기 주소를 만들 수 없습니다.");
       return null;
     }
 
+    fileSignedUrlCacheRef.current.set(cacheKey, {
+      url: data.signedUrl,
+      expiresAt: Date.now() + FILE_SIGNED_URL_CACHE_TTL_MS,
+    });
     return data.signedUrl;
   }, []);
 
@@ -2905,9 +2999,13 @@ export function useWorkTalk() {
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoomId;
     if (selectedRoomId) {
-      void loadMessages(selectedRoomId, pendingFocusMessageIdRef.current);
+      const hasCachedMessages = messageCacheRef.current.has(selectedRoomId);
+      void loadMessages(selectedRoomId, pendingFocusMessageIdRef.current, {
+        background: hasCachedMessages && !pendingFocusMessageIdRef.current,
+      });
       void loadRoomNotice(selectedRoomId);
     } else {
+      messagesRef.current = [];
       setMessages([]);
       setRoomNoticeState(null);
     }
@@ -3280,21 +3378,23 @@ export function useWorkTalk() {
               applied: false,
               reason: "append_not_started",
             };
-            console.log("[WorkTalk realtime debug] messages:INSERT", {
-              messageId: message.id,
-              roomId: message.room_id,
-              activeRoomId,
-              messageType: message.message_type,
-              senderId: message.sender_id,
-              matchesActiveRoom: message.room_id === activeRoomId,
-            });
-            console.info("[WorkTalk performance] Realtime Event Received", {
-              scope: "message",
-              messageId: message.id,
-              roomId: message.room_id,
-              activeRoomId,
-              matchesActiveRoom: message.room_id === activeRoomId,
-            });
+            if (debugEnabledRef.current) {
+              console.log("[WorkTalk realtime debug] messages:INSERT", {
+                messageId: message.id,
+                roomId: message.room_id,
+                activeRoomId,
+                messageType: message.message_type,
+                senderId: message.sender_id,
+                matchesActiveRoom: message.room_id === activeRoomId,
+              });
+              console.info("[WorkTalk performance] Realtime Event Received", {
+                scope: "message",
+                messageId: message.id,
+                roomId: message.room_id,
+                activeRoomId,
+                matchesActiveRoom: message.room_id === activeRoomId,
+              });
+            }
             const realtimeStamp = nowLatencyStamp();
             const dbCommitEpochMs = parseEpochMs(message.created_at);
             const realtimeCommitTimestamp =
@@ -3398,29 +3498,31 @@ export function useWorkTalk() {
             );
             appendResult = appendRealtimeMessageToCurrentRoom(message);
             mergeRealtimeRoomPreview(message);
-            setRealtimeDebugStatus((current) => ({
-              ...current,
-              lastEvent: "messages:INSERT",
-              payloadRoomId: message.room_id,
-              payloadMessageId: message.id,
-              activeRoomId,
-              selectedRoomId: activeRoomId,
-              chatRoomId: activeRoomId,
-              payloadMatchesCurrentRoom: message.room_id === activeRoomId,
-              payloadMatchesSelectedRoom: message.room_id === activeRoomId,
-              payloadMatchesChatRoom: message.room_id === activeRoomId,
-              roomPreviewUpdated: true,
-              currentMessagesRefreshAttempted: false,
-              currentMessagesAppendAttempted: appendResult.attempted,
-              currentMessagesAppendSkippedReason: appendResult.reason,
-              messagesFetchStatus:
-                message.room_id === activeRoomId
-                  ? appendResult.applied
-                    ? "append_applied"
-                    : "append_skipped"
-                  : current.messagesFetchStatus,
-              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-            }));
+            if (debugEnabledRef.current) {
+              setRealtimeDebugStatus((current) => ({
+                ...current,
+                lastEvent: "messages:INSERT",
+                payloadRoomId: message.room_id,
+                payloadMessageId: message.id,
+                activeRoomId,
+                selectedRoomId: activeRoomId,
+                chatRoomId: activeRoomId,
+                payloadMatchesCurrentRoom: message.room_id === activeRoomId,
+                payloadMatchesSelectedRoom: message.room_id === activeRoomId,
+                payloadMatchesChatRoom: message.room_id === activeRoomId,
+                roomPreviewUpdated: true,
+                currentMessagesRefreshAttempted: false,
+                currentMessagesAppendAttempted: appendResult.attempted,
+                currentMessagesAppendSkippedReason: appendResult.reason,
+                messagesFetchStatus:
+                  message.room_id === activeRoomId
+                    ? appendResult.applied
+                      ? "append_applied"
+                      : "append_skipped"
+                    : current.messagesFetchStatus,
+                timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+              }));
+            }
 
             if (message.room_id !== activeRoomId) {
               scheduleRoomRefresh(activeRoomId);
@@ -3446,44 +3548,46 @@ export function useWorkTalk() {
             const file = payload.new as WorkTalkFile;
             const roomId = Number(file.room_id);
             const appendResult = appendRealtimeFileToCurrentRoom(file);
-            console.log("[WorkTalk realtime debug] files:INSERT", {
-              fileId: file.id,
-              roomId,
-              messageId: file.message_id,
-              activeRoomId: selectedRoomIdRef.current,
-              matchesActiveRoom: roomId === selectedRoomIdRef.current,
-            });
-            console.info("[WorkTalk performance] Realtime Event Received", {
-              scope: "file",
-              fileId: file.id,
-              roomId,
-              messageId: file.message_id,
-              activeRoomId: selectedRoomIdRef.current,
-              matchesActiveRoom: roomId === selectedRoomIdRef.current,
-            });
-            setRealtimeDebugStatus((current) => ({
-              ...current,
-              lastEvent: "files:INSERT",
-              payloadRoomId: roomId || null,
-              payloadMessageId: file.message_id ?? null,
-              activeRoomId: selectedRoomIdRef.current,
-              selectedRoomId: selectedRoomIdRef.current,
-              chatRoomId: selectedRoomIdRef.current,
-              payloadMatchesCurrentRoom: roomId === selectedRoomIdRef.current,
-              payloadMatchesSelectedRoom: roomId === selectedRoomIdRef.current,
-              payloadMatchesChatRoom: roomId === selectedRoomIdRef.current,
-              roomPreviewUpdated: null,
-              currentMessagesRefreshAttempted: false,
-              currentMessagesAppendAttempted: appendResult.attempted,
-              currentMessagesAppendSkippedReason: appendResult.reason,
-              messagesFetchStatus:
-                roomId === selectedRoomIdRef.current
-                  ? appendResult.applied
-                    ? "file_append_applied"
-                    : "file_append_pending_or_skipped"
-                  : current.messagesFetchStatus,
-              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-            }));
+            if (debugEnabledRef.current) {
+              console.log("[WorkTalk realtime debug] files:INSERT", {
+                fileId: file.id,
+                roomId,
+                messageId: file.message_id,
+                activeRoomId: selectedRoomIdRef.current,
+                matchesActiveRoom: roomId === selectedRoomIdRef.current,
+              });
+              console.info("[WorkTalk performance] Realtime Event Received", {
+                scope: "file",
+                fileId: file.id,
+                roomId,
+                messageId: file.message_id,
+                activeRoomId: selectedRoomIdRef.current,
+                matchesActiveRoom: roomId === selectedRoomIdRef.current,
+              });
+              setRealtimeDebugStatus((current) => ({
+                ...current,
+                lastEvent: "files:INSERT",
+                payloadRoomId: roomId || null,
+                payloadMessageId: file.message_id ?? null,
+                activeRoomId: selectedRoomIdRef.current,
+                selectedRoomId: selectedRoomIdRef.current,
+                chatRoomId: selectedRoomIdRef.current,
+                payloadMatchesCurrentRoom: roomId === selectedRoomIdRef.current,
+                payloadMatchesSelectedRoom: roomId === selectedRoomIdRef.current,
+                payloadMatchesChatRoom: roomId === selectedRoomIdRef.current,
+                roomPreviewUpdated: null,
+                currentMessagesRefreshAttempted: false,
+                currentMessagesAppendAttempted: appendResult.attempted,
+                currentMessagesAppendSkippedReason: appendResult.reason,
+                messagesFetchStatus:
+                  roomId === selectedRoomIdRef.current
+                    ? appendResult.applied
+                      ? "file_append_applied"
+                      : "file_append_pending_or_skipped"
+                    : current.messagesFetchStatus,
+                timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+              }));
+            }
           }
         )
         .subscribe((status, error) => {
@@ -3502,47 +3606,49 @@ export function useWorkTalk() {
           },
           (payload) => {
             const notification = payload.new as WorkTalkNotification;
-            console.log("[WorkTalk realtime debug] notifications:INSERT", {
-              notificationId: notification.id,
-              roomId: notification.room_id,
-              messageId: notification.message_id,
-              type: notification.notification_type,
-              activeRoomId: selectedRoomIdRef.current,
-              matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
-            });
-            console.info("[WorkTalk lifecycle] Push Received", {
-              notificationId: notification.id,
-              roomId: notification.room_id,
-              messageId: notification.message_id,
-              type: notification.notification_type,
-            });
-            setRealtimeDebugStatus((current) => ({
-              ...current,
-              lastEvent: "notifications:INSERT",
-              payloadRoomId: notification.room_id,
-              payloadMessageId: notification.message_id,
-              activeRoomId: selectedRoomIdRef.current,
-              selectedRoomId: selectedRoomIdRef.current,
-              chatRoomId: selectedRoomIdRef.current,
-              payloadMatchesCurrentRoom:
-                notification.room_id === selectedRoomIdRef.current,
-              payloadMatchesSelectedRoom:
-                notification.room_id === selectedRoomIdRef.current,
-              payloadMatchesChatRoom:
-                notification.room_id === selectedRoomIdRef.current,
-              roomPreviewUpdated: true,
-              currentMessagesRefreshAttempted: false,
-              currentMessagesAppendAttempted: null,
-              currentMessagesAppendSkippedReason:
-                notification.room_id === selectedRoomIdRef.current
-                  ? "notification_does_not_refetch_current_room"
-                  : "notification_room_mismatch_or_no_active_room",
-              messagesFetchStatus:
-                notification.room_id === selectedRoomIdRef.current
-                  ? "notification_no_message_refetch"
-                  : current.messagesFetchStatus,
-              timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-            }));
+            if (debugEnabledRef.current) {
+              console.log("[WorkTalk realtime debug] notifications:INSERT", {
+                notificationId: notification.id,
+                roomId: notification.room_id,
+                messageId: notification.message_id,
+                type: notification.notification_type,
+                activeRoomId: selectedRoomIdRef.current,
+                matchesActiveRoom: notification.room_id === selectedRoomIdRef.current,
+              });
+              console.info("[WorkTalk lifecycle] Push Received", {
+                notificationId: notification.id,
+                roomId: notification.room_id,
+                messageId: notification.message_id,
+                type: notification.notification_type,
+              });
+              setRealtimeDebugStatus((current) => ({
+                ...current,
+                lastEvent: "notifications:INSERT",
+                payloadRoomId: notification.room_id,
+                payloadMessageId: notification.message_id,
+                activeRoomId: selectedRoomIdRef.current,
+                selectedRoomId: selectedRoomIdRef.current,
+                chatRoomId: selectedRoomIdRef.current,
+                payloadMatchesCurrentRoom:
+                  notification.room_id === selectedRoomIdRef.current,
+                payloadMatchesSelectedRoom:
+                  notification.room_id === selectedRoomIdRef.current,
+                payloadMatchesChatRoom:
+                  notification.room_id === selectedRoomIdRef.current,
+                roomPreviewUpdated: true,
+                currentMessagesRefreshAttempted: false,
+                currentMessagesAppendAttempted: null,
+                currentMessagesAppendSkippedReason:
+                  notification.room_id === selectedRoomIdRef.current
+                    ? "notification_does_not_refetch_current_room"
+                    : "notification_room_mismatch_or_no_active_room",
+                messagesFetchStatus:
+                  notification.room_id === selectedRoomIdRef.current
+                    ? "notification_no_message_refetch"
+                    : current.messagesFetchStatus,
+                timestamp: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+              }));
+            }
             setNotifications((current) =>
               current.some((item) => item.id === notification.id)
                 ? current
@@ -3607,13 +3713,15 @@ export function useWorkTalk() {
           (payload) => {
             const member = (payload.new || payload.old) as MemberRow | null;
             const merged = member ? mergeRealtimeRoomMember(member) : false;
-            console.info("[WorkTalk read receipt] room member realtime", {
-              eventType: payload.eventType,
-              roomId: member?.room_id ?? null,
-              userId: member?.user_id ?? null,
-              lastReadMessageId: member?.last_read_message_id ?? null,
-              merged,
-            });
+            if (debugEnabledRef.current) {
+              console.info("[WorkTalk read receipt] room member realtime", {
+                eventType: payload.eventType,
+                roomId: member?.room_id ?? null,
+                userId: member?.user_id ?? null,
+                lastReadMessageId: member?.last_read_message_id ?? null,
+                merged,
+              });
+            }
             if (!merged) {
               scheduleRoomRefresh(selectedRoomIdRef.current);
             }
@@ -3685,10 +3793,12 @@ export function useWorkTalk() {
 
     const refresh = (reason = "foreground_refresh") => {
       if (document.visibilityState === "visible") {
-        console.info("[WorkTalk lifecycle] App Visible", {
-          reason,
-          selectedRoomId: selectedRoomIdRef.current,
-        });
+        if (debugEnabledRef.current) {
+          console.info("[WorkTalk lifecycle] App Visible", {
+            reason,
+            selectedRoomId: selectedRoomIdRef.current,
+          });
+        }
         void loadRooms(selectedRoomIdRef.current, {
           background: true,
           reason,
@@ -3699,9 +3809,11 @@ export function useWorkTalk() {
       if (document.visibilityState === "visible") {
         refresh("visibilitychange_visible");
       } else {
-        console.info("[WorkTalk lifecycle] App Hidden", {
-          selectedRoomId: selectedRoomIdRef.current,
-        });
+        if (debugEnabledRef.current) {
+          console.info("[WorkTalk lifecycle] App Hidden", {
+            selectedRoomId: selectedRoomIdRef.current,
+          });
+        }
       }
     };
     const intervalId = window.setInterval(
