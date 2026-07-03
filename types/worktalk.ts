@@ -10,6 +10,8 @@ export type WorkTalkProfile = {
   name: string;
   team: string;
   role: string;
+  signature_image_path?: string | null;
+  signature_updated_at?: string | null;
 };
 
 export type WorkTalkRoomMember = {

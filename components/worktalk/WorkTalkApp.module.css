@@ -2937,6 +2937,122 @@
   white-space: nowrap;
 }
 
+.signatureSection {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #edf3f1;
+  padding: 20px 24px;
+}
+
+.signatureHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.signatureHeader span {
+  color: #152d27;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.signatureHeader p,
+.signatureControls p {
+  margin: 4px 0 0;
+  color: #6d7f79;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.signatureHeader strong {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #e8f7f1;
+  color: #0c6a55;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.signatureBody {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.signaturePreviewBox {
+  display: grid;
+  min-height: 92px;
+  place-items: center;
+  border: 1px dashed #cbdcd7;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fbfdfc, #f3faf7);
+  overflow: hidden;
+}
+
+.signaturePreviewBox img {
+  display: block;
+  max-width: 92%;
+  max-height: 74px;
+  object-fit: contain;
+}
+
+.signaturePreviewBox span {
+  color: #8a9b96;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.signatureControls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-content: flex-start;
+  align-items: center;
+}
+
+.signatureControls p {
+  width: 100%;
+}
+
+.signatureUploadButton,
+.signatureDeleteButton {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.signatureUploadButton {
+  border: 0;
+  background: #0f7a62;
+  color: #ffffff;
+}
+
+.signatureUploadButton input {
+  display: none;
+}
+
+.signatureDeleteButton {
+  border: 1px solid #f1c9c5;
+  background: #fff7f6;
+  color: #b9362e;
+}
+
+.signatureUploadButton:has(input:disabled),
+.signatureDeleteButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .passwordForm {
   display: grid;
   gap: 12px;
@@ -3569,6 +3685,14 @@
 
   .passwordForm {
     padding: 18px;
+  }
+
+  .signatureSection {
+    padding: 18px;
+  }
+
+  .signatureBody {
+    grid-template-columns: 1fr;
   }
 
   .profileVersion {

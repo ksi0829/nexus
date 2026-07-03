@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChangeEvent,
   DragEvent,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -32,6 +33,11 @@ import {
   postNexusDesktopMessage,
   requestApprovalPdfBackup,
 } from "@/lib/nexus/approvalBackup";
+import {
+  NEXUS_APPROVAL_SIGNATURE_BUCKET,
+  approvalLineSignatureDataUrl,
+  loadApprovalSignatureDataUrls,
+} from "@/lib/nexus/approvalSignatures";
 import { createManufacturingPdf } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
@@ -228,6 +234,12 @@ type ApprovalMemberRoleRow = {
 };
 const workTalkSupabase = createSupabaseBrowser();
 const NEXUS_DOCUMENT_BUCKET = "nexus-documents";
+const SIGNATURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const SIGNATURE_ACCEPTED_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 const READ_RECEIPT_DEBUG_EVENT = "worktalk:read-receipt-firing";
 const WORKTALK_MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const ROOM_TAP_MOVE_THRESHOLD = 10;
@@ -875,6 +887,16 @@ export function WorkTalkApp() {
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [passwordChangeBusy, setPasswordChangeBusy] = useState(false);
   const [passwordChangeMessage, setPasswordChangeMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [signatureImagePath, setSignatureImagePath] = useState<string | null>(
+    null
+  );
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState("");
+  const [signaturePreviewVersion, setSignaturePreviewVersion] = useState(0);
+  const [signatureBusy, setSignatureBusy] = useState(false);
+  const [signatureMessage, setSignatureMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
@@ -1791,6 +1813,157 @@ export function WorkTalkApp() {
     setNewPasswordConfirm("");
     setPasswordChangeBusy(false);
     setPasswordChangeMessage(null);
+    setSignatureMessage(null);
+  }
+
+  useEffect(() => {
+    setSignatureImagePath(currentProfile?.signature_image_path || null);
+  }, [currentProfile?.id, currentProfile?.signature_image_path]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSignaturePreview() {
+      if (!profileModalOpen || !signatureImagePath) {
+        setSignaturePreviewUrl("");
+        return;
+      }
+
+      const { data, error } = await workTalkSupabase.storage
+        .from(NEXUS_APPROVAL_SIGNATURE_BUCKET)
+        .createSignedUrl(signatureImagePath, 60 * 10);
+
+      if (!active) return;
+      setSignaturePreviewUrl(error || !data?.signedUrl ? "" : data.signedUrl);
+    }
+
+    void loadSignaturePreview();
+
+    return () => {
+      active = false;
+    };
+  }, [profileModalOpen, signatureImagePath, signaturePreviewVersion]);
+
+  async function handleSignatureUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    setSignatureMessage(null);
+
+    if (!file) return;
+    if (!currentProfile?.id) {
+      setSignatureMessage({
+        type: "error",
+        text: "프로필 정보를 확인할 수 없습니다. 다시 로그인 후 시도해 주세요.",
+      });
+      return;
+    }
+
+    if (!SIGNATURE_ACCEPTED_TYPES.has(file.type)) {
+      setSignatureMessage({
+        type: "error",
+        text: "서명 이미지는 PNG, JPG, WEBP 파일만 등록할 수 있습니다.",
+      });
+      return;
+    }
+
+    if (file.size > SIGNATURE_MAX_FILE_BYTES) {
+      setSignatureMessage({
+        type: "error",
+        text: "서명 이미지는 2MB 이하 파일만 등록할 수 있습니다.",
+      });
+      return;
+    }
+
+    const storagePath = `signatures/${currentProfile.id}/signature.png`;
+    setSignatureBusy(true);
+    try {
+      const { error: uploadError } = await workTalkSupabase.storage
+        .from(NEXUS_APPROVAL_SIGNATURE_BUCKET)
+        .upload(storagePath, file, {
+          cacheControl: "60",
+          contentType: file.type,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const updatedAt = new Date().toISOString();
+      const { error: profileError } = await workTalkSupabase
+        .from("profiles")
+        .update({
+          signature_image_path: storagePath,
+          signature_updated_at: updatedAt,
+        })
+        .eq("id", currentProfile.id);
+
+      if (profileError) throw profileError;
+
+      setSignatureImagePath(storagePath);
+      setSignaturePreviewVersion((version) => version + 1);
+      setSignatureMessage({
+        type: "success",
+        text: "서명 이미지가 저장되었습니다. 이후 생성되는 승인 완료 PDF에 반영됩니다.",
+      });
+    } catch (error) {
+      setSignatureMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? `서명 이미지 저장 실패: ${error.message}`
+            : "서명 이미지 저장 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setSignatureBusy(false);
+    }
+  }
+
+  async function handleSignatureDelete() {
+    setSignatureMessage(null);
+
+    if (!currentProfile?.id || !signatureImagePath) {
+      setSignatureMessage({
+        type: "error",
+        text: "삭제할 서명 이미지가 없습니다.",
+      });
+      return;
+    }
+
+    setSignatureBusy(true);
+    try {
+      const { error: removeError } = await workTalkSupabase.storage
+        .from(NEXUS_APPROVAL_SIGNATURE_BUCKET)
+        .remove([signatureImagePath]);
+
+      if (removeError) throw removeError;
+
+      const { error: profileError } = await workTalkSupabase
+        .from("profiles")
+        .update({
+          signature_image_path: null,
+          signature_updated_at: new Date().toISOString(),
+        })
+        .eq("id", currentProfile.id);
+
+      if (profileError) throw profileError;
+
+      setSignatureImagePath(null);
+      setSignaturePreviewUrl("");
+      setSignaturePreviewVersion((version) => version + 1);
+      setSignatureMessage({
+        type: "success",
+        text: "서명 이미지가 삭제되었습니다.",
+      });
+    } catch (error) {
+      setSignatureMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? `서명 이미지 삭제 실패: ${error.message}`
+            : "서명 이미지 삭제 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setSignatureBusy(false);
+    }
   }
 
   async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
@@ -3440,7 +3613,7 @@ export function WorkTalkApp() {
     const { data: document, error } = await workTalkSupabase
       .from("approval_documents")
       .select(
-        "id,status,completed_at,approved_pdf_path,document_no,template_key,title,requester_name,requester_team,form_data,approval_lines(step_order,role_label,approver_name,status,acted_at)"
+        "id,status,completed_at,approved_pdf_path,document_no,template_key,title,requester_name,requester_team,form_data,approval_lines(step_order,role_label,approver_id,approver_name,status,acted_at)"
       )
       .eq("id", result.document_id)
       .single();
@@ -3452,6 +3625,10 @@ export function WorkTalkApp() {
 
     const approvalLines = [...(document.approval_lines || [])].sort(
       (left, right) => left.step_order - right.step_order
+    );
+    const approvalSignatureDataUrls = await loadApprovalSignatureDataUrls(
+      workTalkSupabase,
+      approvalLines
     );
     let pdfBlob: Blob;
     let storagePath: string;
@@ -3473,6 +3650,10 @@ export function WorkTalkApp() {
           name: line.approver_name,
           status: approvalLinePdfStatus(line),
           actedAt: line.acted_at,
+          signatureDataUrl: approvalLineSignatureDataUrl(
+            approvalSignatureDataUrls,
+            line
+          ),
         })),
       });
       const datePart = document.document_no.slice(3, 11);
@@ -3495,6 +3676,10 @@ export function WorkTalkApp() {
             name: line.approver_name,
             status: approvalLinePdfStatus(line),
             actedAt: line.acted_at,
+            signatureDataUrl: approvalLineSignatureDataUrl(
+              approvalSignatureDataUrls,
+              line
+            ),
           })),
         ],
       });
@@ -3518,6 +3703,10 @@ export function WorkTalkApp() {
                   : line.role_label,
             name: line.approver_name,
             status: approvalLinePdfStatus(line),
+            signatureDataUrl: approvalLineSignatureDataUrl(
+              approvalSignatureDataUrls,
+              line
+            ),
           })),
         ],
       });
@@ -5832,6 +6021,56 @@ export function WorkTalkApp() {
                 <dd>{profileCreatedAt}</dd>
               </div>
             </dl>
+
+            <section className={styles.signatureSection}>
+              <div className={styles.signatureHeader}>
+                <div>
+                  <span>결재 서명</span>
+                  <p>승인 완료 PDF 결재란에 표시할 본인 서명 이미지입니다.</p>
+                </div>
+                {signatureImagePath ? <strong>등록됨</strong> : <strong>미등록</strong>}
+              </div>
+              <div className={styles.signatureBody}>
+                <div className={styles.signaturePreviewBox}>
+                  {signaturePreviewUrl ? (
+                    <img src={signaturePreviewUrl} alt="등록된 결재 서명" />
+                  ) : (
+                    <span>서명 이미지 없음</span>
+                  )}
+                </div>
+                <div className={styles.signatureControls}>
+                  <p>PNG 투명 배경 권장 · JPG/WEBP 가능 · 최대 2MB</p>
+                  <label className={styles.signatureUploadButton}>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={signatureBusy}
+                      onChange={handleSignatureUpload}
+                    />
+                    {signatureBusy ? "처리 중..." : signatureImagePath ? "서명 변경" : "서명 업로드"}
+                  </label>
+                  <button
+                    type="button"
+                    className={styles.signatureDeleteButton}
+                    disabled={signatureBusy || !signatureImagePath}
+                    onClick={() => void handleSignatureDelete()}
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+              {signatureMessage && (
+                <p
+                  className={`${styles.passwordMessage} ${
+                    signatureMessage.type === "success"
+                      ? styles.passwordMessageSuccess
+                      : styles.passwordMessageError
+                  }`}
+                >
+                  {signatureMessage.text}
+                </p>
+              )}
+            </section>
 
             <form className={styles.passwordForm} onSubmit={handlePasswordChange}>
               <div>

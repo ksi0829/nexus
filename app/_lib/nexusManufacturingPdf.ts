@@ -11,6 +11,7 @@ type ManufacturingPdfInput = {
     name: string;
     status: string;
     actedAt?: string | null;
+    signatureDataUrl?: string | null;
   }>;
 };
 
@@ -25,6 +26,17 @@ function escapeHtml(value: string) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function renderApprovalStatus(approval: {
+  status: string;
+  signatureDataUrl?: string | null;
+}) {
+  if (approval.status === "승인" && approval.signatureDataUrl) {
+    return `<img class="signature-image" src="${escapeHtml(approval.signatureDataUrl)}" alt="승인 서명">`;
+  }
+
+  return `<strong class="${approval.status === "승인" ? "approved" : ""}">${escapeHtml(approval.status)}</strong>`;
 }
 
 export async function createManufacturingPdf(input: ManufacturingPdfInput) {
@@ -63,7 +75,7 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
             (approval) => `<div class="approval-cell">
               <small>${escapeHtml(approval.role)}</small>
               <b>${escapeHtml(approval.name)}</b>
-              <strong class="${approval.status === "승인" ? "approved" : ""}">${escapeHtml(approval.status)}</strong>
+              ${renderApprovalStatus(approval)}
               ${approval.actedAt ? `<time>${escapeHtml(new Date(approval.actedAt).toLocaleDateString("ko-KR"))}<br>${escapeHtml(new Date(approval.actedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }))}</time>` : ""}
             </div>`
           )
@@ -110,6 +122,7 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
       .approval-label{display:flex;align-items:center;justify-content:center;border-right:1px solid #111;font-size:13px;font-weight:800;line-height:1.5}
       .approval-cell{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;padding:7px 3px;border-right:1px solid #111;text-align:center}
       .approval-cell:last-child{border-right:0}.approval-cell small{font-size:10px}.approval-cell b{font-size:12px}.approval-cell strong{font-size:15px;color:#777}.approval-cell .approved{color:#111;border:2px solid #111;padding:2px 8px;border-radius:50%}
+      .signature-image{display:block;width:74px;max-width:88%;height:24px;object-fit:contain;margin-top:1px}
       .approval-cell time{font-size:8px;line-height:1.35}.copy-row{display:flex;justify-content:space-between;padding:7px 2px 6px;font-size:11px}
       .info-grid{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #111;border-left:1px solid #111}
       .field{display:grid;grid-template-columns:74px minmax(0,1fr);height:47px;border-right:1px solid #111;border-bottom:1px solid #111;overflow:hidden}.field.span2{grid-column:span 2}

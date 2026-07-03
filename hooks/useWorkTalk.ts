@@ -1016,7 +1016,7 @@ export function useWorkTalk() {
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,name,team,role")
+      .select("id,name,team,role,signature_image_path,signature_updated_at")
       .order("name", { ascending: true });
 
     if (error) throw error;
@@ -1028,6 +1028,8 @@ export function useWorkTalk() {
         name: profile.name || "",
         team: profile.team || "",
         role: profile.role || "",
+        signature_image_path: profile.signature_image_path || null,
+        signature_updated_at: profile.signature_updated_at || null,
       }));
 
     setProfiles(nextProfiles);
@@ -2856,7 +2858,7 @@ export function useWorkTalk() {
 
       const { data: profile, error } = await supabase
         .from("profiles")
-        .select("id,name,team,role")
+        .select("id,name,team,role,signature_image_path,signature_updated_at")
         .eq("id", user.id)
         .single();
 
@@ -2873,6 +2875,8 @@ export function useWorkTalk() {
         name: profile.name || "",
         team: profile.team || "",
         role: profile.role || "",
+        signature_image_path: profile.signature_image_path || null,
+        signature_updated_at: profile.signature_updated_at || null,
       };
       setCurrentProfile(nextProfile);
 

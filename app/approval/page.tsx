@@ -27,6 +27,10 @@ import {
 import { isActualMobileDevice } from "@/app/_lib/device";
 import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
 import { requestApprovalPdfBackup } from "@/lib/nexus/approvalBackup";
+import {
+  approvalLineSignatureDataUrl,
+  loadApprovalSignatureDataUrls,
+} from "@/lib/nexus/approvalSignatures";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NexusNavigation,
@@ -2432,18 +2436,22 @@ export default function ApprovalPage() {
         message: `${selectedDocument.title} 최종 결재가 완료되었습니다.`,
       });
 
+      const approvedLines = (selectedDocument.approval_lines || []).map((line) =>
+        line.id === actionLine.id
+          ? { ...line, status: "approved" as const, acted_at: completedDate }
+          : line
+      );
+      const approvalSignatureDataUrls = await loadApprovalSignatureDataUrls(
+        supabase,
+        approvedLines
+      );
+
       if (
         selectedDocument.template_key === "manufacturing_request" &&
         selectedDocument.document_no &&
         selectedDocument.worktalk_room_id
       ) {
         try {
-          const approvedLines = (selectedDocument.approval_lines || []).map(
-            (line) =>
-              line.id === actionLine.id
-                ? { ...line, status: "approved" as const, acted_at: completedDate }
-                : line
-          );
           const approvedPdf = await createManufacturingPdf({
             documentNo: selectedDocument.document_no,
             title: selectedDocument.title,
@@ -2461,6 +2469,10 @@ export default function ApprovalPage() {
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
+                signatureDataUrl: approvalLineSignatureDataUrl(
+                  approvalSignatureDataUrls,
+                  line
+                ),
               })),
               { role: "참조", name: "신훈식 부장", status: "참조" },
               { role: "참조", name: "신상민 회장", status: "참조" },
@@ -2520,12 +2532,6 @@ export default function ApprovalPage() {
         selectedDocument.worktalk_room_id
       ) {
         try {
-          const approvedLines = (selectedDocument.approval_lines || []).map(
-            (line) =>
-              line.id === actionLine.id
-                ? { ...line, status: "approved" as const, acted_at: completedDate }
-                : line
-          );
           const documentLabel =
             String(selectedDocument.form_data.requestType || "") === "외주"
               ? "외주의뢰서"
@@ -2546,6 +2552,10 @@ export default function ApprovalPage() {
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
+                signatureDataUrl: approvalLineSignatureDataUrl(
+                  approvalSignatureDataUrls,
+                  line
+                ),
               })),
             ],
           });
@@ -2598,12 +2608,6 @@ export default function ApprovalPage() {
         selectedDocument.worktalk_room_id
       ) {
         try {
-          const approvedLines = (selectedDocument.approval_lines || []).map(
-            (line) =>
-              line.id === actionLine.id
-                ? { ...line, status: "approved" as const, acted_at: completedDate }
-                : line
-          );
           const approvedPdf = await createPurchaseResolutionPdf({
             requesterName: selectedDocument.requester_name,
             formData: selectedDocument.form_data,
@@ -2623,6 +2627,10 @@ export default function ApprovalPage() {
                       : line.role_label,
                 name: line.approver_name,
                 status: approvalLinePdfStatus(line, "approved"),
+                signatureDataUrl: approvalLineSignatureDataUrl(
+                  approvalSignatureDataUrls,
+                  line
+                ),
               })),
             ],
           });

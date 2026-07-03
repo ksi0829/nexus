@@ -3,6 +3,7 @@ type PurchaseApproval = {
   name: string;
   status: string;
   actedAt?: string | null;
+  signatureDataUrl?: string | null;
 };
 
 type PurchasePdfInput = {
@@ -40,6 +41,16 @@ function checked(active: boolean) {
   return active ? "■" : "□";
 }
 
+function renderApprovalStatus(approval?: PurchaseApproval) {
+  if (!approval) return "";
+
+  if (approval.status === "승인" && approval.signatureDataUrl) {
+    return `<img class="signature-image" src="${escapeHtml(approval.signatureDataUrl)}" alt="승인 서명">`;
+  }
+
+  return `<em class="${approval.status === "승인" ? "ok" : ""}">${escapeHtml(approval.status || "")}</em>`;
+}
+
 export async function createPurchasePdf(input: PurchasePdfInput) {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
     import("html2canvas"),
@@ -75,7 +86,7 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
         <tr>${["담당", "팀장", "본부장", "부사장", "대표이사"]
           .map((role) => {
             const approval = approvals.find((item) => item.role === role);
-            return `<td><b>${escapeHtml(approval?.name || "")}</b><em class="${approval?.status === "승인" ? "ok" : ""}">${escapeHtml(approval?.status || "")}</em></td>`;
+            return `<td><b>${escapeHtml(approval?.name || "")}</b>${renderApprovalStatus(approval)}</td>`;
           })
           .join("")}</tr>
       </tbody></table>
@@ -118,6 +129,7 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
       .title>div{width:100%;text-align:center}.title>div b{font-size:14px}.title small{display:block;font-size:9px;line-height:1.45;text-align:center}.title small strong{display:block;color:#075e9b;font-size:10px}
       .approval{width:294px;height:92px}.approval th,.approval td{height:auto;border:1px solid #111;padding:2px 1px;text-align:center;font-size:8px;letter-spacing:0}
       .approval th:first-child{width:27px;line-height:1.6}.approval tr:first-child{height:26px}.approval tr:last-child{height:66px}.approval td b,.approval td em{display:block;font-size:7.5px;overflow-wrap:anywhere}.approval td em{margin-top:7px;font-style:normal;color:#777}.approval .ok{color:#111}
+      .approval .signature-image{display:block;width:46px;max-width:88%;height:22px;object-fit:contain;margin:6px auto 0}
       .info{width:100%;font-size:9px}.info th,.info td{height:28px;border:1px solid #b9a975;padding:0 6px;letter-spacing:0}.info th{text-align:center}.info td{text-align:center}.info .usage{height:28px;text-align:center;white-space:nowrap}.usage span{display:inline-block;margin:0 5px;font-size:8px}
       .items{width:100%;font-size:8px}.items th,.items td{height:21px;border:1px solid #b9a975;padding:1px 4px;text-align:center}
       .items th{height:24px;font-size:9px;letter-spacing:1px}.items th:nth-child(1){width:28px}.items th:nth-child(2){width:145px}.items th:nth-child(3){width:160px}.items th:nth-child(4){width:48px}.items th:nth-child(5){width:46px}

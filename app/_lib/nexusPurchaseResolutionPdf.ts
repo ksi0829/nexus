@@ -2,6 +2,7 @@ type Approval = {
   role: string;
   name: string;
   status: string;
+  signatureDataUrl?: string | null;
 };
 
 type PurchaseResolutionPdfInput = {
@@ -36,6 +37,16 @@ function rows(data: Record<string, unknown>) {
 function numberValue(value: string) {
   const parsed = Number(value.replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function renderApprovalStatus(approval?: Approval) {
+  if (!approval) return "";
+
+  if (approval.status === "승인" && approval.signatureDataUrl) {
+    return `<img class="signature-image" src="${escapeHtml(approval.signatureDataUrl)}" alt="승인 서명">`;
+  }
+
+  return `<em>${escapeHtml(approval.status || "")}</em>`;
 }
 
 export async function createPurchaseResolutionPdf(
@@ -81,7 +92,7 @@ export async function createPurchaseResolutionPdf(
         <tr><th rowspan="2">결<br>재</th>${["담당", "이사", "본부장", "전무", "사장"].map((role) => `<th>${role}</th>`).join("")}</tr>
         <tr>${["담당", "이사", "본부장", "전무", "사장"].map((role) => {
           const approval = approvals.find((item) => item.role === role);
-          return `<td><b>${escapeHtml(approval?.name || "")}</b><em>${escapeHtml(approval?.status || "")}</em></td>`;
+          return `<td><b>${escapeHtml(approval?.name || "")}</b>${renderApprovalStatus(approval)}</td>`;
         }).join("")}</tr>
         <tr><th>협<br>조</th><td></td><td></td><td></td><td colspan="2"></td></tr>
       </tbody></table>
@@ -116,6 +127,7 @@ export async function createPurchaseResolutionPdf(
     <style>
       *{box-sizing:border-box}table{border-collapse:collapse;table-layout:fixed}.header{display:grid;grid-template-columns:1fr 390px;border:1.5px solid #111;border-bottom:3px solid #111}.title{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;height:118px;border-right:1px solid #111}.logo{font-size:18px;font-weight:800}.logo small{font-size:7px}.title strong{font-size:25px;font-weight:500;letter-spacing:8px;border-bottom:1px solid #111;padding:0 6px 5px}.title time{font-size:10px}
       .approval{width:100%;height:118px}.approval th,.approval td{border:1px solid #111;text-align:center;padding:2px;font-size:8px}.approval th:first-child{width:28px;line-height:1.6}.approval tr{height:39px}.approval td b,.approval td em{display:block;font-size:7px}.approval td em{margin-top:6px;font-style:normal}
+      .approval .signature-image{display:block;width:46px;max-width:88%;height:18px;object-fit:contain;margin:5px auto 0}
       .meta{display:grid;grid-template-columns:1fr 1fr;column-gap:46px;padding:14px 0 11px;border-bottom:3px double #111}.meta p{display:grid;grid-template-columns:120px 1fr;align-items:center;height:31px;margin:0;font-size:10px}.meta b{font-size:10px}.section{display:flex;justify-content:space-between;padding:11px 8px 6px;font-size:10px}
       .items{width:100%;border:2px solid #111;font-size:8px}.items th,.items td{height:28px;border:1px solid #777;padding:2px 5px;text-align:center}.items th:nth-child(1){width:39px}.items th:nth-child(2){width:18%}.items th:nth-child(3){width:24%}.items th:nth-child(4){width:55px}.items th:nth-child(5){width:55px}.items th:nth-child(6){width:75px}.items td:nth-child(2),.items td:nth-child(3){text-align:left}.total th,.total td{height:28px;font-weight:800}
       footer{position:absolute;left:48px;right:48px;bottom:20px;border-top:1px solid #aaa;padding-top:6px;text-align:center;color:#555;font-size:8px}
