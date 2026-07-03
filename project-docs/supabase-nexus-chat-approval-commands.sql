@@ -12,6 +12,7 @@ as $function$
 declare
   document_row public.approval_documents%rowtype;
   line_row public.approval_lines%rowtype;
+  first_pending_line public.approval_lines%rowtype;
   profile_row public.profiles%rowtype;
   normalized_command text;
   rejection_reason text;
@@ -45,7 +46,7 @@ begin
   end if;
 
   select *
-  into line_row
+  into first_pending_line
   from public.approval_lines
   where document_id = document_row.id
     and status = 'pending'
@@ -53,12 +54,22 @@ begin
   limit 1
   for update;
 
-  if line_row.id is null then
+  if first_pending_line.id is null then
     raise exception '처리할 결재 단계가 없습니다.';
   end if;
 
-  if line_row.approver_id is distinct from auth.uid() then
-    raise exception '현재 결재 순서의 결재자만 처리할 수 있습니다.';
+  select *
+  into line_row
+  from public.approval_lines
+  where document_id = document_row.id
+    and status = 'pending'
+    and approver_id = auth.uid()
+  order by step_order
+  limit 1
+  for update;
+
+  if line_row.id is null then
+    raise exception '이 문서의 결재 대상자가 아니거나 이미 처리했습니다.';
   end if;
 
   select *
@@ -105,11 +116,12 @@ begin
     order by step_order
     limit 1;
 
-    if next_line.id is null then
+    if first_pending_line.id is distinct from line_row.id or next_line.id is null then
       completed := true;
       update public.approval_documents
       set
         status = 'approved',
+        current_step = 0,
         completed_at = now()
       where id = document_row.id;
 

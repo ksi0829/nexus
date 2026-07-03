@@ -613,6 +613,12 @@ function getRemainingReaderCount(
   }).length;
 }
 
+function approvalLinePdfStatus(line: { status: string | null }) {
+  if (line.status === "approved") return "승인";
+  if (line.status === "rejected") return "반려";
+  return "미결재";
+}
+
 function getProfileOrgTeam(profile: WorkTalkProfile) {
   return EXECUTIVE_NAMES.includes(profile.name)
     ? "경영진"
@@ -3465,7 +3471,7 @@ export function WorkTalkApp() {
         approvals: approvalLines.map((line) => ({
           role: line.role_label,
           name: line.approver_name,
-          status: line.status === "approved" ? "승인" : "대기",
+          status: approvalLinePdfStatus(line),
           actedAt: line.acted_at,
         })),
       });
@@ -3487,7 +3493,7 @@ export function WorkTalkApp() {
           ...approvalLines.map((line) => ({
             role: line.role_label,
             name: line.approver_name,
-            status: line.status === "approved" ? "승인" : "대기",
+            status: approvalLinePdfStatus(line),
             actedAt: line.acted_at,
           })),
         ],
@@ -3511,7 +3517,7 @@ export function WorkTalkApp() {
                   ? "사장"
                   : line.role_label,
             name: line.approver_name,
-            status: line.status === "approved" ? "승인" : "대기",
+            status: approvalLinePdfStatus(line),
           })),
         ],
       });

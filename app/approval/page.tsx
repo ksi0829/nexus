@@ -751,6 +751,13 @@ function getFirstPendingLine(document: ApprovalDocumentRow) {
   return lines.find((line) => line.status === "pending") || null;
 }
 
+function approvalLinePdfStatus(line: ApprovalLineRow, documentStatus?: ApprovalStatus) {
+  if (line.status === "approved") return "승인";
+  if (line.status === "rejected") return "반려";
+  if (documentStatus === "approved") return "미결재";
+  return "대기";
+}
+
 function getSortedApprovalLines(document: ApprovalDocumentRow) {
   return [...(document.approval_lines || [])].sort((a, b) => a.step_order - b.step_order);
 }
@@ -1047,6 +1054,13 @@ export default function ApprovalPage() {
       Boolean(line && (isCurrentUserId(line.approver_id) || isCurrentUserName(line.approver_name))),
     [isCurrentUserId, isCurrentUserName]
   );
+  const getCurrentUserPendingApprovalLine = useCallback(
+    (document: ApprovalDocumentRow) =>
+      getSortedApprovalLines(document).find(
+        (line) => line.status === "pending" && isCurrentApprovalLine(line)
+      ) || null,
+    [isCurrentApprovalLine]
+  );
   const isAdmin = currentRole === "admin";
   const visibleDocuments = useMemo(
     () =>
@@ -1064,10 +1078,12 @@ export default function ApprovalPage() {
   const pendingForMe = useMemo(
     () =>
       visibleDocuments.filter((document) => {
-        const pendingLine = getFirstPendingLine(document);
-        return document.status === "pending" && isCurrentApprovalLine(pendingLine);
+        return (
+          document.status === "pending" &&
+          Boolean(getCurrentUserPendingApprovalLine(document))
+        );
       }),
-    [isCurrentApprovalLine, visibleDocuments]
+    [getCurrentUserPendingApprovalLine, visibleDocuments]
   );
   const completedForMe = useMemo(
     () => visibleDocuments.filter((document) => document.status === "approved"),
@@ -2363,31 +2379,39 @@ export default function ApprovalPage() {
 
   async function approveSelectedDocument() {
     if (!selectedDocument || !currentUserId) return;
-    const pendingLine = getFirstPendingLine(selectedDocument);
+    if (selectedDocument.status !== "pending") {
+      setMessage("이미 완료되었거나 반려된 문서는 처리할 수 없습니다.");
+      return;
+    }
+    const firstPendingLine = getFirstPendingLine(selectedDocument);
+    const actionLine = getCurrentUserPendingApprovalLine(selectedDocument);
 
-    if (!pendingLine || !isCurrentApprovalLine(pendingLine)) {
-      setMessage("현재 결재 순서가 아닙니다.");
+    if (!actionLine) {
+      setMessage("결재 대상자가 아니거나 이미 처리된 문서입니다.");
       return;
     }
 
     setSaving(true);
     setMessage("");
     let approvalMessage = "승인 처리되었습니다.";
+    const bypassedEarlierApproval = firstPendingLine?.id !== actionLine.id;
 
     await supabase
       .from("approval_lines")
       .update({ status: "approved", acted_at: new Date().toISOString() })
-      .eq("id", pendingLine.id);
+      .eq("id", actionLine.id);
 
     const remainingLines = (selectedDocument.approval_lines || [])
-      .filter((line) => line.id !== pendingLine.id && line.status === "pending")
+      .filter((line) => line.id !== actionLine.id && line.status === "pending")
       .sort((a, b) => a.step_order - b.step_order);
+    const shouldCompleteDocument =
+      bypassedEarlierApproval || remainingLines.length === 0;
 
-    if (remainingLines.length === 0) {
+    if (shouldCompleteDocument) {
       const completedDate = new Date().toISOString();
       await supabase
         .from("approval_documents")
-        .update({ status: "approved", completed_at: completedDate })
+        .update({ status: "approved", current_step: 0, completed_at: completedDate })
         .eq("id", selectedDocument.id);
 
       const linkedEquipment = getLinkedEquipmentInfo(selectedDocument);
@@ -2416,7 +2440,7 @@ export default function ApprovalPage() {
         try {
           const approvedLines = (selectedDocument.approval_lines || []).map(
             (line) =>
-              line.id === pendingLine.id
+              line.id === actionLine.id
                 ? { ...line, status: "approved" as const, acted_at: completedDate }
                 : line
           );
@@ -2435,7 +2459,7 @@ export default function ApprovalPage() {
               ...approvedLines.map((line) => ({
                 role: line.role_label,
                 name: line.approver_name,
-                status: line.status === "approved" ? "승인" : "대기",
+                status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
               })),
               { role: "참조", name: "신훈식 부장", status: "참조" },
@@ -2498,7 +2522,7 @@ export default function ApprovalPage() {
         try {
           const approvedLines = (selectedDocument.approval_lines || []).map(
             (line) =>
-              line.id === pendingLine.id
+              line.id === actionLine.id
                 ? { ...line, status: "approved" as const, acted_at: completedDate }
                 : line
           );
@@ -2520,7 +2544,7 @@ export default function ApprovalPage() {
               ...approvedLines.map((line) => ({
                 role: line.role_label,
                 name: line.approver_name,
-                status: line.status === "approved" ? "승인" : "대기",
+                status: approvalLinePdfStatus(line, "approved"),
                 actedAt: line.acted_at,
               })),
             ],
@@ -2576,7 +2600,7 @@ export default function ApprovalPage() {
         try {
           const approvedLines = (selectedDocument.approval_lines || []).map(
             (line) =>
-              line.id === pendingLine.id
+              line.id === actionLine.id
                 ? { ...line, status: "approved" as const, acted_at: completedDate }
                 : line
           );
@@ -2598,7 +2622,7 @@ export default function ApprovalPage() {
                       ? "사장"
                       : line.role_label,
                 name: line.approver_name,
-                status: line.status === "approved" ? "승인" : "대기",
+                status: approvalLinePdfStatus(line, "approved"),
               })),
             ],
           });
@@ -2674,7 +2698,7 @@ export default function ApprovalPage() {
       await supabase.rpc("worktalk_send_message", {
         target_room_id: selectedDocument.worktalk_room_id,
         message_body:
-          remainingLines.length === 0
+          shouldCompleteDocument
             ? `${currentName || "결재자"}님이 승인했습니다. 모든 결재가 완료되었습니다.`
             : `${currentName || "결재자"}님이 승인했습니다. 다음 결재자는 ${nextApprover.approver_name}님입니다.`,
       });
@@ -2694,10 +2718,14 @@ export default function ApprovalPage() {
 
   async function rejectSelectedDocument() {
     if (!selectedDocument || !currentUserId) return;
-    const pendingLine = getFirstPendingLine(selectedDocument);
+    if (selectedDocument.status !== "pending") {
+      setMessage("이미 완료되었거나 반려된 문서는 처리할 수 없습니다.");
+      return;
+    }
+    const actionLine = getCurrentUserPendingApprovalLine(selectedDocument);
 
-    if (!pendingLine || !isCurrentApprovalLine(pendingLine)) {
-      setMessage("현재 결재 순서가 아닙니다.");
+    if (!actionLine) {
+      setMessage("결재 대상자가 아니거나 이미 처리된 문서입니다.");
       return;
     }
 
@@ -2718,7 +2746,7 @@ export default function ApprovalPage() {
         acted_at: new Date().toISOString(),
         memo: rejectionReason.trim(),
       })
-      .eq("id", pendingLine.id);
+      .eq("id", actionLine.id);
 
     await supabase
       .from("approval_documents")
@@ -3006,12 +3034,17 @@ export default function ApprovalPage() {
     window.setTimeout(() => printWindow.print(), 250);
   }
 
-  const currentPendingLine = selectedDocument ? getFirstPendingLine(selectedDocument) : null;
+  const currentUserPendingLine = selectedDocument
+    ? getCurrentUserPendingApprovalLine(selectedDocument)
+    : null;
   const canAct =
-    selectedDocument?.status === "pending" && isCurrentApprovalLine(currentPendingLine);
+    selectedDocument?.status === "pending" && Boolean(currentUserPendingLine);
   const renderProgressNotice = (document: ApprovalDocumentRow) => {
     const pendingLine = getFirstPendingLine(document);
-    const awaitingMyApproval = document.status === "pending" && isCurrentApprovalLine(pendingLine);
+    const myPendingLine = getCurrentUserPendingApprovalLine(document);
+    const awaitingMyApproval = document.status === "pending" && Boolean(myPendingLine);
+    const isBypassApprovalAvailable =
+      awaitingMyApproval && pendingLine?.id !== myPendingLine?.id;
     const headline =
       document.status === "approved"
         ? "최종 승인이 완료된 문서입니다."
@@ -3027,8 +3060,10 @@ export default function ApprovalPage() {
         ? "완료된 문서의 첨부파일은 추가하거나 변경할 수 없습니다."
         : document.status === "rejected"
           ? "반려된 문서는 첨부파일을 추가하거나 변경할 수 없습니다."
-          : awaitingMyApproval
-            ? `${pendingLine?.role_label || "결재"} 단계의 승인 또는 반려를 진행해 주세요.`
+          : isBypassApprovalAvailable
+            ? `${myPendingLine?.role_label || "결재"} 단계의 승인 또는 반려를 진행할 수 있습니다. 승인 시 문서는 즉시 완료 처리됩니다.`
+            : awaitingMyApproval
+              ? `${myPendingLine?.role_label || "결재"} 단계의 승인 또는 반려를 진행해 주세요.`
             : pendingLine
               ? `${pendingLine.role_label} 단계가 완료되면 다음 결재로 진행됩니다.`
               : "결재선 진행 상태를 확인해 주세요.";
@@ -3064,9 +3099,26 @@ export default function ApprovalPage() {
         </div>
         <div style={{ ...styles.approvalFlow, ...(isMobile ? styles.approvalFlowMobile : {}) }}>
           {lines.map((line, index) => {
-            const current = document.status === "pending" && pendingLine?.id === line.id;
+            const actionable =
+              document.status === "pending" &&
+              line.status === "pending" &&
+              isCurrentApprovalLine(line);
+            const current =
+              document.status === "pending" &&
+              (pendingLine?.id === line.id || actionable);
             const approved = line.status === "approved";
             const rejected = line.status === "rejected";
+            const statusLabel = approved
+              ? "승인"
+              : rejected
+                ? "반려"
+                : document.status === "approved"
+                  ? "미결재"
+                  : actionable
+                    ? "결재가능"
+                    : current
+                      ? "진행중"
+                      : "대기";
 
             return (
               <div key={line.id} style={styles.approvalFlowStepWrap}>
@@ -3081,7 +3133,7 @@ export default function ApprovalPage() {
                   <span>{index + 1}차</span>
                   <strong>{line.approver_name}</strong>
                   <em style={styles.approvalFlowStatus}>
-                    {approved ? "승인" : rejected ? "반려" : current ? "진행중" : "대기"}
+                    {statusLabel}
                   </em>
                 </div>
                 {index < lines.length - 1 && <i style={styles.approvalFlowArrow}>→</i>}
@@ -3234,8 +3286,8 @@ export default function ApprovalPage() {
             ) : (
               <>
                 <strong>결재 진행 방식</strong>
-                <span>문서 제출 → 1차 결재자 승인 → 다음 결재자 알림 → 최종 승인 및 완료 PDF 보관</span>
-                <span>현재 순서의 결재자만 승인·반려할 수 있으며, 한 명이 반려하면 문서는 즉시 전체 반려됩니다.</span>
+                <span>문서 제출 → 결재자 승인 → 필요 시 다음 결재자 알림 → 최종 승인 및 완료 PDF 보관</span>
+                <span>후순위 결재자도 승인·반려할 수 있으며, 후순위 결재자가 승인하면 문서는 즉시 완료됩니다.</span>
                 <span>보류 기능은 현재 적용하지 않으며 반려 사유를 남긴 뒤 새 문서로 재상신하는 방식입니다.</span>
               </>
             )}
