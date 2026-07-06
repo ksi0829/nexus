@@ -957,6 +957,7 @@ export function WorkTalkApp() {
       deepLinkOpenBlockedReason: "waiting",
       timestamp: "",
     });
+  const messageListRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -979,7 +980,7 @@ export function WorkTalkApp() {
   const readAllowedRef = useRef(false);
   const lastVibratedNotificationIdRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
-  const bottomScrollTimersRef = useRef<number[]>([]);
+  const lastBottomScrollRoomIdRef = useRef<number | null>(null);
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
   const approvalBackupCatchupRequestedRef = useRef(false);
@@ -2479,39 +2480,49 @@ export function WorkTalkApp() {
       window.cancelAnimationFrame(bottomScrollRafRef.current);
       bottomScrollRafRef.current = null;
     }
-    bottomScrollTimersRef.current.forEach((timerId) =>
-      window.clearTimeout(timerId)
-    );
-    bottomScrollTimersRef.current = [];
   }, []);
   const scrollConversationToBottom = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
-      messageEndRef.current?.scrollIntoView({
-        behavior,
-        block: "end",
-      });
+    () => {
+      const listElement = messageListRef.current;
+      if (listElement) {
+        listElement.scrollTop = listElement.scrollHeight;
+        return;
+      }
+      messageEndRef.current?.scrollIntoView({ block: "end" });
     },
     []
   );
   const scheduleBottomScroll = useCallback(
     (
-      behavior: ScrollBehavior = "auto",
-      options: { extraSettle?: boolean } = {}
+      behaviorOrOptions: ScrollBehavior | { extraSettle?: boolean; force?: boolean } =
+        "auto",
+      maybeOptions: { extraSettle?: boolean; force?: boolean } = {}
     ) => {
+      const options =
+        typeof behaviorOrOptions === "object" ? behaviorOrOptions : maybeOptions;
+      const listElement = messageListRef.current;
+      const force =
+        options.force ||
+        (selectedRoomId !== null &&
+          lastBottomScrollRoomIdRef.current !== selectedRoomId);
+      const distanceFromBottom = listElement
+        ? listElement.scrollHeight -
+          listElement.scrollTop -
+          listElement.clientHeight
+        : 0;
+      if (!force && distanceFromBottom > 220) {
+        return;
+      }
       clearBottomScrollTimers();
       bottomScrollRafRef.current = window.requestAnimationFrame(() => {
         bottomScrollRafRef.current = null;
-        scrollConversationToBottom(behavior);
-      });
-      [140, ...(options.extraSettle ? [420] : [])].forEach((delay) => {
-        const timerId = window.setTimeout(
-          () => scrollConversationToBottom("auto"),
-          delay
-        );
-        bottomScrollTimersRef.current.push(timerId);
+        scrollConversationToBottom();
+        if (selectedRoomId !== null) {
+          lastBottomScrollRoomIdRef.current = selectedRoomId;
+        }
       });
     },
-    [clearBottomScrollTimers, scrollConversationToBottom]
+    [clearBottomScrollTimers, scrollConversationToBottom, selectedRoomId]
   );
   const openNotification = useCallback(
     async (notification: WorkTalkNotification) => {
@@ -2520,7 +2531,7 @@ export function WorkTalkApp() {
       userOpenedRoomRef.current = true;
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
-      scheduleBottomScroll("auto", { extraSettle: true });
+      scheduleBottomScroll("auto", { force: true });
     },
     [markNotificationRead, scheduleBottomScroll, selectRoom]
   );
@@ -3022,7 +3033,7 @@ export function WorkTalkApp() {
       setServiceWorkerDeepLink(null);
       window.history.replaceState({}, "", "/worktalk");
       if (!deepLink.messageId) {
-        scheduleBottomScroll("auto", { extraSettle: true });
+        scheduleBottomScroll("auto", { force: true });
       }
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -3104,7 +3115,7 @@ export function WorkTalkApp() {
 
   useEffect(() => {
     if (!selectedRoomId || focusedMessageId || !messageTailKey) return;
-    scheduleBottomScroll("smooth");
+    scheduleBottomScroll("auto");
   }, [focusedMessageId, messageTailKey, scheduleBottomScroll, selectedRoomId]);
 
   useEffect(
@@ -3318,7 +3329,7 @@ export function WorkTalkApp() {
       latestNotification.message_id
     ) {
       selectRoom(latestNotificationRoomId, latestNotification.message_id);
-      scheduleBottomScroll("auto", { extraSettle: true });
+      scheduleBottomScroll("auto", { force: true });
     }
 
     if (isNexusDesktopApp) {
@@ -3576,7 +3587,7 @@ export function WorkTalkApp() {
         target.scrollIntoView({ block: "center", behavior: "smooth" });
         return;
       }
-      messageEndRef.current?.scrollIntoView({ block: "end" });
+      scheduleBottomScroll("auto", { force: true });
     }, 250);
   }
 
@@ -5263,7 +5274,11 @@ export function WorkTalkApp() {
               </div>
             )}
 
-            <div className={styles.messageList} onClick={() => setMessageMenu(null)}>
+            <div
+              ref={messageListRef}
+              className={styles.messageList}
+              onClick={() => setMessageMenu(null)}
+            >
               {loadingMessages && messages.length === 0 ? (
                 <p className={styles.emptyText}>메시지를 불러오는 중입니다.</p>
               ) : filteredMessages.length === 0 ? (

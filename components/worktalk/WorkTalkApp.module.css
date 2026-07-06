@@ -1703,6 +1703,8 @@
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   padding: 26px clamp(20px, 5vw, 80px);
   background:
     radial-gradient(circle at 20% 0%, rgb(255 255 255 / 68%), transparent 30%),
