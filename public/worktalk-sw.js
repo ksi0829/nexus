@@ -6,6 +6,7 @@ const WORKTALK_CLIENT_STATE_REQUEST_MESSAGE = "WORKTALK_CLIENT_STATE_REQUEST";
 const WORKTALK_VIBRATION_PATTERN = [240, 120, 240];
 const WORKTALK_ACTIVE_CLIENT_TTL_MS = 30_000;
 const WORKTALK_RECENT_NOTIFICATION_TAG_TTL_MS = 20_000;
+const WORKTALK_PUSH_DEDUPE_CACHE = "worktalk-push-dedupe-v1";
 const worktalkClientStates = new Map();
 const pendingClientStateRequests = new Map();
 const recentNotificationTags = new Map();
@@ -106,6 +107,46 @@ function pruneRecentNotificationTags() {
     if (now - createdAt > WORKTALK_RECENT_NOTIFICATION_TAG_TTL_MS) {
       recentNotificationTags.delete(tag);
     }
+  }
+}
+
+async function getPersistentNotificationTagTime(tag) {
+  if (!tag || !self.caches) return null;
+  try {
+    const cache = await self.caches.open(WORKTALK_PUSH_DEDUPE_CACHE);
+    const response = await cache.match(`/worktalk-push-dedupe/${encodeURIComponent(tag)}`);
+    if (!response) return null;
+    const text = await response.text();
+    const timestamp = Number(text);
+    if (!Number.isFinite(timestamp)) {
+      await cache.delete(`/worktalk-push-dedupe/${encodeURIComponent(tag)}`);
+      return null;
+    }
+    if (Date.now() - timestamp > WORKTALK_RECENT_NOTIFICATION_TAG_TTL_MS) {
+      await cache.delete(`/worktalk-push-dedupe/${encodeURIComponent(tag)}`);
+      return null;
+    }
+    return timestamp;
+  } catch {
+    return null;
+  }
+}
+
+async function rememberPersistentNotificationTag(tag) {
+  if (!tag || !self.caches) return;
+  try {
+    const cache = await self.caches.open(WORKTALK_PUSH_DEDUPE_CACHE);
+    await cache.put(
+      `/worktalk-push-dedupe/${encodeURIComponent(tag)}`,
+      new Response(String(Date.now()), {
+        headers: {
+          "content-type": "text/plain",
+          "cache-control": "no-store",
+        },
+      })
+    );
+  } catch {
+    // Persistent duplicate suppression is best-effort only.
   }
 }
 
@@ -334,12 +375,18 @@ self.addEventListener("push", (event) => {
         options.data.targetUrl = targetUrl;
         options.data.url = targetUrl;
         return broadcastPushDebug(suppressDebugPayload)
-          .then(() => self.registration.getNotifications({ tag: options.tag }))
-          .then((notifications) => {
+          .then(() =>
+            Promise.all([
+              self.registration.getNotifications({ tag: options.tag }),
+              getPersistentNotificationTagTime(options.tag),
+            ])
+          )
+          .then(([notifications, persistentTagTime]) => {
             pruneRecentNotificationTags();
             if (
               notifications.length > 0 ||
-              recentNotificationTags.has(options.tag)
+              recentNotificationTags.has(options.tag) ||
+              persistentTagTime
             ) {
               return broadcastPushDebug({
                 scope: "notification",
@@ -350,13 +397,18 @@ self.addEventListener("push", (event) => {
                 pushPayloadRoomId: roomId,
                 notificationTag: options.tag,
                 existingNotificationCount: notifications.length,
+                persistentTagAgeMs: persistentTagTime
+                  ? Date.now() - persistentTagTime
+                  : null,
                 shouldSuppressNotification: true,
               }).then(() => false);
             }
             recentNotificationTags.set(options.tag, Date.now());
-            return self.registration
-              .showNotification(title, options)
-              .then(() => true);
+            return rememberPersistentNotificationTag(options.tag).then(() =>
+              self.registration
+                .showNotification(title, options)
+                .then(() => true)
+            );
           })
           .then((notificationShown) => {
             if (!notificationShown) return undefined;

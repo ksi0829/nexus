@@ -1815,17 +1815,7 @@
 }
 
 .focusedMessage {
-  margin: 0 -12px;
-  padding: 5px 12px;
-  border-radius: 14px;
-  background: rgb(255 221 112 / 24%);
-  animation: focusPulse 1.5s ease-in-out 2;
-}
-
-@keyframes focusPulse {
-  50% {
-    background: rgb(255 210 55 / 40%);
-  }
+  scroll-margin: 72px 0 96px;
 }
 
 .messageMine {
