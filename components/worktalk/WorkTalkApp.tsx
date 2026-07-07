@@ -171,6 +171,17 @@ type MobileLayoutDebugState = {
     lastRealtimeAppendAt: string;
   };
 };
+
+type BottomScrollDebugEvent = {
+  timestamp: string;
+  reason: string;
+  force: boolean;
+  skipped: boolean;
+  keyboardOpen: boolean;
+  scrollTopBefore: number | null;
+  scrollTopAfter: number | null;
+  distanceFromBottom: number;
+};
 type DeepLinkDebugStatus = {
   pendingDeepLinkRoomId: number | null;
   serviceWorkerDeepLinkRoomId: number | null;
@@ -1062,6 +1073,9 @@ export function WorkTalkApp() {
   );
   const [mobileLayoutDebugState, setMobileLayoutDebugState] =
     useState<MobileLayoutDebugState>(() => createEmptyMobileLayoutDebugState());
+  const [bottomScrollDebugEvents, setBottomScrollDebugEvents] = useState<
+    BottomScrollDebugEvent[]
+  >([]);
   const [approvalBackupStatus, setApprovalBackupStatus] =
     useState<ApprovalBackupStatus | null>(null);
   const [approvalBackupMessage, setApprovalBackupMessage] = useState("");
@@ -1361,6 +1375,13 @@ export function WorkTalkApp() {
       scheduleMobileLayoutDebugSnapshot();
     },
     [scheduleMobileLayoutDebugSnapshot, showReadReceiptDebugPanel]
+  );
+  const appendBottomScrollDebugEvent = useCallback(
+    (event: BottomScrollDebugEvent) => {
+      if (!showReadReceiptDebugPanel) return;
+      setBottomScrollDebugEvents((current) => [event, ...current].slice(0, 20));
+    },
+    [showReadReceiptDebugPanel]
   );
   const messagePerformanceSummary = useMemo(() => {
     const samples = messageLatencyEvents
@@ -2936,6 +2957,20 @@ export function WorkTalkApp() {
       const beforeScrollTop = listElement?.scrollTop ?? null;
       const beforeScrollHeight = listElement?.scrollHeight ?? null;
       const beforeClientHeight = listElement?.clientHeight ?? null;
+      const publishBottomScrollDebug = (
+        payload: Omit<BottomScrollDebugEvent, "timestamp">
+      ) => {
+        const event = {
+          ...payload,
+          timestamp,
+        };
+        console.info("[scheduleBottomScroll]", {
+          ...event,
+          scrollHeight: beforeScrollHeight,
+          clientHeight: beforeClientHeight,
+        });
+        appendBottomScrollDebugEvent(event);
+      };
       const force =
         options.force ||
         (selectedRoomId !== null &&
@@ -2946,17 +2981,14 @@ export function WorkTalkApp() {
           listElement.clientHeight
         : 0;
       if (!force && distanceFromBottom > 220) {
-        console.info("[scheduleBottomScroll]", {
+        publishBottomScrollDebug({
           reason,
           skipped: true,
           force,
           keyboardOpen,
           scrollTopBefore: beforeScrollTop,
           scrollTopAfter: beforeScrollTop,
-          scrollHeight: beforeScrollHeight,
-          clientHeight: beforeClientHeight,
           distanceFromBottom,
-          timestamp,
         });
         return;
       }
@@ -2965,7 +2997,7 @@ export function WorkTalkApp() {
         bottomScrollRafRef.current = null;
         scrollConversationToBottom();
         const afterElement = messageListRef.current;
-        console.info("[scheduleBottomScroll]", {
+        publishBottomScrollDebug({
           reason,
           skipped: false,
           force,
@@ -2974,10 +3006,7 @@ export function WorkTalkApp() {
             document.documentElement.dataset.worktalkKeyboardOpen === "true",
           scrollTopBefore: beforeScrollTop,
           scrollTopAfter: afterElement?.scrollTop ?? null,
-          scrollHeight: afterElement?.scrollHeight ?? beforeScrollHeight,
-          clientHeight: afterElement?.clientHeight ?? beforeClientHeight,
           distanceFromBottom,
-          timestamp,
         });
         recordMobileLayoutDebugEvent("lastScrollToBottomAt");
         if (selectedRoomId !== null) {
@@ -2987,6 +3016,7 @@ export function WorkTalkApp() {
     },
     [
       clearBottomScrollTimers,
+      appendBottomScrollDebugEvent,
       recordMobileLayoutDebugEvent,
       scrollConversationToBottom,
       selectedRoomId,
@@ -6843,6 +6873,44 @@ export function WorkTalkApp() {
                 realtime append:{" "}
                 {mobileLayoutDebugState.events.lastRealtimeAppendAt}
               </div>
+              <div style={{ marginTop: 7, color: "rgba(223, 252, 245, 0.78)" }}>
+                [scheduleBottomScroll recent 20]
+              </div>
+              {bottomScrollDebugEvents.length === 0 ? (
+                <div style={{ color: "rgba(223, 252, 245, 0.58)" }}>
+                  waiting...
+                </div>
+              ) : (
+                bottomScrollDebugEvents.map((event, index) => (
+                  <div
+                    key={`${event.timestamp}-${event.reason}-${index}`}
+                    style={{
+                      paddingTop: index === 0 ? 0 : 4,
+                      marginTop: index === 0 ? 0 : 4,
+                      borderTop:
+                        index === 0
+                          ? "none"
+                          : "1px solid rgba(223, 252, 245, 0.12)",
+                    }}
+                  >
+                    <div>
+                      #{index + 1} {event.timestamp} · {event.reason}
+                    </div>
+                    <div>
+                      force/skipped/keyboard: {String(event.force)} /{" "}
+                      {String(event.skipped)} / {String(event.keyboardOpen)}
+                    </div>
+                    <div>
+                      scrollTop: {event.scrollTopBefore ?? "null"} →{" "}
+                      {event.scrollTopAfter ?? "null"}
+                    </div>
+                    <div>
+                      distanceFromBottom:{" "}
+                      {Math.round(event.distanceFromBottom * 10) / 10}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
           <div
@@ -7574,6 +7642,45 @@ export function WorkTalkApp() {
                 last realtime append:{" "}
                 {mobileLayoutDebugState.events.lastRealtimeAppendAt}
               </div>
+              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
+                [scheduleBottomScroll recent 20]
+              </div>
+              {bottomScrollDebugEvents.length === 0 ? (
+                <div style={{ color: "rgba(223, 252, 245, 0.58)" }}>
+                  waiting...
+                </div>
+              ) : (
+                bottomScrollDebugEvents.map((event, index) => (
+                  <div
+                    key={`${event.timestamp}-${event.reason}-${index}`}
+                    style={{
+                      paddingTop: index === 0 ? 0 : 5,
+                      marginTop: index === 0 ? 0 : 5,
+                      borderTop:
+                        index === 0
+                          ? "none"
+                          : "1px solid rgba(223, 252, 245, 0.12)",
+                    }}
+                  >
+                    <div>
+                      #{index + 1} {event.timestamp} · {event.reason}
+                    </div>
+                    <div>
+                      force: {String(event.force)} / skipped:{" "}
+                      {String(event.skipped)} / keyboardOpen:{" "}
+                      {String(event.keyboardOpen)}
+                    </div>
+                    <div>
+                      scrollTop: {event.scrollTopBefore ?? "null"} →{" "}
+                      {event.scrollTopAfter ?? "null"}
+                    </div>
+                    <div>
+                      distanceFromBottom:{" "}
+                      {Math.round(event.distanceFromBottom * 10) / 10}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
           <div
