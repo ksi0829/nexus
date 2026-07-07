@@ -419,6 +419,10 @@ export function useWorkTalk() {
   const messageRequestIdRef = useRef(0);
   const roomRequestIdRef = useRef(0);
   const roomRefreshTimerRef = useRef<number | null>(null);
+  const roomRefreshInFlightRef = useRef(false);
+  const queuedRoomRefreshPreferredRoomIdRef = useRef<number | null | undefined>(
+    undefined
+  );
   const pendingFocusMessageIdRef = useRef<number | null>(null);
   const allowAutomaticRoomSelectionRef = useRef(false);
   const blockRoomSelectionRestoreRef = useRef(false);
@@ -499,6 +503,7 @@ export function useWorkTalk() {
 
   const markLatencyUiRendered = useCallback(
     (messageIds: number[], source: string) => {
+      if (!debugEnabledRef.current) return;
       if (messageIds.length === 0) return;
       const uiStamp = nowLatencyStamp();
       const renderedMessageIds = new Set(messageIds);
@@ -542,6 +547,7 @@ export function useWorkTalk() {
   );
 
   const recordMessageInputCleared = useCallback((roomId: number, body: string) => {
+    if (!debugEnabledRef.current) return;
     const inputClear = nowLatencyStamp();
     const bodyPreview = previewLatencyBody(body);
     setMessageLatencyEvents((current) => {
@@ -571,6 +577,7 @@ export function useWorkTalk() {
 
   useEffect(() => {
     const handleRpcTiming = (event: Event) => {
+      if (!debugEnabledRef.current) return;
       const detail = (event as CustomEvent<WorkTalkRpcTimingDetail>).detail;
       if (!detail || detail.rpcName !== "worktalk_send_message") return;
 
@@ -1825,24 +1832,47 @@ export function useWorkTalk() {
 
   const scheduleRoomRefresh = useCallback(
     (preferredRoomId?: number | null) => {
+      const nextPreferredRoomId = preferredRoomId ?? selectedRoomIdRef.current;
+
+      if (roomRefreshInFlightRef.current) {
+        queuedRoomRefreshPreferredRoomIdRef.current = nextPreferredRoomId;
+        return;
+      }
+
       if (roomRefreshTimerRef.current) {
         window.clearTimeout(roomRefreshTimerRef.current);
       }
 
-      roomRefreshTimerRef.current = window.setTimeout(() => {
+      roomRefreshTimerRef.current = window.setTimeout(async () => {
         roomRefreshTimerRef.current = null;
-        if (blockRoomSelectionRestoreRef.current) {
-          void loadRooms(null, {
-            background: true,
-            reason: "scheduled_room_refresh_blocked",
-          });
+
+        if (roomRefreshInFlightRef.current) {
+          queuedRoomRefreshPreferredRoomIdRef.current = nextPreferredRoomId;
           return;
         }
-        void loadRooms(preferredRoomId ?? selectedRoomIdRef.current, {
-          background: true,
-          reason: "scheduled_room_refresh",
-        });
-      }, 800);
+
+        roomRefreshInFlightRef.current = true;
+        try {
+          if (blockRoomSelectionRestoreRef.current) {
+            await loadRooms(null, {
+              background: true,
+              reason: "scheduled_room_refresh_blocked",
+            });
+          } else {
+            await loadRooms(nextPreferredRoomId, {
+              background: true,
+              reason: "scheduled_room_refresh",
+            });
+          }
+        } finally {
+          roomRefreshInFlightRef.current = false;
+          const queuedPreferredRoomId = queuedRoomRefreshPreferredRoomIdRef.current;
+          queuedRoomRefreshPreferredRoomIdRef.current = undefined;
+          if (queuedPreferredRoomId !== undefined) {
+            scheduleRoomRefresh(queuedPreferredRoomId);
+          }
+        }
+      }, 450);
     },
     [loadRooms]
   );
@@ -3068,6 +3098,8 @@ export function useWorkTalk() {
       return "unknown";
     };
     const publishSubscriptionDebugStatus = () => {
+      if (!debugEnabledRef.current) return;
+
       const realtimeState = getRealtimeDebugState(supabase.realtime);
       const connUrl =
         realtimeState.realtimeConnUrl || realtimeState.realtimeEndpointURL;
@@ -3169,10 +3201,12 @@ export function useWorkTalk() {
         socketConnReadyState: channelSnapshot.socket?.conn?.readyState ?? null,
         socketConnUrl: channelSnapshot.socket?.conn?.url ?? null,
       };
-      console.log("[WorkTalk realtime debug] channel:status", {
-        ...debugPayload,
-        json: JSON.stringify(debugPayload),
-      });
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] channel:status", {
+          ...debugPayload,
+          json: JSON.stringify(debugPayload),
+        });
+      }
       channelStatusRef.current = {
         ...channelStatusRef.current,
         [scope]: status,
@@ -3201,7 +3235,7 @@ export function useWorkTalk() {
       if (isCancelled) return;
 
       const realtimeSnapshot = supabase.realtime as unknown as RealtimeDebugSnapshot;
-      if (!realtimeDiagnosticsCleanup) {
+      if (debugEnabledRef.current && !realtimeDiagnosticsCleanup) {
         const originalLogger = realtimeSnapshot.logger;
         const closeCallback = (event?: unknown) => {
           const eventDebug = getRealtimeEventDebugState(event);
@@ -3211,10 +3245,12 @@ export function useWorkTalk() {
             new Date().toLocaleTimeString("ko-KR", { hour12: false });
           realtimeLifecycleDebug.lastCloseCode = eventDebug.closeCode;
           realtimeLifecycleDebug.lastCloseReason = eventDebug.closeReason;
-          console.log("[WorkTalk realtime debug] realtime:close", {
-            ...eventDebug,
-            ...getRealtimeDebugState(supabase.realtime),
-          });
+          if (debugEnabledRef.current) {
+            console.log("[WorkTalk realtime debug] realtime:close", {
+              ...eventDebug,
+              ...getRealtimeDebugState(supabase.realtime),
+            });
+          }
           publishSubscriptionDebugStatus();
         };
         const errorCallback = (event?: unknown) => {
@@ -3222,10 +3258,12 @@ export function useWorkTalk() {
           realtimeLifecycleDebug.lastSocketEvent = "error";
           realtimeLifecycleDebug.lastSocketEventAt =
             new Date().toLocaleTimeString("ko-KR", { hour12: false });
-          console.log("[WorkTalk realtime debug] realtime:error", {
-            ...getRealtimeEventDebugState(event),
-            ...getRealtimeDebugState(supabase.realtime),
-          });
+          if (debugEnabledRef.current) {
+            console.log("[WorkTalk realtime debug] realtime:error", {
+              ...getRealtimeEventDebugState(event),
+              ...getRealtimeDebugState(supabase.realtime),
+            });
+          }
           publishSubscriptionDebugStatus();
         };
         const openCallback = (event?: unknown) => {
@@ -3233,10 +3271,12 @@ export function useWorkTalk() {
           realtimeLifecycleDebug.lastSocketEvent = "open";
           realtimeLifecycleDebug.lastSocketEventAt =
             new Date().toLocaleTimeString("ko-KR", { hour12: false });
-          console.log("[WorkTalk realtime debug] realtime:open", {
-            ...getRealtimeEventDebugState(event),
-            ...getRealtimeDebugState(supabase.realtime),
-          });
+          if (debugEnabledRef.current) {
+            console.log("[WorkTalk realtime debug] realtime:open", {
+              ...getRealtimeEventDebugState(event),
+              ...getRealtimeDebugState(supabase.realtime),
+            });
+          }
           publishSubscriptionDebugStatus();
         };
         realtimeSnapshot.logger = (...args: unknown[]) => {
@@ -3256,13 +3296,15 @@ export function useWorkTalk() {
           if (messageText.includes("phx_join")) {
             realtimeLifecycleDebug.phxJoinCount += 1;
           }
-          console.log("[WorkTalk realtime debug] realtime:logger", {
-            kind,
-            message,
-            data,
-            event: getRealtimeEventDebugState(data),
-            ...getRealtimeDebugState(supabase.realtime),
-          });
+          if (debugEnabledRef.current) {
+            console.log("[WorkTalk realtime debug] realtime:logger", {
+              kind,
+              message,
+              data,
+              event: getRealtimeEventDebugState(data),
+              ...getRealtimeDebugState(supabase.realtime),
+            });
+          }
           if (typeof originalLogger === "function") {
             originalLogger(...args);
           }
@@ -3289,76 +3331,84 @@ export function useWorkTalk() {
       }
 
       const accessToken = session?.access_token;
-      console.log("[WorkTalk realtime debug] realtime:preflight:beforeAuth", {
-        hasSession: Boolean(session),
-        sessionUserId: session?.user?.id ?? null,
-        sessionError: sessionError?.message ?? null,
-        expiresAt: session?.expires_at ?? null,
-        accessTokenLength: accessToken?.length ?? 0,
-        ...getRealtimeDebugState(supabase.realtime),
-      });
-      console.log("[WorkTalk realtime debug] realtime:network-hint", {
-        websocketUrl: getRealtimeDebugState(supabase.realtime).realtimeEndpointURL,
-        note:
-          "브라우저 Network 탭에서 이 websocket URL의 handshake status, close code, failed reason을 확인하세요.",
-      });
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] realtime:preflight:beforeAuth", {
+          hasSession: Boolean(session),
+          sessionUserId: session?.user?.id ?? null,
+          sessionError: sessionError?.message ?? null,
+          expiresAt: session?.expires_at ?? null,
+          accessTokenLength: accessToken?.length ?? 0,
+          ...getRealtimeDebugState(supabase.realtime),
+        });
+        console.log("[WorkTalk realtime debug] realtime:network-hint", {
+          websocketUrl: getRealtimeDebugState(supabase.realtime).realtimeEndpointURL,
+          note:
+            "브라우저 Network 탭에서 이 websocket URL의 handshake status, close code, failed reason을 확인하세요.",
+        });
+      }
 
       if (accessToken && typeof realtimeSnapshot.setAuth === "function") {
         await realtimeSnapshot.setAuth(accessToken);
         if (isCancelled) return;
       }
 
-      console.log("[WorkTalk realtime debug] realtime:preflight:afterAuth", {
-        hasSession: Boolean(session),
-        sessionUserId: session?.user?.id ?? null,
-        sessionError: sessionError?.message ?? null,
-        expiresAt: session?.expires_at ?? null,
-        accessTokenLength: accessToken?.length ?? 0,
-        ...getRealtimeDebugState(supabase.realtime),
-      });
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] realtime:preflight:afterAuth", {
+          hasSession: Boolean(session),
+          sessionUserId: session?.user?.id ?? null,
+          sessionError: sessionError?.message ?? null,
+          expiresAt: session?.expires_at ?? null,
+          accessTokenLength: accessToken?.length ?? 0,
+          ...getRealtimeDebugState(supabase.realtime),
+        });
+      }
 
       authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
         const nextToken = nextSession?.access_token;
         if (nextToken && typeof realtimeSnapshot.setAuth === "function") {
           void realtimeSnapshot.setAuth(nextToken);
         }
-        console.log("[WorkTalk realtime debug] realtime:auth-state", {
-          event: _event,
-          hasSession: Boolean(nextSession),
-          sessionUserId: nextSession?.user?.id ?? null,
-          accessTokenLength: nextToken?.length ?? 0,
-          ...getRealtimeDebugState(supabase.realtime),
-        });
+        if (debugEnabledRef.current) {
+          console.log("[WorkTalk realtime debug] realtime:auth-state", {
+            event: _event,
+            hasSession: Boolean(nextSession),
+            sessionUserId: nextSession?.user?.id ?? null,
+            accessTokenLength: nextToken?.length ?? 0,
+            ...getRealtimeDebugState(supabase.realtime),
+          });
+        }
       }).data.subscription;
 
-      console.log("[WorkTalk realtime debug] channel:create", {
-        scope: "messages",
-        channelName: messagesChannelName,
-        currentProfileId: profileId,
-        selectedRoomId: selectedRoomIdRef.current,
-        setupState,
-      });
-      console.log("[WorkTalk realtime debug] channel:create", {
-        scope: "files",
-        channelName: filesChannelName,
-        currentProfileId: profileId,
-        selectedRoomId: selectedRoomIdRef.current,
-        setupState,
-      });
-      console.log("[WorkTalk realtime debug] channel:create", {
-        scope: "notifications",
-        channelName: notificationsChannelName,
-        currentProfileId: profileId,
-        selectedRoomId: selectedRoomIdRef.current,
-        setupState,
-      });
-      console.log("[WorkTalk realtime debug] channel:create", {
-        scope: "meta",
-        channelName: metaChannelName,
-        currentProfileId: profileId,
-        selectedRoomId: selectedRoomIdRef.current,
-        setupState,
-      });
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] channel:create", {
+          scope: "messages",
+          channelName: messagesChannelName,
+          currentProfileId: profileId,
+          selectedRoomId: selectedRoomIdRef.current,
+          setupState,
+        });
+        console.log("[WorkTalk realtime debug] channel:create", {
+          scope: "files",
+          channelName: filesChannelName,
+          currentProfileId: profileId,
+          selectedRoomId: selectedRoomIdRef.current,
+          setupState,
+        });
+        console.log("[WorkTalk realtime debug] channel:create", {
+          scope: "notifications",
+          channelName: notificationsChannelName,
+          currentProfileId: profileId,
+          selectedRoomId: selectedRoomIdRef.current,
+          setupState,
+        });
+        console.log("[WorkTalk realtime debug] channel:create", {
+          scope: "meta",
+          channelName: metaChannelName,
+          currentProfileId: profileId,
+          selectedRoomId: selectedRoomIdRef.current,
+          setupState,
+        });
+      }
       realtimeLifecycleDebug.channelCreateCount += 4;
       publishSubscriptionDebugStatus();
 
@@ -3744,26 +3794,28 @@ export function useWorkTalk() {
     void startRealtimeChannels();
 
     return () => {
-      console.log("[WorkTalk realtime debug] channel:cleanup", {
-        scope: "messages",
-        channelName: messagesChannelName,
-        selectedRoomId: selectedRoomIdRef.current,
-      });
-      console.log("[WorkTalk realtime debug] channel:cleanup", {
-        scope: "files",
-        channelName: filesChannelName,
-        selectedRoomId: selectedRoomIdRef.current,
-      });
-      console.log("[WorkTalk realtime debug] channel:cleanup", {
-        scope: "notifications",
-        channelName: notificationsChannelName,
-        selectedRoomId: selectedRoomIdRef.current,
-      });
-      console.log("[WorkTalk realtime debug] channel:cleanup", {
-        scope: "meta",
-        channelName: metaChannelName,
-        selectedRoomId: selectedRoomIdRef.current,
-      });
+      if (debugEnabledRef.current) {
+        console.log("[WorkTalk realtime debug] channel:cleanup", {
+          scope: "messages",
+          channelName: messagesChannelName,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+        console.log("[WorkTalk realtime debug] channel:cleanup", {
+          scope: "files",
+          channelName: filesChannelName,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+        console.log("[WorkTalk realtime debug] channel:cleanup", {
+          scope: "notifications",
+          channelName: notificationsChannelName,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+        console.log("[WorkTalk realtime debug] channel:cleanup", {
+          scope: "meta",
+          channelName: metaChannelName,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+      }
       if (roomRefreshTimerRef.current) {
         window.clearTimeout(roomRefreshTimerRef.current);
         roomRefreshTimerRef.current = null;
