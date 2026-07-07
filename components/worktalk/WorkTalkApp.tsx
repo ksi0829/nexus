@@ -3625,11 +3625,8 @@ export function WorkTalkApp() {
       : tailMessage?.sender_id === currentProfile?.id
         ? "messageTailKey:own-server"
         : "messageTailKey:realtime";
-    const shouldForceOwnOptimisticScroll =
-      tailMessage?.sender_id === currentProfile?.id &&
-      tailMessage?.optimistic_status === "sending";
     scheduleBottomScroll("auto", {
-      force: shouldForceOwnOptimisticScroll,
+      force: true,
       reason: tailReason,
     });
   }, [
