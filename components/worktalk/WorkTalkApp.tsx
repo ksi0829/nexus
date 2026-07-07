@@ -6676,6 +6676,76 @@ export function WorkTalkApp() {
           <strong style={{ display: "block", marginBottom: 6 }}>
             READ RECEIPT DEBUG · last read receipt event
           </strong>
+          {isNarrowLayoutNow && (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: "8px 9px 10px",
+                border: "1px solid rgba(96, 239, 203, 0.28)",
+                borderRadius: 10,
+                background: "rgba(96, 239, 203, 0.08)",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>
+                MOBILE LAYOUT DEBUG
+              </strong>
+              <div style={{ color: "rgba(223, 252, 245, 0.78)" }}>
+                [Viewport]
+              </div>
+              <div>
+                visualViewport.height:{" "}
+                {mobileLayoutDebugState.viewport.visualViewportHeight}
+              </div>
+              <div>
+                visualViewport.offsetTop:{" "}
+                {mobileLayoutDebugState.viewport.visualViewportOffsetTop}
+              </div>
+              <div>
+                window.innerHeight:{" "}
+                {mobileLayoutDebugState.viewport.windowInnerHeight}
+              </div>
+              <div>
+                document.clientHeight:{" "}
+                {mobileLayoutDebugState.viewport.documentClientHeight}
+              </div>
+              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Keyboard]
+              </div>
+              <div>keyboardOpen: {mobileLayoutDebugState.keyboard.keyboardOpen}</div>
+              <div>keyboardInset: {mobileLayoutDebugState.keyboard.keyboardInset}</div>
+              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Composer]
+              </div>
+              <div>
+                top/bottom/height: {mobileLayoutDebugState.composer.top} /{" "}
+                {mobileLayoutDebugState.composer.bottom} /{" "}
+                {mobileLayoutDebugState.composer.height}
+              </div>
+              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Message List]
+              </div>
+              <div>
+                client/scroll/top:{" "}
+                {mobileLayoutDebugState.messageList.clientHeight} /{" "}
+                {mobileLayoutDebugState.messageList.scrollHeight} /{" "}
+                {mobileLayoutDebugState.messageList.scrollTop}
+              </div>
+              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Events]
+              </div>
+              <div>
+                viewport: {mobileLayoutDebugState.events.lastViewportUpdateAt}
+              </div>
+              <div>
+                scrollToBottom:{" "}
+                {mobileLayoutDebugState.events.lastScrollToBottomAt}
+              </div>
+              <div>
+                realtime append:{" "}
+                {mobileLayoutDebugState.events.lastRealtimeAppendAt}
+              </div>
+            </div>
+          )}
           <div
             style={{
               marginBottom: 10,
@@ -7339,71 +7409,74 @@ export function WorkTalkApp() {
               ))
             )}
           </div>
-          <div
-            style={{
-              marginBottom: 10,
-              paddingBottom: 10,
-              borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
-            }}
-          >
-            <strong style={{ display: "block", marginBottom: 4 }}>
-              MOBILE LAYOUT DEBUG
-            </strong>
-            <div style={{ color: "rgba(223, 252, 245, 0.78)" }}>
-              [Viewport]
+          {!isNarrowLayoutNow && (
+            <div
+              style={{
+                marginBottom: 10,
+                paddingBottom: 10,
+                borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>
+                MOBILE LAYOUT DEBUG
+              </strong>
+              <div style={{ color: "rgba(223, 252, 245, 0.78)" }}>
+                [Viewport]
+              </div>
+              <div>
+                visualViewport.height:{" "}
+                {mobileLayoutDebugState.viewport.visualViewportHeight}
+              </div>
+              <div>
+                visualViewport.offsetTop:{" "}
+                {mobileLayoutDebugState.viewport.visualViewportOffsetTop}
+              </div>
+              <div>
+                window.innerHeight:{" "}
+                {mobileLayoutDebugState.viewport.windowInnerHeight}
+              </div>
+              <div>
+                document.documentElement.clientHeight:{" "}
+                {mobileLayoutDebugState.viewport.documentClientHeight}
+              </div>
+              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Keyboard]
+              </div>
+              <div>keyboardOpen: {mobileLayoutDebugState.keyboard.keyboardOpen}</div>
+              <div>keyboardInset: {mobileLayoutDebugState.keyboard.keyboardInset}</div>
+              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Composer]
+              </div>
+              <div>composer.top: {mobileLayoutDebugState.composer.top}</div>
+              <div>composer.bottom: {mobileLayoutDebugState.composer.bottom}</div>
+              <div>composer.height: {mobileLayoutDebugState.composer.height}</div>
+              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Message List]
+              </div>
+              <div>
+                clientHeight: {mobileLayoutDebugState.messageList.clientHeight}
+              </div>
+              <div>
+                scrollHeight: {mobileLayoutDebugState.messageList.scrollHeight}
+              </div>
+              <div>scrollTop: {mobileLayoutDebugState.messageList.scrollTop}</div>
+              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
+                [Events]
+              </div>
+              <div>
+                last viewport update:{" "}
+                {mobileLayoutDebugState.events.lastViewportUpdateAt}
+              </div>
+              <div>
+                last scrollToBottom:{" "}
+                {mobileLayoutDebugState.events.lastScrollToBottomAt}
+              </div>
+              <div>
+                last realtime append:{" "}
+                {mobileLayoutDebugState.events.lastRealtimeAppendAt}
+              </div>
             </div>
-            <div>
-              visualViewport.height:{" "}
-              {mobileLayoutDebugState.viewport.visualViewportHeight}
-            </div>
-            <div>
-              visualViewport.offsetTop:{" "}
-              {mobileLayoutDebugState.viewport.visualViewportOffsetTop}
-            </div>
-            <div>
-              window.innerHeight: {mobileLayoutDebugState.viewport.windowInnerHeight}
-            </div>
-            <div>
-              document.documentElement.clientHeight:{" "}
-              {mobileLayoutDebugState.viewport.documentClientHeight}
-            </div>
-            <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-              [Keyboard]
-            </div>
-            <div>keyboardOpen: {mobileLayoutDebugState.keyboard.keyboardOpen}</div>
-            <div>keyboardInset: {mobileLayoutDebugState.keyboard.keyboardInset}</div>
-            <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-              [Composer]
-            </div>
-            <div>composer.top: {mobileLayoutDebugState.composer.top}</div>
-            <div>composer.bottom: {mobileLayoutDebugState.composer.bottom}</div>
-            <div>composer.height: {mobileLayoutDebugState.composer.height}</div>
-            <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-              [Message List]
-            </div>
-            <div>
-              clientHeight: {mobileLayoutDebugState.messageList.clientHeight}
-            </div>
-            <div>
-              scrollHeight: {mobileLayoutDebugState.messageList.scrollHeight}
-            </div>
-            <div>scrollTop: {mobileLayoutDebugState.messageList.scrollTop}</div>
-            <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-              [Events]
-            </div>
-            <div>
-              last viewport update:{" "}
-              {mobileLayoutDebugState.events.lastViewportUpdateAt}
-            </div>
-            <div>
-              last scrollToBottom:{" "}
-              {mobileLayoutDebugState.events.lastScrollToBottomAt}
-            </div>
-            <div>
-              last realtime append:{" "}
-              {mobileLayoutDebugState.events.lastRealtimeAppendAt}
-            </div>
-          </div>
+          )}
           <div
             style={{
               marginBottom: 10,
