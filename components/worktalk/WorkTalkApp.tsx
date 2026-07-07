@@ -751,6 +751,7 @@ export function WorkTalkApp() {
       viewportWidth: 0,
       keyboardInset: 0,
       keyboardOpen: false,
+      keyboardTransitionUntil: 0,
     };
     let viewportMetricsRaf: number | null = null;
 
@@ -769,17 +770,29 @@ export function WorkTalkApp() {
         0,
         window.innerHeight - rawViewportHeight - viewportOffsetTop
       );
-      const keyboardOpen = rawKeyboardInset > 80;
+      const keyboardOpen = stableMetrics.keyboardOpen
+        ? rawKeyboardInset > 40
+        : rawKeyboardInset > 80;
       const roundedViewportHeight = Math.round(rawViewportHeight);
       const roundedViewportWidth = Math.round(rawViewportWidth);
       const roundedKeyboardInset = Math.round(rawKeyboardInset);
+      const now =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
       const keyboardStateChanged =
         stableMetrics.keyboardOpen !== keyboardOpen ||
         stableMetrics.viewportHeight === 0;
+      if (force || keyboardStateChanged) {
+        stableMetrics.keyboardTransitionUntil = keyboardOpen ? now + 450 : 0;
+      }
+      const keyboardTransitioning =
+        keyboardOpen && now < stableMetrics.keyboardTransitionUntil;
+      const keyboardMetricsLocked =
+        keyboardOpen && !keyboardTransitioning && !force;
       const shouldCommitViewportHeight =
         force ||
         keyboardStateChanged ||
-        Math.abs(roundedViewportHeight - stableMetrics.viewportHeight) >= 8;
+        (!keyboardMetricsLocked &&
+          Math.abs(roundedViewportHeight - stableMetrics.viewportHeight) >= 8);
       const shouldCommitViewportWidth =
         force ||
         stableMetrics.viewportWidth === 0 ||
@@ -787,7 +800,8 @@ export function WorkTalkApp() {
       const shouldCommitKeyboardInset =
         force ||
         keyboardStateChanged ||
-        Math.abs(roundedKeyboardInset - stableMetrics.keyboardInset) >= 12;
+        (!keyboardMetricsLocked &&
+          Math.abs(roundedKeyboardInset - stableMetrics.keyboardInset) >= 12);
       if (shouldCommitViewportHeight) {
         stableMetrics.viewportHeight = roundedViewportHeight;
       }
