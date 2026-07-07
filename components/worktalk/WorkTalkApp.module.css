@@ -1332,6 +1332,9 @@
 }
 
 .conversationPane {
+  --worktalk-composer-height: 92px;
+  --worktalk-conversation-header-height: 72px;
+  --worktalk-notice-bar-height: 0px;
   position: relative;
   display: flex;
   min-width: 0;
@@ -3627,8 +3630,12 @@
 
   .app:not(.popupApp) .conversationPane.mobileVisible {
     display: flex;
+    position: fixed;
+    inset: 0;
     width: 100%;
     height: var(--worktalk-visual-viewport-height, 100svh);
+    min-height: 0;
+    overflow: hidden;
   }
 
   .roomPaneHeader {
@@ -3640,8 +3647,20 @@
   }
 
   .conversationHeader {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
     min-height: 66px;
     padding: max(9px, env(safe-area-inset-top)) 10px 9px;
+  }
+
+  .noticeBar {
+    position: absolute;
+    z-index: 4;
+    top: var(--worktalk-conversation-header-height, 66px);
+    right: 0;
+    left: 0;
   }
 
   .headerAvatar {
@@ -3654,6 +3673,15 @@
   }
 
   .messageList {
+    position: absolute;
+    top: calc(
+      var(--worktalk-conversation-header-height, 66px) +
+        var(--worktalk-notice-bar-height, 0px)
+    );
+    right: 0;
+    bottom: var(--worktalk-composer-height, 92px);
+    left: 0;
+    flex: none;
     padding: 20px 13px;
   }
 
@@ -3662,6 +3690,11 @@
   }
 
   .composer {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 5;
     padding: 9px 10px max(11px, env(safe-area-inset-bottom));
   }
 

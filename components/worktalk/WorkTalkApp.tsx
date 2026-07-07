@@ -695,29 +695,41 @@ export function WorkTalkApp() {
       );
       const keyboardOpen = keyboardInset > 80;
       setIsTouchLandscapeLocked(shouldLockPortrait);
-      root.dataset.worktalkLandscapeLock = shouldLockPortrait ? "true" : "false";
-      root.dataset.worktalkKeyboardOpen = keyboardOpen ? "true" : "false";
-      root.style.setProperty(
+      const nextLandscapeLock = shouldLockPortrait ? "true" : "false";
+      const nextKeyboardOpen = keyboardOpen ? "true" : "false";
+      if (root.dataset.worktalkLandscapeLock !== nextLandscapeLock) {
+        root.dataset.worktalkLandscapeLock = nextLandscapeLock;
+      }
+      if (root.dataset.worktalkKeyboardOpen !== nextKeyboardOpen) {
+        root.dataset.worktalkKeyboardOpen = nextKeyboardOpen;
+      }
+
+      const setRootCssVariable = (name: string, value: string) => {
+        if (root.style.getPropertyValue(name) !== value) {
+          root.style.setProperty(name, value);
+        }
+      };
+      setRootCssVariable(
         "--worktalk-portrait-lock-width",
         `${Math.round(Math.min(window.innerWidth, window.innerHeight))}px`
       );
-      root.style.setProperty(
+      setRootCssVariable(
         "--worktalk-portrait-lock-height",
         `${Math.round(Math.max(window.innerWidth, window.innerHeight))}px`
       );
-      root.style.setProperty(
+      setRootCssVariable(
         "--worktalk-portrait-lock-rotation",
         portraitLockRotation
       );
-      root.style.setProperty(
+      setRootCssVariable(
         "--worktalk-visual-viewport-height",
         `${Math.round(viewportHeight)}px`
       );
-      root.style.setProperty(
+      setRootCssVariable(
         "--worktalk-visual-viewport-width",
         `${Math.round(viewportWidth)}px`
       );
-      root.style.setProperty(
+      setRootCssVariable(
         "--worktalk-keyboard-inset",
         `${Math.round(keyboardInset)}px`
       );
@@ -965,6 +977,9 @@ export function WorkTalkApp() {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfPreviewRef = useRef<HTMLElement>(null);
+  const conversationHeaderRef = useRef<HTMLElement>(null);
+  const noticeBarRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
   const pendingFilePreviewUrlsRef = useRef<Set<string>>(new Set());
   const roomPaneRef = useRef<HTMLElement>(null);
   const conversationPaneRef = useRef<HTMLElement>(null);
@@ -1538,6 +1553,78 @@ export function WorkTalkApp() {
     shouldShowRoomList,
     showReadReceiptDebugPanel,
     updateDeepLinkDebugStatus,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const paneElement = conversationPaneRef.current;
+    if (!paneElement) return;
+
+    const setPaneCssVariable = (name: string, value: string) => {
+      if (paneElement.style.getPropertyValue(name) !== value) {
+        paneElement.style.setProperty(name, value);
+      }
+    };
+
+    const updateMobileConversationMetrics = () => {
+      const headerHeight = conversationHeaderRef.current?.offsetHeight ?? 0;
+      const noticeHeight = noticeBarRef.current?.offsetHeight ?? 0;
+      const composerHeight = composerRef.current?.offsetHeight ?? 0;
+      setPaneCssVariable(
+        "--worktalk-conversation-header-height",
+        `${Math.round(headerHeight)}px`
+      );
+      setPaneCssVariable(
+        "--worktalk-notice-bar-height",
+        `${Math.round(noticeHeight)}px`
+      );
+      setPaneCssVariable(
+        "--worktalk-composer-height",
+        `${Math.round(composerHeight)}px`
+      );
+    };
+
+    updateMobileConversationMetrics();
+
+    const resizeObserver =
+      "ResizeObserver" in window
+        ? new ResizeObserver(updateMobileConversationMetrics)
+        : null;
+    [
+      conversationHeaderRef.current,
+      noticeBarRef.current,
+      composerRef.current,
+    ].forEach((element) => {
+      if (element) resizeObserver?.observe(element);
+    });
+
+    window.visualViewport?.addEventListener(
+      "resize",
+      updateMobileConversationMetrics
+    );
+    window.addEventListener("resize", updateMobileConversationMetrics);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.visualViewport?.removeEventListener(
+        "resize",
+        updateMobileConversationMetrics
+      );
+      window.removeEventListener("resize", updateMobileConversationMetrics);
+      paneElement.style.removeProperty("--worktalk-conversation-header-height");
+      paneElement.style.removeProperty("--worktalk-notice-bar-height");
+      paneElement.style.removeProperty("--worktalk-composer-height");
+    };
+  }, [
+    activeSection,
+    fileError,
+    mobileConversationOpen,
+    pendingFiles.length,
+    replyTarget?.id,
+    roomNotice?.message_id,
+    selectedRoom?.id,
+    selectedRoom?.room_type,
   ]);
 
   useEffect(() => {
@@ -5083,7 +5170,10 @@ export function WorkTalkApp() {
           </div>
         ) : selectedRoom ? (
           <>
-            <header className={styles.conversationHeader}>
+            <header
+              ref={conversationHeaderRef}
+              className={styles.conversationHeader}
+            >
               <button
                 type="button"
                 className={styles.mobileBack}
@@ -5253,7 +5343,7 @@ export function WorkTalkApp() {
             </header>
 
             {roomNotice && selectedRoom.room_type === "group" && (
-              <div className={styles.noticeBar}>
+              <div ref={noticeBarRef} className={styles.noticeBar}>
                 <button
                   type="button"
                   onClick={() => focusMessage(roomNotice.message_id)}
@@ -5512,7 +5602,11 @@ export function WorkTalkApp() {
               <div ref={messageEndRef} />
             </div>
 
-            <form className={styles.composer} onSubmit={submitMessage}>
+            <form
+              ref={composerRef}
+              className={styles.composer}
+              onSubmit={submitMessage}
+            >
               {selectedRoom.room_type === "approval" && (
                 <p className={styles.approvalCommandHint}>
                   현재 결재자는 채팅에 <b>승인</b> 또는 <b>반려: 사유</b>를
