@@ -677,11 +677,18 @@ export function WorkTalkApp() {
     if (typeof window === "undefined") return;
     const viewport = window.visualViewport;
     const root = document.documentElement;
+    const stableMetrics = {
+      viewportHeight: 0,
+      viewportWidth: 0,
+      keyboardInset: 0,
+      keyboardOpen: false,
+    };
+    let viewportMetricsRaf: number | null = null;
 
-    const updateViewportMetrics = () => {
-      const viewportHeight = viewport?.height || window.innerHeight;
+    const updateViewportMetrics = (force = false) => {
+      const rawViewportHeight = viewport?.height || window.innerHeight;
       const viewportOffsetTop = viewport?.offsetTop || 0;
-      const viewportWidth = viewport?.width || window.innerWidth;
+      const rawViewportWidth = viewport?.width || window.innerWidth;
       const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
       const isLandscape = window.matchMedia("(orientation: landscape)").matches;
       const shouldLockPortrait =
@@ -689,11 +696,39 @@ export function WorkTalkApp() {
         isLandscape &&
         window.innerWidth > window.innerHeight;
       const portraitLockRotation = shouldLockPortrait ? "90deg" : "0deg";
-      const keyboardInset = Math.max(
+      const rawKeyboardInset = Math.max(
         0,
-        window.innerHeight - viewportHeight - viewportOffsetTop
+        window.innerHeight - rawViewportHeight - viewportOffsetTop
       );
-      const keyboardOpen = keyboardInset > 80;
+      const keyboardOpen = rawKeyboardInset > 80;
+      const roundedViewportHeight = Math.round(rawViewportHeight);
+      const roundedViewportWidth = Math.round(rawViewportWidth);
+      const roundedKeyboardInset = Math.round(rawKeyboardInset);
+      const keyboardStateChanged =
+        stableMetrics.keyboardOpen !== keyboardOpen ||
+        stableMetrics.viewportHeight === 0;
+      const shouldCommitViewportHeight =
+        force ||
+        keyboardStateChanged ||
+        Math.abs(roundedViewportHeight - stableMetrics.viewportHeight) >= 8;
+      const shouldCommitViewportWidth =
+        force ||
+        stableMetrics.viewportWidth === 0 ||
+        Math.abs(roundedViewportWidth - stableMetrics.viewportWidth) >= 8;
+      const shouldCommitKeyboardInset =
+        force ||
+        keyboardStateChanged ||
+        Math.abs(roundedKeyboardInset - stableMetrics.keyboardInset) >= 12;
+      if (shouldCommitViewportHeight) {
+        stableMetrics.viewportHeight = roundedViewportHeight;
+      }
+      if (shouldCommitViewportWidth) {
+        stableMetrics.viewportWidth = roundedViewportWidth;
+      }
+      if (shouldCommitKeyboardInset) {
+        stableMetrics.keyboardInset = roundedKeyboardInset;
+      }
+      stableMetrics.keyboardOpen = keyboardOpen;
       setIsTouchLandscapeLocked(shouldLockPortrait);
       const nextLandscapeLock = shouldLockPortrait ? "true" : "false";
       const nextKeyboardOpen = keyboardOpen ? "true" : "false";
@@ -723,31 +758,44 @@ export function WorkTalkApp() {
       );
       setRootCssVariable(
         "--worktalk-visual-viewport-height",
-        `${Math.round(viewportHeight)}px`
+        `${stableMetrics.viewportHeight || roundedViewportHeight}px`
       );
       setRootCssVariable(
         "--worktalk-visual-viewport-width",
-        `${Math.round(viewportWidth)}px`
+        `${stableMetrics.viewportWidth || roundedViewportWidth}px`
       );
       setRootCssVariable(
         "--worktalk-keyboard-inset",
-        `${Math.round(keyboardInset)}px`
+        `${stableMetrics.keyboardInset || roundedKeyboardInset}px`
       );
     };
 
-    updateViewportMetrics();
-    viewport?.addEventListener("resize", updateViewportMetrics);
-    viewport?.addEventListener("scroll", updateViewportMetrics);
-    window.addEventListener("resize", updateViewportMetrics);
-    window.addEventListener("orientationchange", updateViewportMetrics);
-    screen.orientation?.addEventListener?.("change", updateViewportMetrics);
+    const scheduleViewportMetricsUpdate = (force = false) => {
+      if (viewportMetricsRaf !== null) {
+        window.cancelAnimationFrame(viewportMetricsRaf);
+      }
+      viewportMetricsRaf = window.requestAnimationFrame(() => {
+        viewportMetricsRaf = null;
+        updateViewportMetrics(force);
+      });
+    };
+    const handleViewportResize = () => scheduleViewportMetricsUpdate(false);
+    const handleOrientationChange = () => scheduleViewportMetricsUpdate(true);
+
+    updateViewportMetrics(true);
+    viewport?.addEventListener("resize", handleViewportResize);
+    window.addEventListener("resize", handleViewportResize);
+    window.addEventListener("orientationchange", handleOrientationChange);
+    screen.orientation?.addEventListener?.("change", handleOrientationChange);
 
     return () => {
-      viewport?.removeEventListener("resize", updateViewportMetrics);
-      viewport?.removeEventListener("scroll", updateViewportMetrics);
-      window.removeEventListener("resize", updateViewportMetrics);
-      window.removeEventListener("orientationchange", updateViewportMetrics);
-      screen.orientation?.removeEventListener?.("change", updateViewportMetrics);
+      if (viewportMetricsRaf !== null) {
+        window.cancelAnimationFrame(viewportMetricsRaf);
+      }
+      viewport?.removeEventListener("resize", handleViewportResize);
+      window.removeEventListener("resize", handleViewportResize);
+      window.removeEventListener("orientationchange", handleOrientationChange);
+      screen.orientation?.removeEventListener?.("change", handleOrientationChange);
       root.removeAttribute("data-worktalk-landscape-lock");
       root.removeAttribute("data-worktalk-keyboard-open");
       root.style.removeProperty("--worktalk-visual-viewport-height");
