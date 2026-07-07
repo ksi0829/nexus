@@ -1819,11 +1819,28 @@ export function WorkTalkApp() {
         paneElement.style.setProperty(name, value);
       }
     };
+    const stableConversationMetrics = {
+      composerHeight: 0,
+      keyboardOpen: false,
+    };
 
     const updateMobileConversationMetrics = () => {
       const headerHeight = conversationHeaderRef.current?.offsetHeight ?? 0;
       const noticeHeight = noticeBarRef.current?.offsetHeight ?? 0;
       const composerHeight = composerRef.current?.offsetHeight ?? 0;
+      const keyboardOpen =
+        document.documentElement.dataset.worktalkKeyboardOpen === "true";
+      const roundedComposerHeight = Math.round(composerHeight);
+      const keyboardStateChanged =
+        stableConversationMetrics.keyboardOpen !== keyboardOpen;
+      if (
+        !keyboardOpen ||
+        keyboardStateChanged ||
+        stableConversationMetrics.composerHeight === 0
+      ) {
+        stableConversationMetrics.composerHeight = roundedComposerHeight;
+      }
+      stableConversationMetrics.keyboardOpen = keyboardOpen;
       setPaneCssVariable(
         "--worktalk-conversation-header-height",
         `${Math.round(headerHeight)}px`
@@ -1834,7 +1851,7 @@ export function WorkTalkApp() {
       );
       setPaneCssVariable(
         "--worktalk-composer-height",
-        `${Math.round(composerHeight)}px`
+        `${stableConversationMetrics.composerHeight || roundedComposerHeight}px`
       );
     };
 

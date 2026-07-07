@@ -3704,6 +3704,14 @@
     padding-bottom: 8px;
   }
 
+  :global(html[data-worktalk-keyboard-open="true"])
+    .app.mobileConversationActive:not(.popupApp)
+    .composerInput
+    textarea {
+    height: 30px;
+    overflow-y: auto;
+  }
+
   .fileCards {
     width: min(310px, 100%);
   }
