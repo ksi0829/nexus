@@ -693,8 +693,10 @@ export function WorkTalkApp() {
         0,
         window.innerHeight - viewportHeight - viewportOffsetTop
       );
+      const keyboardOpen = keyboardInset > 80;
       setIsTouchLandscapeLocked(shouldLockPortrait);
       root.dataset.worktalkLandscapeLock = shouldLockPortrait ? "true" : "false";
+      root.dataset.worktalkKeyboardOpen = keyboardOpen ? "true" : "false";
       root.style.setProperty(
         "--worktalk-portrait-lock-width",
         `${Math.round(Math.min(window.innerWidth, window.innerHeight))}px`
@@ -735,6 +737,7 @@ export function WorkTalkApp() {
       window.removeEventListener("orientationchange", updateViewportMetrics);
       screen.orientation?.removeEventListener?.("change", updateViewportMetrics);
       root.removeAttribute("data-worktalk-landscape-lock");
+      root.removeAttribute("data-worktalk-keyboard-open");
       root.style.removeProperty("--worktalk-visual-viewport-height");
       root.style.removeProperty("--worktalk-visual-viewport-width");
       root.style.removeProperty("--worktalk-keyboard-inset");
@@ -3916,7 +3919,7 @@ export function WorkTalkApp() {
       setReplyTarget(null);
       clearPendingFiles();
       setFileError("");
-      scheduleBottomScroll();
+      scheduleBottomScroll("auto", { force: true });
       if (shouldKeepComposerFocused) {
         window.requestAnimationFrame(() => {
           if (document.activeElement !== messageInputRef.current) {

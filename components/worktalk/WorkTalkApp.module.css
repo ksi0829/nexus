@@ -3585,6 +3585,12 @@
 
   .app.mobileConversationActive:not(.popupApp) {
     grid-template-columns: minmax(0, 1fr);
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: var(--worktalk-visual-viewport-height, 100svh);
+    min-height: 0;
+    overflow: hidden;
   }
 
   .serviceRail {
@@ -3657,6 +3663,12 @@
 
   .composer {
     padding: 9px 10px max(11px, env(safe-area-inset-bottom));
+  }
+
+  :global(html[data-worktalk-keyboard-open="true"])
+    .app.mobileConversationActive:not(.popupApp)
+    .composer {
+    padding-bottom: 8px;
   }
 
   .fileCards {
