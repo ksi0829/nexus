@@ -2916,13 +2916,26 @@ export function WorkTalkApp() {
   );
   const scheduleBottomScroll = useCallback(
     (
-      behaviorOrOptions: ScrollBehavior | { extraSettle?: boolean; force?: boolean } =
+      behaviorOrOptions:
+        | ScrollBehavior
+        | { extraSettle?: boolean; force?: boolean; reason?: string } =
         "auto",
-      maybeOptions: { extraSettle?: boolean; force?: boolean } = {}
+      maybeOptions: { extraSettle?: boolean; force?: boolean; reason?: string } =
+        {}
     ) => {
       const options =
         typeof behaviorOrOptions === "object" ? behaviorOrOptions : maybeOptions;
       const listElement = messageListRef.current;
+      const reason = options.reason || "unknown";
+      const keyboardOpen =
+        typeof document !== "undefined" &&
+        document.documentElement.dataset.worktalkKeyboardOpen === "true";
+      const timestamp = new Date().toLocaleTimeString("ko-KR", {
+        hour12: false,
+      });
+      const beforeScrollTop = listElement?.scrollTop ?? null;
+      const beforeScrollHeight = listElement?.scrollHeight ?? null;
+      const beforeClientHeight = listElement?.clientHeight ?? null;
       const force =
         options.force ||
         (selectedRoomId !== null &&
@@ -2933,12 +2946,39 @@ export function WorkTalkApp() {
           listElement.clientHeight
         : 0;
       if (!force && distanceFromBottom > 220) {
+        console.info("[scheduleBottomScroll]", {
+          reason,
+          skipped: true,
+          force,
+          keyboardOpen,
+          scrollTopBefore: beforeScrollTop,
+          scrollTopAfter: beforeScrollTop,
+          scrollHeight: beforeScrollHeight,
+          clientHeight: beforeClientHeight,
+          distanceFromBottom,
+          timestamp,
+        });
         return;
       }
       clearBottomScrollTimers();
       bottomScrollRafRef.current = window.requestAnimationFrame(() => {
         bottomScrollRafRef.current = null;
         scrollConversationToBottom();
+        const afterElement = messageListRef.current;
+        console.info("[scheduleBottomScroll]", {
+          reason,
+          skipped: false,
+          force,
+          keyboardOpen:
+            typeof document !== "undefined" &&
+            document.documentElement.dataset.worktalkKeyboardOpen === "true",
+          scrollTopBefore: beforeScrollTop,
+          scrollTopAfter: afterElement?.scrollTop ?? null,
+          scrollHeight: afterElement?.scrollHeight ?? beforeScrollHeight,
+          clientHeight: afterElement?.clientHeight ?? beforeClientHeight,
+          distanceFromBottom,
+          timestamp,
+        });
         recordMobileLayoutDebugEvent("lastScrollToBottomAt");
         if (selectedRoomId !== null) {
           lastBottomScrollRoomIdRef.current = selectedRoomId;
@@ -2959,7 +2999,10 @@ export function WorkTalkApp() {
       userOpenedRoomRef.current = true;
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
-      scheduleBottomScroll("auto", { force: true });
+      scheduleBottomScroll("auto", {
+        force: true,
+        reason: "notification-open",
+      });
     },
     [markNotificationRead, scheduleBottomScroll, selectRoom]
   );
@@ -3461,7 +3504,10 @@ export function WorkTalkApp() {
       setServiceWorkerDeepLink(null);
       window.history.replaceState({}, "", "/worktalk");
       if (!deepLink.messageId) {
-        scheduleBottomScroll("auto", { force: true });
+        scheduleBottomScroll("auto", {
+          force: true,
+          reason: "push-deep-link",
+        });
       }
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -3523,7 +3569,7 @@ export function WorkTalkApp() {
         .querySelector(`[data-message-id="${focusedMessageId}"]`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
       if (focusedMessageId === filteredMessages.at(-1)?.id) {
-        scheduleBottomScroll();
+        scheduleBottomScroll({ reason: "focused-message-tail" });
       }
     }, 80);
     const clearTimeoutId = window.setTimeout(() => {
@@ -3543,8 +3589,21 @@ export function WorkTalkApp() {
 
   useEffect(() => {
     if (!selectedRoomId || focusedMessageId || !messageTailKey) return;
-    scheduleBottomScroll("auto");
-  }, [focusedMessageId, messageTailKey, scheduleBottomScroll, selectedRoomId]);
+    const tailMessage = filteredMessages.at(-1);
+    const tailReason = tailMessage?.optimistic_status
+      ? `messageTailKey:${tailMessage.optimistic_status}`
+      : tailMessage?.sender_id === currentProfile?.id
+        ? "messageTailKey:own-server"
+        : "messageTailKey:realtime";
+    scheduleBottomScroll("auto", { reason: tailReason });
+  }, [
+    currentProfile?.id,
+    filteredMessages,
+    focusedMessageId,
+    messageTailKey,
+    scheduleBottomScroll,
+    selectedRoomId,
+  ]);
 
   useEffect(
     () => () => {
@@ -3630,7 +3689,7 @@ export function WorkTalkApp() {
         activeSection === "chat" &&
         selectedRoomId
       ) {
-        scheduleBottomScroll();
+        scheduleBottomScroll({ reason: "visibility-focus" });
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
@@ -3757,7 +3816,10 @@ export function WorkTalkApp() {
       latestNotification.message_id
     ) {
       selectRoom(latestNotificationRoomId, latestNotification.message_id);
-      scheduleBottomScroll("auto", { force: true });
+      scheduleBottomScroll("auto", {
+        force: true,
+        reason: "notification-current-room",
+      });
     }
 
     if (isNexusDesktopApp) {
@@ -3947,7 +4009,7 @@ export function WorkTalkApp() {
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
     registerMobileConversationHistory(normalizedRoomId);
-    scheduleBottomScroll();
+    scheduleBottomScroll({ reason: "open-room" });
   }
 
   function handleRoomPointerDown(
@@ -4015,7 +4077,10 @@ export function WorkTalkApp() {
         target.scrollIntoView({ block: "center", behavior: "smooth" });
         return;
       }
-      scheduleBottomScroll("auto", { force: true });
+      scheduleBottomScroll("auto", {
+        force: true,
+        reason: "search-result-fallback",
+      });
     }, 250);
   }
 
@@ -4344,7 +4409,10 @@ export function WorkTalkApp() {
       setReplyTarget(null);
       clearPendingFiles();
       setFileError("");
-      scheduleBottomScroll("auto", { force: true });
+      scheduleBottomScroll("auto", {
+        force: true,
+        reason: "send-success",
+      });
       if (shouldKeepComposerFocused) {
         window.requestAnimationFrame(() => {
           if (document.activeElement !== messageInputRef.current) {
