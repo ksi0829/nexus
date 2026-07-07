@@ -3843,7 +3843,8 @@ export function WorkTalkApp() {
     if (
       notificationTargetsCurrentRoom &&
       latestNotificationRoomId &&
-      latestNotification.message_id
+      latestNotification.message_id &&
+      !activeRoomIsVisible
     ) {
       selectRoom(latestNotificationRoomId, latestNotification.message_id);
       scheduleBottomScroll("auto", {
