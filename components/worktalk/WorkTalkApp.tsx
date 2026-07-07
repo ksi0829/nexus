@@ -144,44 +144,6 @@ type WorkTalkUxDebugEvent = {
   clientStates?: string | null;
   timestamp: string;
 };
-type MobileLayoutDebugState = {
-  viewport: {
-    visualViewportHeight: string;
-    visualViewportOffsetTop: string;
-    windowInnerHeight: string;
-    documentClientHeight: string;
-  };
-  keyboard: {
-    keyboardOpen: string;
-    keyboardInset: string;
-  };
-  composer: {
-    top: string;
-    bottom: string;
-    height: string;
-  };
-  messageList: {
-    clientHeight: string;
-    scrollHeight: string;
-    scrollTop: string;
-  };
-  events: {
-    lastViewportUpdateAt: string;
-    lastScrollToBottomAt: string;
-    lastRealtimeAppendAt: string;
-  };
-};
-
-type BottomScrollDebugEvent = {
-  timestamp: string;
-  reason: string;
-  force: boolean;
-  skipped: boolean;
-  keyboardOpen: boolean;
-  scrollTopBefore: number | null;
-  scrollTopAfter: number | null;
-  distanceFromBottom: number;
-};
 type DeepLinkDebugStatus = {
   pendingDeepLinkRoomId: number | null;
   serviceWorkerDeepLinkRoomId: number | null;
@@ -702,48 +664,6 @@ function formatDebugRect(rect: DOMRect | null) {
   )} h:${round(rect.height)} top:${round(rect.top)} left:${round(rect.left)}`;
 }
 
-function formatMobileLayoutDebugMetric(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "null";
-  return String(Math.round(value * 10) / 10);
-}
-
-function formatMobileLayoutDebugTime() {
-  const now = new Date();
-  return `${now.toLocaleTimeString("ko-KR", {
-    hour12: false,
-  })}.${String(now.getMilliseconds()).padStart(3, "0")}`;
-}
-
-function createEmptyMobileLayoutDebugState(): MobileLayoutDebugState {
-  return {
-    viewport: {
-      visualViewportHeight: "waiting",
-      visualViewportOffsetTop: "waiting",
-      windowInnerHeight: "waiting",
-      documentClientHeight: "waiting",
-    },
-    keyboard: {
-      keyboardOpen: "waiting",
-      keyboardInset: "waiting",
-    },
-    composer: {
-      top: "waiting",
-      bottom: "waiting",
-      height: "waiting",
-    },
-    messageList: {
-      clientHeight: "waiting",
-      scrollHeight: "waiting",
-      scrollTop: "waiting",
-    },
-    events: {
-      lastViewportUpdateAt: "waiting",
-      lastScrollToBottomAt: "waiting",
-      lastRealtimeAppendAt: "waiting",
-    },
-  };
-}
-
 export function WorkTalkApp() {
   const router = useRouter();
   const appRootRef = useRef<HTMLElement>(null);
@@ -1071,11 +991,6 @@ export function WorkTalkApp() {
   const [uxDebugEvents, setUxDebugEvents] = useState<WorkTalkUxDebugEvent[]>(
     []
   );
-  const [mobileLayoutDebugState, setMobileLayoutDebugState] =
-    useState<MobileLayoutDebugState>(() => createEmptyMobileLayoutDebugState());
-  const [bottomScrollDebugEvents, setBottomScrollDebugEvents] = useState<
-    BottomScrollDebugEvent[]
-  >([]);
   const [approvalBackupStatus, setApprovalBackupStatus] =
     useState<ApprovalBackupStatus | null>(null);
   const [approvalBackupMessage, setApprovalBackupMessage] = useState("");
@@ -1127,16 +1042,6 @@ export function WorkTalkApp() {
   const conversationHeaderRef = useRef<HTMLElement>(null);
   const noticeBarRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
-  const mobileLayoutDebugStateRef = useRef<MobileLayoutDebugState>(
-    createEmptyMobileLayoutDebugState()
-  );
-  const mobileLayoutDebugLastPublishRef = useRef(0);
-  const mobileLayoutDebugThrottleRef = useRef<number | null>(null);
-  const mobileLayoutDebugEventTimesRef = useRef({
-    lastViewportUpdateAt: "waiting",
-    lastScrollToBottomAt: "waiting",
-    lastRealtimeAppendAt: "waiting",
-  });
   const pendingFilePreviewUrlsRef = useRef<Set<string>>(new Set());
   const roomPaneRef = useRef<HTMLElement>(null);
   const conversationPaneRef = useRef<HTMLElement>(null);
@@ -1266,123 +1171,6 @@ export function WorkTalkApp() {
       (event) => event.scope === "notification" || event.scope === "vibration"
     )
     .slice(0, 10);
-  const getMobileLayoutDebugSnapshot = useCallback((): MobileLayoutDebugState => {
-    if (typeof window === "undefined") {
-      return mobileLayoutDebugStateRef.current;
-    }
-
-    const visualViewport = window.visualViewport;
-    const documentElement = document.documentElement;
-    const composerRect = composerRef.current?.getBoundingClientRect() ?? null;
-    const messageListElement = messageListRef.current;
-    const keyboardInset = Math.max(
-      0,
-      window.innerHeight -
-        (visualViewport?.height ?? window.innerHeight) -
-        (visualViewport?.offsetTop ?? 0)
-    );
-    const keyboardOpen =
-      keyboardInset > 80 ||
-      documentElement.dataset.worktalkKeyboardOpen === "true";
-
-    return {
-      viewport: {
-        visualViewportHeight: formatMobileLayoutDebugMetric(
-          visualViewport?.height
-        ),
-        visualViewportOffsetTop: formatMobileLayoutDebugMetric(
-          visualViewport?.offsetTop
-        ),
-        windowInnerHeight: formatMobileLayoutDebugMetric(window.innerHeight),
-        documentClientHeight: formatMobileLayoutDebugMetric(
-          documentElement.clientHeight
-        ),
-      },
-      keyboard: {
-        keyboardOpen: String(keyboardOpen),
-        keyboardInset: formatMobileLayoutDebugMetric(keyboardInset),
-      },
-      composer: {
-        top: formatMobileLayoutDebugMetric(composerRect?.top),
-        bottom: formatMobileLayoutDebugMetric(composerRect?.bottom),
-        height: formatMobileLayoutDebugMetric(composerRect?.height),
-      },
-      messageList: {
-        clientHeight: formatMobileLayoutDebugMetric(
-          messageListElement?.clientHeight
-        ),
-        scrollHeight: formatMobileLayoutDebugMetric(
-          messageListElement?.scrollHeight
-        ),
-        scrollTop: formatMobileLayoutDebugMetric(messageListElement?.scrollTop),
-      },
-      events: {
-        ...mobileLayoutDebugEventTimesRef.current,
-      },
-    };
-  }, []);
-  const publishMobileLayoutDebugSnapshot = useCallback(() => {
-    if (!showReadReceiptDebugPanel) return;
-
-    const nextSnapshot = getMobileLayoutDebugSnapshot();
-    if (
-      JSON.stringify(nextSnapshot) ===
-      JSON.stringify(mobileLayoutDebugStateRef.current)
-    ) {
-      return;
-    }
-
-    mobileLayoutDebugStateRef.current = nextSnapshot;
-    mobileLayoutDebugLastPublishRef.current =
-      typeof performance !== "undefined" ? performance.now() : Date.now();
-    setMobileLayoutDebugState(nextSnapshot);
-  }, [getMobileLayoutDebugSnapshot, showReadReceiptDebugPanel]);
-  const scheduleMobileLayoutDebugSnapshot = useCallback(() => {
-    if (!showReadReceiptDebugPanel || typeof window === "undefined") return;
-
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-    const elapsed = now - mobileLayoutDebugLastPublishRef.current;
-    const delay = Math.max(0, 200 - elapsed);
-
-    if (delay === 0) {
-      if (mobileLayoutDebugThrottleRef.current !== null) {
-        window.clearTimeout(mobileLayoutDebugThrottleRef.current);
-        mobileLayoutDebugThrottleRef.current = null;
-      }
-      publishMobileLayoutDebugSnapshot();
-      return;
-    }
-
-    if (mobileLayoutDebugThrottleRef.current !== null) return;
-    mobileLayoutDebugThrottleRef.current = window.setTimeout(() => {
-      mobileLayoutDebugThrottleRef.current = null;
-      publishMobileLayoutDebugSnapshot();
-    }, delay);
-  }, [publishMobileLayoutDebugSnapshot, showReadReceiptDebugPanel]);
-  const recordMobileLayoutDebugEvent = useCallback(
-    (
-      eventName:
-        | "lastViewportUpdateAt"
-        | "lastScrollToBottomAt"
-        | "lastRealtimeAppendAt"
-    ) => {
-      if (!showReadReceiptDebugPanel) return;
-
-      mobileLayoutDebugEventTimesRef.current = {
-        ...mobileLayoutDebugEventTimesRef.current,
-        [eventName]: formatMobileLayoutDebugTime(),
-      };
-      scheduleMobileLayoutDebugSnapshot();
-    },
-    [scheduleMobileLayoutDebugSnapshot, showReadReceiptDebugPanel]
-  );
-  const appendBottomScrollDebugEvent = useCallback(
-    (event: BottomScrollDebugEvent) => {
-      if (!showReadReceiptDebugPanel) return;
-      setBottomScrollDebugEvents((current) => [event, ...current].slice(0, 20));
-    },
-    [showReadReceiptDebugPanel]
-  );
   const messagePerformanceSummary = useMemo(() => {
     const samples = messageLatencyEvents
       .map((event) => ({
@@ -1979,68 +1767,6 @@ export function WorkTalkApp() {
       window.visualViewport?.removeEventListener("resize", recordViewport);
     };
   }, [appendUxDebugEvent, isTouchLandscapeLocked, showReadReceiptDebugPanel]);
-
-  useEffect(() => {
-    if (!showReadReceiptDebugPanel) return;
-
-    const recordViewportUpdate = () => {
-      recordMobileLayoutDebugEvent("lastViewportUpdateAt");
-    };
-    const recordSnapshotOnly = () => {
-      scheduleMobileLayoutDebugSnapshot();
-    };
-
-    recordViewportUpdate();
-    window.addEventListener("resize", recordViewportUpdate);
-    window.addEventListener("orientationchange", recordViewportUpdate);
-    window.visualViewport?.addEventListener("resize", recordViewportUpdate);
-    window.visualViewport?.addEventListener("scroll", recordViewportUpdate);
-
-    const messageListElement = messageListRef.current;
-    messageListElement?.addEventListener("scroll", recordSnapshotOnly, {
-      passive: true,
-    });
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      resizeObserver = new ResizeObserver(recordSnapshotOnly);
-      if (composerRef.current) resizeObserver.observe(composerRef.current);
-      if (messageListElement) resizeObserver.observe(messageListElement);
-    }
-
-    return () => {
-      window.removeEventListener("resize", recordViewportUpdate);
-      window.removeEventListener("orientationchange", recordViewportUpdate);
-      window.visualViewport?.removeEventListener("resize", recordViewportUpdate);
-      window.visualViewport?.removeEventListener("scroll", recordViewportUpdate);
-      messageListElement?.removeEventListener("scroll", recordSnapshotOnly);
-      resizeObserver?.disconnect();
-      if (mobileLayoutDebugThrottleRef.current !== null) {
-        window.clearTimeout(mobileLayoutDebugThrottleRef.current);
-        mobileLayoutDebugThrottleRef.current = null;
-      }
-    };
-  }, [
-    activeSection,
-    mobileConversationOpen,
-    recordMobileLayoutDebugEvent,
-    scheduleMobileLayoutDebugSnapshot,
-    selectedRoomId,
-    showReadReceiptDebugPanel,
-  ]);
-
-  useEffect(() => {
-    if (!showReadReceiptDebugPanel) return;
-    if (!realtimeDebugStatus.timestamp) return;
-    if (realtimeDebugStatus.currentMessagesAppendAttempted !== true) return;
-
-    recordMobileLayoutDebugEvent("lastRealtimeAppendAt");
-  }, [
-    realtimeDebugStatus.currentMessagesAppendAttempted,
-    realtimeDebugStatus.timestamp,
-    recordMobileLayoutDebugEvent,
-    showReadReceiptDebugPanel,
-  ]);
 
   useEffect(() => {
     if (confirmedDeepLinkOpenedRef.current) return;
@@ -2947,30 +2673,6 @@ export function WorkTalkApp() {
       const options =
         typeof behaviorOrOptions === "object" ? behaviorOrOptions : maybeOptions;
       const listElement = messageListRef.current;
-      const reason = options.reason || "unknown";
-      const keyboardOpen =
-        typeof document !== "undefined" &&
-        document.documentElement.dataset.worktalkKeyboardOpen === "true";
-      const timestamp = new Date().toLocaleTimeString("ko-KR", {
-        hour12: false,
-      });
-      const beforeScrollTop = listElement?.scrollTop ?? null;
-      const beforeScrollHeight = listElement?.scrollHeight ?? null;
-      const beforeClientHeight = listElement?.clientHeight ?? null;
-      const publishBottomScrollDebug = (
-        payload: Omit<BottomScrollDebugEvent, "timestamp">
-      ) => {
-        const event = {
-          ...payload,
-          timestamp,
-        };
-        console.info("[scheduleBottomScroll]", {
-          ...event,
-          scrollHeight: beforeScrollHeight,
-          clientHeight: beforeClientHeight,
-        });
-        appendBottomScrollDebugEvent(event);
-      };
       const force =
         options.force ||
         (selectedRoomId !== null &&
@@ -2980,35 +2682,11 @@ export function WorkTalkApp() {
           listElement.scrollTop -
           listElement.clientHeight
         : 0;
-      if (!force && distanceFromBottom > 220) {
-        publishBottomScrollDebug({
-          reason,
-          skipped: true,
-          force,
-          keyboardOpen,
-          scrollTopBefore: beforeScrollTop,
-          scrollTopAfter: beforeScrollTop,
-          distanceFromBottom,
-        });
-        return;
-      }
+      if (!force && distanceFromBottom > 220) return;
       clearBottomScrollTimers();
       bottomScrollRafRef.current = window.requestAnimationFrame(() => {
         bottomScrollRafRef.current = null;
         scrollConversationToBottom();
-        const afterElement = messageListRef.current;
-        publishBottomScrollDebug({
-          reason,
-          skipped: false,
-          force,
-          keyboardOpen:
-            typeof document !== "undefined" &&
-            document.documentElement.dataset.worktalkKeyboardOpen === "true",
-          scrollTopBefore: beforeScrollTop,
-          scrollTopAfter: afterElement?.scrollTop ?? null,
-          distanceFromBottom,
-        });
-        recordMobileLayoutDebugEvent("lastScrollToBottomAt");
         if (selectedRoomId !== null) {
           lastBottomScrollRoomIdRef.current = selectedRoomId;
         }
@@ -3016,8 +2694,6 @@ export function WorkTalkApp() {
     },
     [
       clearBottomScrollTimers,
-      appendBottomScrollDebugEvent,
-      recordMobileLayoutDebugEvent,
       scrollConversationToBottom,
       selectedRoomId,
     ]
@@ -6782,16 +6458,15 @@ export function WorkTalkApp() {
           aria-label="READ RECEIPT DEBUG"
           style={{
             position: "fixed",
-            top: isNarrowLayoutNow ? 0 : undefined,
-            left: isNarrowLayoutNow ? 0 : 88,
-            right: isNarrowLayoutNow ? 0 : 12,
-            bottom: isNarrowLayoutNow ? undefined : 12,
+            left: isNarrowLayoutNow ? 12 : 88,
+            right: 12,
+            bottom: 12,
             zIndex: 2147483647,
-            maxHeight: isNarrowLayoutNow ? "46vh" : "38vh",
+            maxHeight: "38vh",
             overflowY: "auto",
             padding: "10px 12px",
             border: "1px solid rgba(96, 239, 203, 0.45)",
-            borderRadius: isNarrowLayoutNow ? "0 0 14px 14px" : 14,
+            borderRadius: 14,
             background: "rgba(5, 17, 25, 0.92)",
             boxShadow: "0 16px 40px rgba(0, 0, 0, 0.28)",
             color: "#dffcf5",
@@ -6805,114 +6480,6 @@ export function WorkTalkApp() {
           <strong style={{ display: "block", marginBottom: 6 }}>
             READ RECEIPT DEBUG · last read receipt event
           </strong>
-          {isNarrowLayoutNow && (
-            <div
-              style={{
-                marginBottom: 10,
-                padding: "8px 9px 10px",
-                border: "1px solid rgba(96, 239, 203, 0.28)",
-                borderRadius: 10,
-                background: "rgba(96, 239, 203, 0.08)",
-              }}
-            >
-              <strong style={{ display: "block", marginBottom: 4 }}>
-                MOBILE LAYOUT DEBUG
-              </strong>
-              <div style={{ color: "rgba(223, 252, 245, 0.78)" }}>
-                [Viewport]
-              </div>
-              <div>
-                visualViewport.height:{" "}
-                {mobileLayoutDebugState.viewport.visualViewportHeight}
-              </div>
-              <div>
-                visualViewport.offsetTop:{" "}
-                {mobileLayoutDebugState.viewport.visualViewportOffsetTop}
-              </div>
-              <div>
-                window.innerHeight:{" "}
-                {mobileLayoutDebugState.viewport.windowInnerHeight}
-              </div>
-              <div>
-                document.clientHeight:{" "}
-                {mobileLayoutDebugState.viewport.documentClientHeight}
-              </div>
-              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Keyboard]
-              </div>
-              <div>keyboardOpen: {mobileLayoutDebugState.keyboard.keyboardOpen}</div>
-              <div>keyboardInset: {mobileLayoutDebugState.keyboard.keyboardInset}</div>
-              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Composer]
-              </div>
-              <div>
-                top/bottom/height: {mobileLayoutDebugState.composer.top} /{" "}
-                {mobileLayoutDebugState.composer.bottom} /{" "}
-                {mobileLayoutDebugState.composer.height}
-              </div>
-              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Message List]
-              </div>
-              <div>
-                client/scroll/top:{" "}
-                {mobileLayoutDebugState.messageList.clientHeight} /{" "}
-                {mobileLayoutDebugState.messageList.scrollHeight} /{" "}
-                {mobileLayoutDebugState.messageList.scrollTop}
-              </div>
-              <div style={{ marginTop: 5, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Events]
-              </div>
-              <div>
-                viewport: {mobileLayoutDebugState.events.lastViewportUpdateAt}
-              </div>
-              <div>
-                scrollToBottom:{" "}
-                {mobileLayoutDebugState.events.lastScrollToBottomAt}
-              </div>
-              <div>
-                realtime append:{" "}
-                {mobileLayoutDebugState.events.lastRealtimeAppendAt}
-              </div>
-              <div style={{ marginTop: 7, color: "rgba(223, 252, 245, 0.78)" }}>
-                [scheduleBottomScroll recent 20]
-              </div>
-              {bottomScrollDebugEvents.length === 0 ? (
-                <div style={{ color: "rgba(223, 252, 245, 0.58)" }}>
-                  waiting...
-                </div>
-              ) : (
-                bottomScrollDebugEvents.map((event, index) => (
-                  <div
-                    key={`${event.timestamp}-${event.reason}-${index}`}
-                    style={{
-                      paddingTop: index === 0 ? 0 : 4,
-                      marginTop: index === 0 ? 0 : 4,
-                      borderTop:
-                        index === 0
-                          ? "none"
-                          : "1px solid rgba(223, 252, 245, 0.12)",
-                    }}
-                  >
-                    <div>
-                      #{index + 1} {event.timestamp} · {event.reason}
-                    </div>
-                    <div>
-                      force/skipped/keyboard: {String(event.force)} /{" "}
-                      {String(event.skipped)} / {String(event.keyboardOpen)}
-                    </div>
-                    <div>
-                      scrollTop: {event.scrollTopBefore ?? "null"} →{" "}
-                      {event.scrollTopAfter ?? "null"}
-                    </div>
-                    <div>
-                      distanceFromBottom:{" "}
-                      {Math.round(event.distanceFromBottom * 10) / 10}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
           <div
             style={{
               marginBottom: 10,
@@ -7576,113 +7143,6 @@ export function WorkTalkApp() {
               ))
             )}
           </div>
-          {!isNarrowLayoutNow && (
-            <div
-              style={{
-                marginBottom: 10,
-                paddingBottom: 10,
-                borderBottom: "1px solid rgba(223, 252, 245, 0.24)",
-              }}
-            >
-              <strong style={{ display: "block", marginBottom: 4 }}>
-                MOBILE LAYOUT DEBUG
-              </strong>
-              <div style={{ color: "rgba(223, 252, 245, 0.78)" }}>
-                [Viewport]
-              </div>
-              <div>
-                visualViewport.height:{" "}
-                {mobileLayoutDebugState.viewport.visualViewportHeight}
-              </div>
-              <div>
-                visualViewport.offsetTop:{" "}
-                {mobileLayoutDebugState.viewport.visualViewportOffsetTop}
-              </div>
-              <div>
-                window.innerHeight:{" "}
-                {mobileLayoutDebugState.viewport.windowInnerHeight}
-              </div>
-              <div>
-                document.documentElement.clientHeight:{" "}
-                {mobileLayoutDebugState.viewport.documentClientHeight}
-              </div>
-              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Keyboard]
-              </div>
-              <div>keyboardOpen: {mobileLayoutDebugState.keyboard.keyboardOpen}</div>
-              <div>keyboardInset: {mobileLayoutDebugState.keyboard.keyboardInset}</div>
-              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Composer]
-              </div>
-              <div>composer.top: {mobileLayoutDebugState.composer.top}</div>
-              <div>composer.bottom: {mobileLayoutDebugState.composer.bottom}</div>
-              <div>composer.height: {mobileLayoutDebugState.composer.height}</div>
-              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Message List]
-              </div>
-              <div>
-                clientHeight: {mobileLayoutDebugState.messageList.clientHeight}
-              </div>
-              <div>
-                scrollHeight: {mobileLayoutDebugState.messageList.scrollHeight}
-              </div>
-              <div>scrollTop: {mobileLayoutDebugState.messageList.scrollTop}</div>
-              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-                [Events]
-              </div>
-              <div>
-                last viewport update:{" "}
-                {mobileLayoutDebugState.events.lastViewportUpdateAt}
-              </div>
-              <div>
-                last scrollToBottom:{" "}
-                {mobileLayoutDebugState.events.lastScrollToBottomAt}
-              </div>
-              <div>
-                last realtime append:{" "}
-                {mobileLayoutDebugState.events.lastRealtimeAppendAt}
-              </div>
-              <div style={{ marginTop: 6, color: "rgba(223, 252, 245, 0.78)" }}>
-                [scheduleBottomScroll recent 20]
-              </div>
-              {bottomScrollDebugEvents.length === 0 ? (
-                <div style={{ color: "rgba(223, 252, 245, 0.58)" }}>
-                  waiting...
-                </div>
-              ) : (
-                bottomScrollDebugEvents.map((event, index) => (
-                  <div
-                    key={`${event.timestamp}-${event.reason}-${index}`}
-                    style={{
-                      paddingTop: index === 0 ? 0 : 5,
-                      marginTop: index === 0 ? 0 : 5,
-                      borderTop:
-                        index === 0
-                          ? "none"
-                          : "1px solid rgba(223, 252, 245, 0.12)",
-                    }}
-                  >
-                    <div>
-                      #{index + 1} {event.timestamp} · {event.reason}
-                    </div>
-                    <div>
-                      force: {String(event.force)} / skipped:{" "}
-                      {String(event.skipped)} / keyboardOpen:{" "}
-                      {String(event.keyboardOpen)}
-                    </div>
-                    <div>
-                      scrollTop: {event.scrollTopBefore ?? "null"} →{" "}
-                      {event.scrollTopAfter ?? "null"}
-                    </div>
-                    <div>
-                      distanceFromBottom:{" "}
-                      {Math.round(event.distanceFromBottom * 10) / 10}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
           <div
             style={{
               marginBottom: 10,
