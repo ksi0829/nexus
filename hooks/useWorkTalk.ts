@@ -2557,9 +2557,13 @@ export function useWorkTalk() {
         if (error) throw error;
         void requestPushDelivery(targetRoomId);
         if (selectedRoomIdRef.current === targetRoomId) {
-          await loadMessages(targetRoomId);
+          window.setTimeout(() => {
+            if (selectedRoomIdRef.current === targetRoomId) {
+              void loadMessages(targetRoomId, undefined, { background: true });
+            }
+          }, 1200);
         }
-        await loadRooms(selectedRoomIdRef.current);
+        scheduleRoomRefresh(targetRoomId);
         return true;
       } catch (error) {
         await Promise.all(
@@ -2576,7 +2580,7 @@ export function useWorkTalk() {
     [
       currentProfile?.id,
       loadMessages,
-      loadRooms,
+      scheduleRoomRefresh,
       sending,
     ]
   );

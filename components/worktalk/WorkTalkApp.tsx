@@ -2701,6 +2701,48 @@ export function WorkTalkApp() {
   const openNotification = useCallback(
     async (notification: WorkTalkNotification) => {
       await markNotificationRead(notification.id);
+      const normalizedRoomId = Number(notification.room_id);
+      const shouldUseSameWindowConversation =
+        typeof window !== "undefined" &&
+        window.matchMedia("(pointer: coarse)").matches &&
+        window.matchMedia("(hover: none)").matches;
+
+      if (
+        !popupMode &&
+        !shouldUseSameWindowConversation &&
+        Number.isFinite(normalizedRoomId)
+      ) {
+        const popupWidth = 520;
+        const popupHeight = 780;
+        const popupLeft = Math.max(
+          0,
+          Math.round(window.screenX + (window.outerWidth - popupWidth) / 2)
+        );
+        const popupTop = Math.max(
+          0,
+          Math.round(window.screenY + (window.outerHeight - popupHeight) / 2)
+        );
+        const focusParam = notification.message_id
+          ? `&message=${notification.message_id}`
+          : "";
+        const popupName = `nexus-worktalk-room-${normalizedRoomId}`;
+        const popup = window.open(
+          `/worktalk?room=${normalizedRoomId}${focusParam}&popup=1`,
+          popupName,
+          `popup=yes,width=${popupWidth},height=${popupHeight},left=${popupLeft},top=${popupTop},resizable=yes,scrollbars=no`
+        );
+        if (popup) {
+          try {
+            popup.resizeTo(popupWidth, popupHeight);
+            popup.moveTo(popupLeft, popupTop);
+          } catch {
+            // Some browsers block moving/resizing reused windows; focusing is enough.
+          }
+          popup.focus();
+          return;
+        }
+      }
+
       setActiveSection("chat");
       userOpenedRoomRef.current = true;
       selectRoom(notification.room_id, notification.message_id);
@@ -2710,7 +2752,7 @@ export function WorkTalkApp() {
         reason: "notification-open",
       });
     },
-    [markNotificationRead, scheduleBottomScroll, selectRoom]
+    [markNotificationRead, popupMode, scheduleBottomScroll, selectRoom]
   );
 
   useEffect(() => {
