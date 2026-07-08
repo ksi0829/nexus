@@ -1207,6 +1207,9 @@ export function WorkTalkApp() {
   const readAllowedRef = useRef(false);
   const lastVibratedNotificationIdRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
+  const bottomScrollSettleTimeoutsRef = useRef<number[]>([]);
+  const bottomScrollProgrammaticUntilRef = useRef(0);
+  const bottomScrollUserScrollVersionRef = useRef(0);
   const lastBottomScrollRoomIdRef = useRef<number | null>(null);
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
@@ -2859,9 +2862,14 @@ export function WorkTalkApp() {
       window.cancelAnimationFrame(bottomScrollRafRef.current);
       bottomScrollRafRef.current = null;
     }
+    bottomScrollSettleTimeoutsRef.current.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    bottomScrollSettleTimeoutsRef.current = [];
   }, []);
   const scrollConversationToBottom = useCallback(
     () => {
+      bottomScrollProgrammaticUntilRef.current = Date.now() + 80;
       const listElement = messageListRef.current;
       if (listElement) {
         listElement.scrollTop = listElement.scrollHeight;
@@ -2900,6 +2908,22 @@ export function WorkTalkApp() {
         if (selectedRoomId !== null) {
           lastBottomScrollRoomIdRef.current = selectedRoomId;
         }
+
+        if (options.extraSettle) {
+          const settleRoomId = selectedRoomId;
+          const settleScrollVersion = bottomScrollUserScrollVersionRef.current;
+          bottomScrollSettleTimeoutsRef.current = [80, 220].map((delay) =>
+            window.setTimeout(() => {
+              if (
+                settleRoomId !== selectedRoomIdUiRef.current ||
+                settleScrollVersion !== bottomScrollUserScrollVersionRef.current
+              ) {
+                return;
+              }
+              scrollConversationToBottom();
+            }, delay)
+          );
+        }
       });
     },
     [
@@ -2908,6 +2932,10 @@ export function WorkTalkApp() {
       selectedRoomId,
     ]
   );
+  const handleMessageListScroll = useCallback(() => {
+    if (Date.now() <= bottomScrollProgrammaticUntilRef.current) return;
+    bottomScrollUserScrollVersionRef.current += 1;
+  }, []);
   const openNotification = useCallback(
     async (notification: WorkTalkNotification) => {
       await markNotificationRead(notification.id);
@@ -3957,6 +3985,12 @@ export function WorkTalkApp() {
     if (normalizedRoomId === selectedRoomId) {
       if (focusMessageId) {
         selectRoom(normalizedRoomId, focusMessageId);
+      } else {
+        scheduleBottomScroll({
+          extraSettle: true,
+          force: true,
+          reason: "open-room-selected",
+        });
       }
       setMobileConversationOpen(true);
       registerMobileConversationHistory(normalizedRoomId);
@@ -3972,7 +4006,11 @@ export function WorkTalkApp() {
     setRoomMenuOpen(false);
     setMobileConversationOpen(true);
     registerMobileConversationHistory(normalizedRoomId);
-    scheduleBottomScroll({ reason: "open-room" });
+    scheduleBottomScroll({
+      extraSettle: true,
+      force: true,
+      reason: "open-room",
+    });
   }
 
   function openRoomContextMenu(
@@ -4483,7 +4521,8 @@ export function WorkTalkApp() {
         : roomAction === "direct-leave"
           ? await leaveDirectRoom(
               selectedRoom.id,
-              activeDirectMemberCount <= 1
+              activeDirectMemberCount <= 1,
+              "room-action-confirm:direct-hide"
             )
           : await leaveGroupRoom(selectedRoom.id);
     setRoomActionBusy(false);
@@ -5730,7 +5769,7 @@ export function WorkTalkApp() {
                       }}
                     >
                       <WorkTalkIcon name="back" />
-                      1:1 대화 나가기
+                      1:1 대화 숨기기
                     </button>
                   )}
                 </div>
@@ -5766,6 +5805,7 @@ export function WorkTalkApp() {
               ref={messageListRef}
               className={styles.messageList}
               onClick={() => setMessageMenu(null)}
+              onScroll={handleMessageListScroll}
             >
               {loadingMessages && messages.length === 0 ? (
                 <p className={styles.emptyText}>메시지를 불러오는 중입니다.</p>
@@ -6487,18 +6527,16 @@ export function WorkTalkApp() {
             <h2>
               {roomAction === "delete"
                 ? "이 대화방을 삭제할까요?"
-                : roomAction === "direct-leave"
-                  ? "1:1 대화에서 나갈까요?"
+                  : roomAction === "direct-leave"
+                    ? "1:1 대화를 숨길까요?"
                   : "이 대화방에서 나갈까요?"}
             </h2>
             <p>
               <strong>{getRoomTitle(selectedRoom, currentProfile?.id)}</strong>
               {roomAction === "delete"
                 ? "의 모든 메시지와 첨부파일이 함께 삭제되며 복구할 수 없습니다."
-                : roomAction === "direct-leave"
-                  ? activeDirectMemberCount <= 1
-                    ? "에서 나가면 양쪽 모두 나간 상태가 되어 대화와 첨부파일이 자동 삭제됩니다."
-                    : "에서 나가면 내 방 목록에서는 사라지고 상대방에게는 기존 대화가 유지됩니다."
+                  : roomAction === "direct-leave"
+                    ? "을 내 채팅 목록에서 숨깁니다. 상대방의 대화방과 기존 메시지는 삭제되지 않습니다. 같은 상대와 다시 1:1 대화를 열면 기존 대화가 다시 표시됩니다."
                   : "에서 나가면 방 목록과 이전 대화를 더 이상 볼 수 없습니다."}
             </p>
             <div>
@@ -6519,7 +6557,9 @@ export function WorkTalkApp() {
                   ? "처리 중..."
                   : roomAction === "delete"
                     ? "삭제"
-                    : "나가기"}
+                    : roomAction === "direct-leave"
+                      ? "내 목록에서 숨기기"
+                      : "나가기"}
               </button>
             </div>
           </section>

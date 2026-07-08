@@ -2847,7 +2847,16 @@ export function useWorkTalk() {
   );
 
   const leaveDirectRoom = useCallback(
-    async (roomId: number, deleteStoredFiles: boolean) => {
+    async (roomId: number, deleteStoredFiles: boolean, reason = "unknown") => {
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk direct room] leaveDirectRoom requested", {
+          room_id: roomId,
+          current_user_id: currentProfile?.id ?? null,
+          reason,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       if (deleteStoredFiles) {
         const { data: fileRows, error: fileListError } = await supabase
           .from("worktalk_files")
@@ -2887,7 +2896,7 @@ export function useWorkTalk() {
       await loadRooms();
       return true;
     },
-    [loadRooms]
+    [currentProfile?.id, loadRooms]
   );
 
   const inviteMembers = useCallback(
