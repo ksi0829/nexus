@@ -15,9 +15,9 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyDescription("ZETA NEXUS 업무 메신저와 전자결재")]
 [assembly: AssemblyCompany("ZETA Corporation")]
 [assembly: AssemblyProduct("NEXUS")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
-[assembly: AssemblyVersion("1.0.0")]
-[assembly: AssemblyFileVersion("1.0.0")]
+[assembly: AssemblyInformationalVersion("1.0.1")]
+[assembly: AssemblyVersion("1.0.1")]
+[assembly: AssemblyFileVersion("1.0.1")]
 
 internal static class NexusClient
 {
@@ -104,6 +104,23 @@ internal sealed class NexusApplicationContext : ApplicationContext
     internal void UnregisterChatWindow(NexusWindow window)
     {
         chatWindows.Remove(window);
+    }
+
+    internal void CloseChatWindows()
+    {
+        foreach (NexusWindow window in chatWindows.ToArray())
+        {
+            if (window.IsDisposed)
+            {
+                chatWindows.Remove(window);
+                continue;
+            }
+
+            window.AllowClose();
+            window.Close();
+        }
+
+        chatWindows.Clear();
     }
 
     internal bool HasActiveChatWindow(int roomId)
@@ -194,6 +211,7 @@ internal sealed class NexusApplicationContext : ApplicationContext
         trayIcon.Visible = false;
         notificationPollTimer.Stop();
         trayIcon.Dispose();
+        CloseChatWindows();
         mainWindow.AllowClose();
         mainWindow.Close();
         ExitThread();
@@ -641,6 +659,10 @@ internal class NexusWindow : Form
                 if (payload.TryGetValue("authenticated", out authenticatedValue))
                 {
                     authenticatedState = Convert.ToBoolean(authenticatedValue);
+                    if (!authenticatedState.Value)
+                    {
+                        applicationContext.CloseChatWindows();
+                    }
                 }
                 return;
             }
@@ -869,6 +891,7 @@ internal class NexusWindow : Form
         if (source.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             authenticatedState = false;
+            applicationContext.CloseChatWindows();
             return;
         }
 

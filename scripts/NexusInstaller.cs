@@ -11,14 +11,14 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("ZETA Corporation")]
 [assembly: AssemblyProduct("NEXUS")]
 [assembly: AssemblyCopyright("Copyright © ZETA Corporation 2026")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
-[assembly: AssemblyVersion("1.0.0")]
-[assembly: AssemblyFileVersion("1.0.0")]
+[assembly: AssemblyInformationalVersion("1.0.1")]
+[assembly: AssemblyVersion("1.0.1")]
+[assembly: AssemblyFileVersion("1.0.1")]
 
 internal static class NexusInstaller
 {
-    internal const string AppVersion = "1.0.0";
-    internal const string DisplayName = "NEXUS v1.0.0";
+    internal const string AppVersion = "1.0.1";
+    internal const string DisplayName = "NEXUS v1.0.1";
     private const string UninstallRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ZetaNexus";
 
     internal static readonly string InstallDirectory = Path.Combine(
