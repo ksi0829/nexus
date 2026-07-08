@@ -4,17 +4,23 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("ZETA NEXUS")]
 [assembly: AssemblyDescription("ZETA NEXUS 업무 메신저와 전자결재")]
 [assembly: AssemblyCompany("ZETA Corporation")]
 [assembly: AssemblyProduct("NEXUS")]
 [assembly: AssemblyCopyright("Copyright © ZETA Corporation 2026")]
-[assembly: AssemblyVersion("1.8.1.0")]
-[assembly: AssemblyFileVersion("1.8.1.0")]
+[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyVersion("1.0.0")]
+[assembly: AssemblyFileVersion("1.0.0")]
 
 internal static class NexusInstaller
 {
+    internal const string AppVersion = "1.0.0";
+    internal const string DisplayName = "NEXUS v1.0.0";
+    private const string UninstallRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ZetaNexus";
+
     internal static readonly string InstallDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "NEXUS"
@@ -52,6 +58,7 @@ internal static class NexusInstaller
         ExtractResource("NexusIcon", InstalledIcon);
 
         CreateDesktopShortcut(InstalledExe);
+        RegisterProgramEntry();
     }
 
     private static void ExtractResource(string resourceName, string destination)
@@ -88,6 +95,33 @@ internal static class NexusInstaller
         shortcut.IconLocation = InstalledIcon;
         shortcut.Description = "ZETA NEXUS 업무 메신저와 전자결재";
         shortcut.Save();
+    }
+
+    private static void RegisterProgramEntry()
+    {
+        using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallRegistryPath))
+        {
+            if (key == null)
+            {
+                throw new InvalidOperationException("프로그램 등록 정보를 만들 수 없습니다.");
+            }
+
+            string uninstallCommand =
+                "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command " +
+                "\"Remove-Item -LiteralPath '" + InstallDirectory.Replace("'", "''") + "' -Recurse -Force -ErrorAction SilentlyContinue; " +
+                "Remove-Item -LiteralPath ([System.IO.Path]::Combine([Environment]::GetFolderPath('DesktopDirectory'),'NEXUS.lnk')) -Force -ErrorAction SilentlyContinue; " +
+                "Remove-Item -LiteralPath 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ZetaNexus' -Recurse -Force -ErrorAction SilentlyContinue\"";
+
+            key.SetValue("DisplayName", DisplayName, RegistryValueKind.String);
+            key.SetValue("DisplayVersion", AppVersion, RegistryValueKind.String);
+            key.SetValue("Publisher", "ZETA Corporation", RegistryValueKind.String);
+            key.SetValue("InstallLocation", InstallDirectory, RegistryValueKind.String);
+            key.SetValue("DisplayIcon", InstalledIcon, RegistryValueKind.String);
+            key.SetValue("UninstallString", uninstallCommand, RegistryValueKind.String);
+            key.SetValue("QuietUninstallString", uninstallCommand, RegistryValueKind.String);
+            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+        }
     }
 
     internal static void LaunchInstalledApp()

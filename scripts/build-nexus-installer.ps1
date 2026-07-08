@@ -5,8 +5,9 @@ $source = Join-Path $PSScriptRoot "NexusInstaller.cs"
 $clientSource = Join-Path $PSScriptRoot "NexusClient.cs"
 $icon = Join-Path $projectRoot "public\nexus.ico"
 $outputDirectory = Join-Path $projectRoot "dist"
+$appVersion = "1.0.0"
 $clientOutput = Join-Path $outputDirectory "NEXUS.exe"
-$output = Join-Path $outputDirectory "NEXUS-Setup.exe"
+$output = Join-Path $outputDirectory "NEXUS_Setup_v$appVersion.exe"
 $compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $webViewPackage = Join-Path $PSScriptRoot "vendor\webview2\package"
 $webViewCore = Join-Path $webViewPackage "lib\net462\Microsoft.Web.WebView2.Core.dll"
@@ -16,6 +17,10 @@ $webViewLoader = Join-Path $webViewPackage "runtimes\win-x64\native\WebView2Load
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 if (Test-Path -LiteralPath $output) {
   Remove-Item -LiteralPath $output -Force
+}
+$legacyOutput = Join-Path $outputDirectory "NEXUS-Setup.exe"
+if (Test-Path -LiteralPath $legacyOutput) {
+  Remove-Item -LiteralPath $legacyOutput -Force
 }
 if (Test-Path -LiteralPath $clientOutput) {
   Remove-Item -LiteralPath $clientOutput -Force
