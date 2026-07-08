@@ -83,6 +83,25 @@ type TestCleanupCandidate = {
   documentIds: number[];
   reasons: string[];
 };
+type RoomContextMenuState = {
+  room: WorkTalkRoom;
+  x: number;
+  y: number;
+} | null;
+type ApprovalRoomKind =
+  | "manufacturing"
+  | "purchase"
+  | "purchaseResolution"
+  | "workOrder"
+  | "other";
+type ApprovalRoomStatus = "pending" | "approved" | "rejected";
+type ApprovalRoomListInfo = {
+  kind: ApprovalRoomKind;
+  label: string;
+  status: ApprovalRoomStatus;
+  statusLabel: string;
+  documentNo: string | null;
+};
 
 const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
   ["system", "기본채널"],
@@ -91,6 +110,25 @@ const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
   ["approval", "결재"],
 ];
 const NEXUS_APP_VERSION = packageInfo.version || "1.0.0";
+const LOCAL_ROOM_PIN_STORAGE_PREFIX = "nexus.worktalk.pinnedRooms.v1";
+
+function getLocalRoomPinStorageKey(userId?: string | null) {
+  return `${LOCAL_ROOM_PIN_STORAGE_PREFIX}:${userId || "anonymous"}`;
+}
+
+function readLocalPinnedRoomIds(userId?: string | null) {
+  if (typeof window === "undefined" || !userId) return [];
+  try {
+    const raw = window.localStorage.getItem(getLocalRoomPinStorageKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => Number(value))
+      .filter((value) => Number.isSafeInteger(value) && value > 0);
+  } catch {
+    return [];
+  }
+}
 type ReadReceiptDebugEvent = {
   roomId: number | null;
   selectedRoomId: number | null;
@@ -487,6 +525,113 @@ function getRoomSubtitle(room: WorkTalkRoom, currentUserId?: string) {
   return `${room.members.length}명 참여`;
 }
 
+function metadataString(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string
+) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function firstMatch(source: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[0]) return match[0];
+  }
+  return null;
+}
+
+function getApprovalRoomListInfo(room: WorkTalkRoom): ApprovalRoomListInfo | null {
+  if (room.room_type !== "approval") return null;
+
+  const metadata = room.latestMessage?.metadata || {};
+  const metadataDocumentNo = metadataString(metadata, "document_no");
+  const metadataDocumentType =
+    metadataString(metadata, "document_type") ||
+    metadataString(metadata, "template_key");
+  const source = [
+    room.title,
+    room.latestMessage?.body,
+    metadataDocumentNo,
+    metadataDocumentType,
+    metadataString(metadata, "document_version"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const normalizedSource = source.toLocaleLowerCase("ko");
+
+  const documentNo =
+    metadataDocumentNo ||
+    firstMatch(source, [
+      /PI-\d{8}-\d{2}/,
+      /E\d{8}-\d{3}/,
+      /WO-\d{8}-\d{2,3}/,
+      /작업\s*생산\s*\d{2}-\d+/,
+      /\d{2}-\d{1,3}/,
+    ]);
+
+  let kind: ApprovalRoomKind = "other";
+  let label = "결재문서";
+  if (
+    metadataDocumentType === "manufacturing_request" ||
+    normalizedSource.includes("제조요구서") ||
+    Boolean(documentNo?.startsWith("PI-"))
+  ) {
+    kind = "manufacturing";
+    label = "제조요구서";
+  } else if (
+    metadataDocumentType === "work_order" ||
+    normalizedSource.includes("작업지시서") ||
+    normalizedSource.includes("작업 생산") ||
+    Boolean(documentNo?.startsWith("WO-"))
+  ) {
+    kind = "workOrder";
+    label = "작업지시서";
+  } else if (
+    metadataDocumentType === "purchase_resolution" ||
+    normalizedSource.includes("구매결의서")
+  ) {
+    kind = "purchaseResolution";
+    label = "구매결의서";
+  } else if (
+    metadataDocumentType === "purchase_request" ||
+    metadataDocumentType === "outsourcing_request" ||
+    normalizedSource.includes("구매의뢰서") ||
+    normalizedSource.includes("구매요청") ||
+    normalizedSource.includes("외주") ||
+    Boolean(documentNo?.startsWith("E"))
+  ) {
+    kind = "purchase";
+    label = "구매의뢰서";
+  }
+
+  let status: ApprovalRoomStatus = "pending";
+  if (
+    metadataString(metadata, "document_version") === "approved" ||
+    normalizedSource.includes("승인완료") ||
+    normalizedSource.includes("최종 결재") ||
+    normalizedSource.includes("완료되었습니다")
+  ) {
+    status = "approved";
+  }
+  if (normalizedSource.includes("반려") || normalizedSource.includes("rejected")) {
+    status = "rejected";
+  }
+
+  return {
+    kind,
+    label,
+    status,
+    statusLabel:
+      status === "approved"
+        ? "승인완료"
+        : status === "rejected"
+          ? "반려"
+          : "승인대기",
+    documentNo,
+  };
+}
+
 function getRoomMemberRole(
   room: WorkTalkRoom,
   member: WorkTalkRoom["members"][number],
@@ -861,7 +1006,6 @@ export function WorkTalkApp() {
     setRoomNotifications,
     markNotificationRead,
     markAllNotificationsRead,
-    setRoomPinned,
     setRoomOrder,
     deleteGroupRoom,
     leaveGroupRoom,
@@ -932,6 +1076,9 @@ export function WorkTalkApp() {
   const [creating, setCreating] = useState(false);
   const [draggedRoomId, setDraggedRoomId] = useState<number | null>(null);
   const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+  const [localPinnedRoomIds, setLocalPinnedRoomIds] = useState<number[]>([]);
+  const [roomContextMenu, setRoomContextMenu] =
+    useState<RoomContextMenuState>(null);
   const [roomAction, setRoomAction] = useState<
     "delete" | "leave" | "direct-leave" | null
   >(null);
@@ -2356,20 +2503,81 @@ export function WorkTalkApp() {
     [canManageTestCleanup, reload]
   );
 
+  useEffect(() => {
+    setLocalPinnedRoomIds(readLocalPinnedRoomIds(currentProfile?.id));
+  }, [currentProfile?.id]);
+
+  const persistLocalPinnedRoomIds = useCallback(
+    (nextIds: number[]) => {
+      if (typeof window === "undefined" || !currentProfile?.id) return;
+      window.localStorage.setItem(
+        getLocalRoomPinStorageKey(currentProfile.id),
+        JSON.stringify(nextIds)
+      );
+    },
+    [currentProfile?.id]
+  );
+
+  const localPinnedRoomIdSet = useMemo(
+    () => new Set(localPinnedRoomIds),
+    [localPinnedRoomIds]
+  );
+
+  const toggleLocalRoomPinned = useCallback(
+    (roomId: number) => {
+      setLocalPinnedRoomIds((current) => {
+        const next = current.includes(roomId)
+          ? current.filter((id) => id !== roomId)
+          : [roomId, ...current];
+        persistLocalPinnedRoomIds(next);
+        return next;
+      });
+    },
+    [persistLocalPinnedRoomIds]
+  );
+
+  useEffect(() => {
+    if (!roomContextMenu) return;
+
+    const closeContextMenu = () => setRoomContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeContextMenu();
+    };
+
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("resize", closeContextMenu);
+    window.addEventListener("scroll", closeContextMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("resize", closeContextMenu);
+      window.removeEventListener("scroll", closeContextMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [roomContextMenu]);
+
   const filteredRooms = useMemo(() => {
     const query = roomSearch.trim().toLocaleLowerCase("ko");
-    return rooms.filter((room) => {
-      if (!roomMatchesFilter(room, filter)) return false;
-      if (!query) return true;
-      const title = getRoomTitle(room, currentProfile?.id);
-      const memberText = room.members
-        .map((member) => member.profile?.name || "")
-        .join(" ");
-      return `${title} ${memberText} ${room.latestMessage?.body || ""}`
-        .toLocaleLowerCase("ko")
-        .includes(query);
-    });
-  }, [currentProfile?.id, filter, roomSearch, rooms]);
+    return rooms
+      .filter((room) => {
+        if (!roomMatchesFilter(room, filter)) return false;
+        if (!query) return true;
+        const title = getRoomTitle(room, currentProfile?.id);
+        const memberText = room.members
+          .map((member) => member.profile?.name || "")
+          .join(" ");
+        return `${title} ${memberText} ${room.latestMessage?.body || ""}`
+          .toLocaleLowerCase("ko")
+          .includes(query);
+      })
+      .sort((left, right) => {
+        const leftPinned = localPinnedRoomIdSet.has(left.id);
+        const rightPinned = localPinnedRoomIdSet.has(right.id);
+        if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+        return 0;
+      });
+  }, [currentProfile?.id, filter, localPinnedRoomIdSet, roomSearch, rooms]);
   const unreadRoomFilters = useMemo(() => {
     const next: Record<RoomFilter, boolean> = {
       system: false,
@@ -2461,7 +2669,9 @@ export function WorkTalkApp() {
   );
   const notificationsEnabled =
     ownMembership?.notifications_enabled ?? true;
-  const selectedRoomPinned = ownMembership?.is_pinned ?? false;
+  const selectedRoomPinned = selectedRoom
+    ? localPinnedRoomIdSet.has(selectedRoom.id)
+    : false;
   const isSelectedRoomOwner =
     selectedRoom?.room_type === "group" &&
     selectedRoom.created_by === currentProfile?.id;
@@ -3704,6 +3914,7 @@ export function WorkTalkApp() {
   function openRoom(roomId: number, focusMessageId?: number | null) {
     const normalizedRoomId = Number(roomId);
     if (!Number.isFinite(normalizedRoomId)) return;
+    setRoomContextMenu(null);
 
     const shouldUseSameWindowConversation =
       typeof window !== "undefined" &&
@@ -3762,6 +3973,25 @@ export function WorkTalkApp() {
     setMobileConversationOpen(true);
     registerMobileConversationHistory(normalizedRoomId);
     scheduleBottomScroll({ reason: "open-room" });
+  }
+
+  function openRoomContextMenu(
+    room: WorkTalkRoom,
+    event: ReactMouseEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    setHighlightedRoomId(room.id);
+    setRoomContextMenu({
+      room,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function toggleRoomPinFromContext(roomId: number) {
+    toggleLocalRoomPinned(roomId);
+    setRoomContextMenu(null);
   }
 
   function handleRoomPointerDown(
@@ -4619,13 +4849,22 @@ export function WorkTalkApp() {
           ) : (
             filteredRooms.map((room) => {
               const title = getRoomTitle(room, currentProfile?.id);
+              const roomPinned = localPinnedRoomIdSet.has(room.id);
+              const approvalInfo = getApprovalRoomListInfo(room);
               return (
                 <div
                   key={room.id}
                   className={`${styles.roomItem} ${
                     highlightedRoomId === room.id ? styles.roomItemActive : ""
-                  } ${draggedRoomId === room.id ? styles.roomDragging : ""}`}
+                  } ${draggedRoomId === room.id ? styles.roomDragging : ""} ${
+                    roomPinned ? styles.roomItemPinned : ""
+                  } ${approvalInfo ? styles.approvalRoomItem : ""} ${
+                    approvalInfo
+                      ? styles[`approvalRoom_${approvalInfo.kind}`]
+                      : ""
+                  }`}
                   draggable={canReorderRooms}
+                  onContextMenu={(event) => openRoomContextMenu(room, event)}
                   onDragStart={() => setDraggedRoomId(room.id)}
                   onDragOver={(event) => {
                     if (canReorderRooms) event.preventDefault();
@@ -4651,9 +4890,27 @@ export function WorkTalkApp() {
                     <span className={styles.roomSummary}>
                       <span className={styles.roomTitleRow}>
                         <strong>{title}</strong>
+                        {roomPinned && (
+                          <i className={styles.roomPinnedLabel}>상단 고정</i>
+                        )}
                         {room.is_fixed && <i>기본</i>}
                       </span>
                       <small>{getRoomSubtitle(room, currentProfile?.id)}</small>
+                      {approvalInfo && (
+                        <span className={styles.approvalRoomMeta}>
+                          <span>{approvalInfo.label}</span>
+                          {approvalInfo.documentNo && (
+                            <span>{approvalInfo.documentNo}</span>
+                          )}
+                          <em
+                            className={
+                              styles[`approvalStatus_${approvalInfo.status}`]
+                            }
+                          >
+                            {approvalInfo.statusLabel}
+                          </em>
+                        </span>
+                      )}
                     </span>
                     <span className={styles.roomMeta}>
                       <time>
@@ -4669,19 +4926,10 @@ export function WorkTalkApp() {
                   <button
                     type="button"
                     className={`${styles.roomPinButton} ${
-                      room.members.find(
-                        (member) => member.user_id === currentProfile?.id
-                      )?.is_pinned
-                        ? styles.roomPinActive
-                        : ""
+                      roomPinned ? styles.roomPinActive : ""
                     }`}
-                    onClick={() => {
-                      const member = room.members.find(
-                        (item) => item.user_id === currentProfile?.id
-                      );
-                      void setRoomPinned(room.id, !member?.is_pinned);
-                    }}
-                    title="이 방을 위에 고정"
+                    onClick={() => toggleLocalRoomPinned(room.id)}
+                    title={roomPinned ? "상단 고정 해제" : "상단 고정"}
                   >
                     <WorkTalkIcon name="pin" />
                   </button>
@@ -5382,10 +5630,8 @@ export function WorkTalkApp() {
                 className={`${styles.headerAction} ${
                   selectedRoomPinned ? styles.roomPinActive : ""
                 }`}
-                onClick={() =>
-                  void setRoomPinned(selectedRoom.id, !selectedRoomPinned)
-                }
-                title={selectedRoomPinned ? "방 고정 해제" : "방 위에 고정"}
+                onClick={() => toggleLocalRoomPinned(selectedRoom.id)}
+                title={selectedRoomPinned ? "상단 고정 해제" : "상단 고정"}
               >
                 <WorkTalkIcon name="pin" />
               </button>
@@ -5415,15 +5661,10 @@ export function WorkTalkApp() {
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      void setRoomPinned(
-                        selectedRoom.id,
-                        !selectedRoomPinned
-                      )
-                    }
+                    onClick={() => toggleLocalRoomPinned(selectedRoom.id)}
                   >
                     <WorkTalkIcon name="pin" />
-                    {selectedRoomPinned ? "고정 해제" : "위에 고정"}
+                    {selectedRoomPinned ? "고정 해제" : "상단 고정"}
                   </button>
                   {isSelectedRoomOwner && !selectedRoom.is_fixed && (
                     <button
@@ -5914,6 +6155,27 @@ export function WorkTalkApp() {
           </div>
         )}
       </section>
+
+      {roomContextMenu && (
+        <div
+          className={styles.roomContextMenu}
+          style={{
+            left: Math.min(roomContextMenu.x, window.innerWidth - 190),
+            top: Math.min(roomContextMenu.y, window.innerHeight - 90),
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => toggleRoomPinFromContext(roomContextMenu.room.id)}
+          >
+            <WorkTalkIcon name="pin" />
+            {localPinnedRoomIdSet.has(roomContextMenu.room.id)
+              ? "고정 해제"
+              : "상단 고정"}
+          </button>
+        </div>
+      )}
 
       {messageMenu && selectedRoom?.room_type === "group" && (
         <div
