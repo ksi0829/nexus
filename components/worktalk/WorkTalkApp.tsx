@@ -1182,6 +1182,7 @@ export function WorkTalkApp() {
       timestamp: "",
     });
   const messageListRef = useRef<HTMLDivElement>(null);
+  const messageListContentRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1208,6 +1209,7 @@ export function WorkTalkApp() {
   const lastVibratedNotificationIdRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
   const bottomScrollSettleTimeoutsRef = useRef<number[]>([]);
+  const bottomScrollResizeObserverRef = useRef<ResizeObserver | null>(null);
   const bottomScrollProgrammaticUntilRef = useRef(0);
   const bottomScrollUserScrollVersionRef = useRef(0);
   const lastBottomScrollRoomIdRef = useRef<number | null>(null);
@@ -2866,13 +2868,21 @@ export function WorkTalkApp() {
       window.clearTimeout(timeoutId);
     });
     bottomScrollSettleTimeoutsRef.current = [];
+    bottomScrollResizeObserverRef.current?.disconnect();
+    bottomScrollResizeObserverRef.current = null;
   }, []);
   const scrollConversationToBottom = useCallback(
-    () => {
+    (options: { preferSentinel?: boolean } = {}) => {
       bottomScrollProgrammaticUntilRef.current = Date.now() + 80;
       const listElement = messageListRef.current;
+      const keyboardOpen =
+        typeof document !== "undefined" &&
+        document.documentElement.dataset.worktalkKeyboardOpen === "true";
       if (listElement) {
         listElement.scrollTop = listElement.scrollHeight;
+        if (options.preferSentinel && !keyboardOpen) {
+          messageEndRef.current?.scrollIntoView({ block: "end" });
+        }
         return;
       }
       messageEndRef.current?.scrollIntoView({ block: "end" });
@@ -2883,10 +2893,21 @@ export function WorkTalkApp() {
     (
       behaviorOrOptions:
         | ScrollBehavior
-        | { extraSettle?: boolean; force?: boolean; reason?: string } =
+        | {
+            extraSettle?: boolean;
+            force?: boolean;
+            preferSentinel?: boolean;
+            reason?: string;
+            resizeSettle?: boolean;
+          } =
         "auto",
-      maybeOptions: { extraSettle?: boolean; force?: boolean; reason?: string } =
-        {}
+      maybeOptions: {
+        extraSettle?: boolean;
+        force?: boolean;
+        preferSentinel?: boolean;
+        reason?: string;
+        resizeSettle?: boolean;
+      } = {}
     ) => {
       const options =
         typeof behaviorOrOptions === "object" ? behaviorOrOptions : maybeOptions;
@@ -2904,7 +2925,9 @@ export function WorkTalkApp() {
       clearBottomScrollTimers();
       bottomScrollRafRef.current = window.requestAnimationFrame(() => {
         bottomScrollRafRef.current = null;
-        scrollConversationToBottom();
+        scrollConversationToBottom({
+          preferSentinel: options.preferSentinel,
+        });
         if (selectedRoomId !== null) {
           lastBottomScrollRoomIdRef.current = selectedRoomId;
         }
@@ -2920,8 +2943,52 @@ export function WorkTalkApp() {
               ) {
                 return;
               }
-              scrollConversationToBottom();
+              scrollConversationToBottom({
+                preferSentinel: options.preferSentinel,
+              });
             }, delay)
+          );
+        }
+
+        if (
+          options.resizeSettle &&
+          listElement &&
+          "ResizeObserver" in window
+        ) {
+          const resizeTarget = messageListContentRef.current || listElement;
+          const settleRoomId = selectedRoomId;
+          const settleScrollVersion = bottomScrollUserScrollVersionRef.current;
+          let resizeCorrectionCount = 0;
+          bottomScrollResizeObserverRef.current?.disconnect();
+          bottomScrollResizeObserverRef.current = new ResizeObserver(() => {
+            if (
+              settleRoomId !== selectedRoomIdUiRef.current ||
+              settleScrollVersion !== bottomScrollUserScrollVersionRef.current ||
+              resizeCorrectionCount >= 2
+            ) {
+              bottomScrollResizeObserverRef.current?.disconnect();
+              bottomScrollResizeObserverRef.current = null;
+              return;
+            }
+            resizeCorrectionCount += 1;
+            window.requestAnimationFrame(() => {
+              if (
+                settleRoomId !== selectedRoomIdUiRef.current ||
+                settleScrollVersion !== bottomScrollUserScrollVersionRef.current
+              ) {
+                return;
+              }
+              scrollConversationToBottom({
+                preferSentinel: options.preferSentinel,
+              });
+            });
+          });
+          bottomScrollResizeObserverRef.current.observe(resizeTarget);
+          bottomScrollSettleTimeoutsRef.current.push(
+            window.setTimeout(() => {
+              bottomScrollResizeObserverRef.current?.disconnect();
+              bottomScrollResizeObserverRef.current = null;
+            }, 900)
           );
         }
       });
@@ -2986,8 +3053,11 @@ export function WorkTalkApp() {
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
       scheduleBottomScroll("auto", {
+        extraSettle: true,
         force: true,
+        preferSentinel: true,
         reason: "notification-open",
+        resizeSettle: true,
       });
     },
     [markNotificationRead, popupMode, scheduleBottomScroll, selectRoom]
@@ -3491,8 +3561,11 @@ export function WorkTalkApp() {
       window.history.replaceState({}, "", "/worktalk");
       if (!deepLink.messageId) {
         scheduleBottomScroll("auto", {
+          extraSettle: true,
           force: true,
+          preferSentinel: true,
           reason: "push-deep-link",
+          resizeSettle: true,
         });
       }
     }, 0);
@@ -3582,8 +3655,11 @@ export function WorkTalkApp() {
         ? "messageTailKey:own-server"
         : "messageTailKey:realtime";
     scheduleBottomScroll("auto", {
+      extraSettle: true,
       force: true,
+      preferSentinel: true,
       reason: tailReason,
+      resizeSettle: true,
     });
   }, [
     currentProfile?.id,
@@ -3989,7 +4065,9 @@ export function WorkTalkApp() {
         scheduleBottomScroll({
           extraSettle: true,
           force: true,
+          preferSentinel: true,
           reason: "open-room-selected",
+          resizeSettle: true,
         });
       }
       setMobileConversationOpen(true);
@@ -4009,7 +4087,9 @@ export function WorkTalkApp() {
     scheduleBottomScroll({
       extraSettle: true,
       force: true,
+      preferSentinel: true,
       reason: "open-room",
+      resizeSettle: true,
     });
   }
 
@@ -4098,8 +4178,11 @@ export function WorkTalkApp() {
         return;
       }
       scheduleBottomScroll("auto", {
+        extraSettle: true,
         force: true,
+        preferSentinel: true,
         reason: "search-result-fallback",
+        resizeSettle: true,
       });
     }, 250);
   }
@@ -5807,6 +5890,7 @@ export function WorkTalkApp() {
               onClick={() => setMessageMenu(null)}
               onScroll={handleMessageListScroll}
             >
+              <div ref={messageListContentRef} className={styles.messageListContent}>
               {loadingMessages && messages.length === 0 ? (
                 <p className={styles.emptyText}>메시지를 불러오는 중입니다.</p>
               ) : filteredMessages.length === 0 ? (
@@ -6035,6 +6119,7 @@ export function WorkTalkApp() {
                 })
               )}
               <div ref={messageEndRef} />
+              </div>
             </div>
 
             <form

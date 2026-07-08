@@ -1799,6 +1799,10 @@
   scrollbar-width: thin;
 }
 
+.messageListContent {
+  min-height: 100%;
+}
+
 .noticeBar {
   display: flex;
   align-items: stretch;
