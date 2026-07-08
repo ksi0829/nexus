@@ -470,6 +470,23 @@ function buildWorkTalkLoginUrl(nextPath = "/worktalk") {
   return `/login?${params.toString()}`;
 }
 
+async function canOpenWorkTalkPopup() {
+  const {
+    data: { session },
+    error,
+  } = await workTalkSupabase.auth.getSession();
+
+  if (error || !session?.access_token) {
+    console.warn("[WorkTalk popup] session preflight failed", {
+      error: error?.message ?? null,
+      hasSession: Boolean(session),
+    });
+    return false;
+  }
+
+  return true;
+}
+
 function roomColor(room: WorkTalkRoom) {
   if (room.room_type === "team") return "team";
   if (room.room_type === "idea") return "idea";
@@ -3017,6 +3034,15 @@ export function WorkTalkApp() {
         !shouldUseSameWindowConversation &&
         Number.isFinite(normalizedRoomId)
       ) {
+        if (setupState !== "ready" || !currentProfile) {
+          alert("계정 정보를 확인 중입니다. 잠시 후 다시 시도해 주세요.");
+          return;
+        }
+        if (!(await canOpenWorkTalkPopup())) {
+          alert("로그인 세션을 확인할 수 없습니다. 다시 로그인 후 시도해 주세요.");
+          router.push(buildWorkTalkLoginUrl(getCurrentWorkTalkPath()));
+          return;
+        }
         const popupWidth = 520;
         const popupHeight = 780;
         const popupLeft = Math.max(
@@ -3060,7 +3086,15 @@ export function WorkTalkApp() {
         resizeSettle: true,
       });
     },
-    [markNotificationRead, popupMode, scheduleBottomScroll, selectRoom]
+    [
+      currentProfile,
+      markNotificationRead,
+      popupMode,
+      router,
+      scheduleBottomScroll,
+      selectRoom,
+      setupState,
+    ]
   );
 
   useEffect(() => {
@@ -4015,7 +4049,7 @@ export function WorkTalkApp() {
     selectRoom,
   ]);
 
-  function openRoom(roomId: number, focusMessageId?: number | null) {
+  async function openRoom(roomId: number, focusMessageId?: number | null) {
     const normalizedRoomId = Number(roomId);
     if (!Number.isFinite(normalizedRoomId)) return;
     setRoomContextMenu(null);
@@ -4026,6 +4060,15 @@ export function WorkTalkApp() {
       window.matchMedia("(hover: none)").matches;
 
     if (!popupMode && !shouldUseSameWindowConversation) {
+      if (setupState !== "ready" || !currentProfile) {
+        alert("계정 정보를 확인 중입니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+      if (!(await canOpenWorkTalkPopup())) {
+        alert("로그인 세션을 확인할 수 없습니다. 다시 로그인 후 시도해 주세요.");
+        router.push(buildWorkTalkLoginUrl(getCurrentWorkTalkPath()));
+        return;
+      }
       const popupWidth = 520;
       const popupHeight = 780;
       const popupLeft = Math.max(
@@ -4144,7 +4187,7 @@ export function WorkTalkApp() {
     if (moved || tooSlow) return;
 
     event.preventDefault();
-    openRoom(roomId);
+    void openRoom(roomId);
   }
 
   function handleRoomKeyDown(
@@ -4154,12 +4197,12 @@ export function WorkTalkApp() {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setHighlightedRoomId(roomId);
-    openRoom(roomId);
+    void openRoom(roomId);
   }
 
   function openSearchResult(result: WorkTalkSearchResult) {
     if (!popupMode) {
-      openRoom(result.room_id, result.message_id);
+      void openRoom(result.room_id, result.message_id);
       return;
     }
 
@@ -4386,7 +4429,7 @@ export function WorkTalkApp() {
       setFilter("direct");
       setSelectedProfileId(null);
     }
-    openRoom(roomId);
+    void openRoom(roomId);
   }
 
   function preserveComposerFocusOnPointer(

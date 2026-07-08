@@ -17,6 +17,14 @@ type NexusDesktopWindow = Window & {
   };
 };
 
+type LoginErrorDetail = {
+  code?: unknown;
+  message?: unknown;
+  name?: unknown;
+  stack?: unknown;
+  status?: unknown;
+};
+
 function toLoginEmail(id: string) {
   const trimmed = id.trim();
 
@@ -40,25 +48,64 @@ function toDisplayId(id: string) {
   return trimmed;
 }
 
+function getLoginErrorDetail(error: unknown) {
+  const detail = (error || {}) as LoginErrorDetail;
+  return {
+    code: detail.code ?? null,
+    message:
+      typeof detail.message === "string" && detail.message.trim()
+        ? detail.message
+        : String(error || "알 수 없는 오류"),
+    name: detail.name ?? null,
+    rawKeys:
+      error && typeof error === "object" ? Object.keys(error) : [],
+    stack: detail.stack ?? null,
+    status: detail.status ?? null,
+  };
+}
+
+function getLoginErrorMessage(error: unknown) {
+  const detail = getLoginErrorDetail(error);
+  return detail.message || "알 수 없는 오류";
+}
+
+function logLoginStep(step: string, payload: Record<string, unknown> = {}) {
+  console.info(`[NEXUS login] ${step}`, {
+    at: new Date().toISOString(),
+    ...payload,
+  });
+}
+
 async function recordLoginActivity(profile: {
   id: string;
   name?: string | null;
   team?: string | null;
   role?: string | null;
 }) {
-  await supabase
-    .from("user_activity_logs")
-    .insert({
-      user_id: profile.id,
-      user_name: profile.name || "",
-      team: profile.team || "",
-      role: profile.role || "",
-      event_type: "login",
-      path: "/login",
-      user_agent:
-        typeof navigator !== "undefined" ? navigator.userAgent : "",
-    })
-    .then(() => undefined);
+  try {
+    logLoginStep("ACTIVITY LOG START", { userId: profile.id });
+    const { error } = await supabase
+      .from("user_activity_logs")
+      .insert({
+        user_id: profile.id,
+        user_name: profile.name || "",
+        team: profile.team || "",
+        role: profile.role || "",
+        event_type: "login",
+        path: "/login",
+        user_agent:
+          typeof navigator !== "undefined" ? navigator.userAgent : "",
+      });
+
+    if (error) {
+      console.warn("[NEXUS login] ACTIVITY LOG FAILED", getLoginErrorDetail(error));
+      return;
+    }
+
+    logLoginStep("ACTIVITY LOG DONE", { userId: profile.id });
+  } catch (error) {
+    console.warn("[NEXUS login] ACTIVITY LOG FAILED", getLoginErrorDetail(error));
+  }
 }
 
 export default function LoginPage() {
@@ -95,30 +142,82 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const loginEmail = toLoginEmail(loginId);
+      logLoginStep("LOGIN START", { email: loginEmail });
+
       const { data, error } =
         await supabase.auth.signInWithPassword({
-          email: toLoginEmail(loginId),
+          email: loginEmail,
           password,
         });
 
       if (error || !data.user) {
-        alert(error?.message ? `로그인 실패: ${error.message}` : "로그인 실패");
+        if (error) {
+          console.error("[NEXUS login] AUTH FAILED", getLoginErrorDetail(error));
+        }
+        alert(`로그인 실패: ${error ? getLoginErrorMessage(error) : "사용자 정보를 확인할 수 없습니다."}`);
         setLoading(false);
         return;
       }
 
-      const { data: profile } =
+      logLoginStep("AUTH SUCCESS", {
+        email: data.user.email,
+        userId: data.user.id,
+      });
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        if (sessionError) {
+          console.error("[NEXUS login] SESSION FAILED", getLoginErrorDetail(sessionError));
+        }
+        alert(
+          `로그인 실패: ${
+            sessionError
+              ? getLoginErrorMessage(sessionError)
+              : "로그인 세션을 확인할 수 없습니다. 다시 시도해 주세요."
+          }`
+        );
+        setLoading(false);
+        return;
+      }
+
+      logLoginStep("SESSION READY", {
+        expiresAt: session.expires_at ?? null,
+        userId: session.user.id,
+      });
+
+      logLoginStep("PROFILE FETCH START", { userId: data.user.id });
+      const { data: profile, error: profileError } =
         await supabase
           .from("profiles")
           .select("*")
           .eq("id", data.user.id)
           .single();
 
-      if (!profile) {
-        alert("프로필 정보가 없습니다.");
+      if (profileError || !profile) {
+        if (profileError) {
+          console.error("[NEXUS login] PROFILE FETCH FAILED", getLoginErrorDetail(profileError));
+        }
+        alert(
+          `로그인 실패: ${
+            profileError
+              ? getLoginErrorMessage(profileError)
+              : "프로필 정보가 없습니다."
+          }`
+        );
         setLoading(false);
         return;
       }
+
+      logLoginStep("PROFILE FETCH DONE", {
+        role: profile.role || null,
+        team: profile.team || null,
+        userId: profile.id,
+      });
 
       localStorage.setItem(
         "role",
@@ -146,17 +245,20 @@ export default function LoginPage() {
         );
       }
 
-      await recordLoginActivity(profile);
+      void recordLoginActivity(profile);
 
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({ type: "auth-state", authenticated: true })
       );
 
       const nextPath = new URLSearchParams(window.location.search).get("next");
-      router.replace(nextPath?.startsWith("/") ? nextPath : "/worktalk");
+      const targetPath = nextPath?.startsWith("/") ? nextPath : "/worktalk";
+      logLoginStep("ROUTER PUSH START", { targetPath });
+      router.replace(targetPath);
+      logLoginStep("LOGIN COMPLETE", { targetPath });
     } catch (err) {
-      console.error(err);
-      alert("로그인 중 오류 발생");
+      console.error("[NEXUS login] LOGIN FAILED", getLoginErrorDetail(err));
+      alert(`로그인 중 오류 발생: ${getLoginErrorMessage(err)}`);
     }
 
     setLoading(false);
