@@ -66,7 +66,7 @@ function renderApprovalStatus(approval?: PurchaseApproval) {
     });
   }
 
-  return `<em class="${approval.status === "승인" ? "ok" : ""}">${escapeHtml(approval.status || "")}</em>`;
+  return `<em class="${approval.status === "승인" ? "approval-stamp" : ""}">${escapeHtml(approval.status || "")}</em>`;
 }
 
 export async function createPurchasePdf(input: PurchasePdfInput) {
@@ -157,7 +157,7 @@ export async function createPurchasePdf(input: PurchasePdfInput) {
       .title{display:grid;grid-template-rows:1fr auto;align-items:center;justify-items:center;height:92px;padding:6px 0 1px;font-size:20px;font-weight:800;white-space:nowrap}
       .title>div{width:100%;text-align:center}.title>div b{font-size:14px}.title small{display:block;font-size:9px;line-height:1.45;text-align:center}.title small strong{display:block;color:#075e9b;font-size:10px}
       .approval{width:294px;height:92px}.approval th,.approval td{height:auto;border:1px solid #111;padding:2px 1px;text-align:center;font-size:8px;letter-spacing:0}
-      .approval th:first-child{width:27px;line-height:1.6}.approval tr:first-child{height:26px}.approval tr:last-child{height:66px}.approval td b,.approval td em{display:block;font-size:7.5px;overflow-wrap:anywhere}.approval td em{margin-top:7px;font-style:normal;color:#777}.approval .ok{color:#111}
+      .approval th:first-child{width:27px;line-height:1.6}.approval tr:first-child{height:26px}.approval tr:last-child{height:66px}.approval td b,.approval td em{display:block;font-size:7.5px;overflow-wrap:anywhere}.approval td em{margin-top:7px;font-style:normal;color:#777}.approval .approval-stamp{display:inline-flex;align-items:center;justify-content:center;color:#111;border:1.5px solid #111;border-radius:50%;min-width:28px;min-height:20px;padding:2px 6px}
       .approval .signature-image{display:block;width:46px;max-width:88%;height:22px;object-fit:contain;margin:6px auto 0}
       .info{width:100%;font-size:9px}.info th,.info td{height:28px;border:1px solid #b9a975;padding:0 6px;letter-spacing:0}.info th{text-align:center}.info td{text-align:center}.info .usage{height:28px;text-align:center;white-space:nowrap}.usage span{display:inline-block;margin:0 5px;font-size:8px}
       .items{width:100%;font-size:8px}.items th,.items td{height:21px;border:1px solid #b9a975;padding:1px 4px;text-align:center}
