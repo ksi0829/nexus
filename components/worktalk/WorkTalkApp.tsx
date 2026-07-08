@@ -1200,6 +1200,7 @@ export function WorkTalkApp() {
     });
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageListContentRef = useRef<HTMLDivElement>(null);
+  const lastMessageElementRef = useRef<HTMLDivElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2888,23 +2889,106 @@ export function WorkTalkApp() {
     bottomScrollResizeObserverRef.current?.disconnect();
     bottomScrollResizeObserverRef.current = null;
   }, []);
+  const getBottomScrollSnapshot = useCallback(
+    (reason: string, phase: "before" | "after", correctionCount: number) => {
+      const listElement = messageListRef.current;
+      const scrollTop = listElement?.scrollTop ?? null;
+      const clientHeight = listElement?.clientHeight ?? null;
+      const scrollHeight = listElement?.scrollHeight ?? null;
+      const maxScrollTop =
+        listElement !== null
+          ? Math.max(0, listElement.scrollHeight - listElement.clientHeight)
+          : null;
+      const distanceFromBottom =
+        listElement !== null
+          ? Math.max(
+              0,
+              listElement.scrollHeight -
+                listElement.scrollTop -
+                listElement.clientHeight
+            )
+          : null;
+
+      return {
+        reason,
+        phase,
+        correctionCount,
+        roomId: selectedRoomId,
+        messageCount: filteredMessages.length,
+        scrollTop,
+        clientHeight,
+        scrollHeight,
+        maxScrollTop,
+        distanceFromBottom,
+        nearBottom: distanceFromBottom === null ? null : distanceFromBottom <= 8,
+        sentinelExists: Boolean(messageEndRef.current),
+        lastMessageExists: Boolean(
+          filteredMessages.length > 0 && lastMessageElementRef.current
+        ),
+      };
+    },
+    [filteredMessages.length, selectedRoomId]
+  );
+  const shouldLogBottomScroll = useCallback(
+    (reason: string) =>
+      popupMode ||
+      reason.startsWith("open-room") ||
+      reason.startsWith("messageTailKey") ||
+      reason === "push-deep-link" ||
+      reason === "notification-open",
+    [popupMode]
+  );
   const scrollConversationToBottom = useCallback(
-    (options: { preferSentinel?: boolean } = {}) => {
-      bottomScrollProgrammaticUntilRef.current = Date.now() + 80;
+    (
+      options: {
+        correctionCount?: number;
+        preferSentinel?: boolean;
+        reason?: string;
+      } = {}
+    ) => {
+      const reason = options.reason ?? "bottom-scroll";
+      const correctionCount = options.correctionCount ?? 0;
+      const before = getBottomScrollSnapshot(
+        reason,
+        "before",
+        correctionCount
+      );
+      bottomScrollProgrammaticUntilRef.current = Date.now() + 120;
       const listElement = messageListRef.current;
       const keyboardOpen =
         typeof document !== "undefined" &&
         document.documentElement.dataset.worktalkKeyboardOpen === "true";
+      const lastMessageElement =
+        filteredMessages.length > 0 ? lastMessageElementRef.current : null;
+      const anchorElement = lastMessageElement ?? messageEndRef.current;
       if (listElement) {
-        listElement.scrollTop = listElement.scrollHeight;
-        if (options.preferSentinel && !keyboardOpen) {
-          messageEndRef.current?.scrollIntoView({ block: "end" });
+        listElement.scrollTop = Math.max(
+          0,
+          listElement.scrollHeight - listElement.clientHeight
+        );
+        if (options.preferSentinel && !keyboardOpen && anchorElement) {
+          anchorElement.scrollIntoView({ block: "end", inline: "nearest" });
+          listElement.scrollTop = Math.max(
+            0,
+            listElement.scrollHeight - listElement.clientHeight
+          );
         }
-        return;
+      } else {
+        anchorElement?.scrollIntoView({ block: "end", inline: "nearest" });
       }
-      messageEndRef.current?.scrollIntoView({ block: "end" });
+
+      const after = getBottomScrollSnapshot(reason, "after", correctionCount);
+      if (shouldLogBottomScroll(reason)) {
+        console.debug("[WorkTalk bottom scroll]", { before, after });
+      }
+
+      return after.nearBottom === true;
     },
-    []
+    [
+      filteredMessages.length,
+      getBottomScrollSnapshot,
+      shouldLogBottomScroll,
+    ]
   );
   const scheduleBottomScroll = useCallback(
     (
@@ -2942,9 +3026,28 @@ export function WorkTalkApp() {
       clearBottomScrollTimers();
       bottomScrollRafRef.current = window.requestAnimationFrame(() => {
         bottomScrollRafRef.current = null;
-        scrollConversationToBottom({
+        const primaryNearBottom = scrollConversationToBottom({
+          correctionCount: 0,
           preferSentinel: options.preferSentinel,
+          reason: options.reason,
         });
+        if (!primaryNearBottom) {
+          const correctionRoomId = selectedRoomId;
+          const correctionScrollVersion = bottomScrollUserScrollVersionRef.current;
+          window.requestAnimationFrame(() => {
+            if (
+              correctionRoomId !== selectedRoomIdUiRef.current ||
+              correctionScrollVersion !== bottomScrollUserScrollVersionRef.current
+            ) {
+              return;
+            }
+            scrollConversationToBottom({
+              correctionCount: 1,
+              preferSentinel: options.preferSentinel,
+              reason: options.reason,
+            });
+          });
+        }
         if (selectedRoomId !== null) {
           lastBottomScrollRoomIdRef.current = selectedRoomId;
         }
@@ -2961,7 +3064,9 @@ export function WorkTalkApp() {
                 return;
               }
               scrollConversationToBottom({
+                correctionCount: delay === 80 ? 2 : 3,
                 preferSentinel: options.preferSentinel,
+                reason: options.reason,
               });
             }, delay)
           );
@@ -2996,7 +3101,9 @@ export function WorkTalkApp() {
                 return;
               }
               scrollConversationToBottom({
+                correctionCount: 4 + resizeCorrectionCount,
                 preferSentinel: options.preferSentinel,
+                reason: options.reason,
               });
             });
           });
@@ -5979,7 +6086,15 @@ export function WorkTalkApp() {
                   return (
                     <div
                       key={message.client_temp_id ?? message.id}
+                      ref={
+                        index === filteredMessages.length - 1
+                          ? lastMessageElementRef
+                          : undefined
+                      }
                       data-message-id={message.server_message_id ?? message.id}
+                      data-last-message={
+                        index === filteredMessages.length - 1 ? "true" : undefined
+                      }
                       className={
                         focusedMessageId === message.id
                           ? styles.focusedMessage
