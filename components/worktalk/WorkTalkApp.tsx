@@ -110,6 +110,7 @@ const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
   ["approval", "결재"],
 ];
 const NEXUS_APP_VERSION = packageInfo.version || "1.0.0";
+const NEXUS_APPROVAL_BACKUP_USER_ID = "9d48f715-552b-4a0f-b162-5fa0af2a94f0";
 const LOCAL_ROOM_PIN_STORAGE_PREFIX = "nexus.worktalk.pinnedRooms.v1";
 
 function getLocalRoomPinStorageKey(userId?: string | null) {
@@ -1341,6 +1342,8 @@ export function WorkTalkApp() {
   } / ${conversationRenderBranch}`;
   const showReadReceiptDebugPanel = currentProfile?.role === "admin";
   const canManageTestCleanup = currentProfile?.role === "admin";
+  const canUseApprovalAutoBackup =
+    isNexusDesktopApp && currentProfile?.id === NEXUS_APPROVAL_BACKUP_USER_ID;
   const pushUxDebugEvents = uxDebugEvents
     .filter(
       (event) => event.scope === "notification" || event.scope === "vibration"
@@ -2413,7 +2416,7 @@ export function WorkTalkApp() {
   const requestApprovedDocumentBackup = useCallback(async (
     document: ApprovalBackupDocument
   ) => {
-    if (!isNexusDesktopApp) return false;
+    if (!canUseApprovalAutoBackup) return false;
     try {
       const sent = await requestApprovalPdfBackup(workTalkSupabase, document);
       if (sent) {
@@ -2428,10 +2431,10 @@ export function WorkTalkApp() {
       );
       return false;
     }
-  }, [isNexusDesktopApp]);
+  }, [canUseApprovalAutoBackup]);
 
   const runApprovalBackupCatchup = useCallback(async () => {
-    if (!isNexusDesktopApp) return;
+    if (!canUseApprovalAutoBackup) return;
     setApprovalBackupMessage("완료 문서 백업 상태를 확인하는 중입니다.");
 
     const { data, error } = await workTalkSupabase
@@ -2463,7 +2466,7 @@ export function WorkTalkApp() {
         ? `미백업 완료 문서 ${requestedCount}건의 백업을 요청했습니다.`
         : "최근 완료 문서 백업 상태가 최신입니다."
     );
-  }, [approvalBackupStatus, isNexusDesktopApp, requestApprovedDocumentBackup]);
+  }, [approvalBackupStatus, canUseApprovalAutoBackup, requestApprovedDocumentBackup]);
 
   const requestTestCleanup = useCallback(
     async (mode: "preview" | "delete", roomIds: number[] = []) => {
@@ -3995,7 +3998,7 @@ export function WorkTalkApp() {
   }, []);
 
   useEffect(() => {
-    if (!isNexusDesktopApp) return;
+    if (!canUseApprovalAutoBackup) return;
     const webview = (window as NexusDesktopWindow).chrome?.webview;
     const handleBackupMessage = (event: MessageEvent) => {
       let payload: unknown = event.data;
@@ -4036,10 +4039,10 @@ export function WorkTalkApp() {
     return () => {
       webview?.removeEventListener?.("message", handleBackupMessage);
     };
-  }, [isNexusDesktopApp]);
+  }, [canUseApprovalAutoBackup]);
 
   useEffect(() => {
-    if (!isNexusDesktopApp) return;
+    if (!canUseApprovalAutoBackup) return;
     if (!currentProfile || setupState !== "ready") return;
     if (!approvalBackupStatus) return;
     if (approvalBackupCatchupRequestedRef.current) return;
@@ -4048,7 +4051,7 @@ export function WorkTalkApp() {
   }, [
     approvalBackupStatus,
     currentProfile,
-    isNexusDesktopApp,
+    canUseApprovalAutoBackup,
     runApprovalBackupCatchup,
     setupState,
   ]);
@@ -5518,73 +5521,63 @@ export function WorkTalkApp() {
                           : "Chrome이 설치 가능하다고 판단하면 이 영역에 ‘설치하기’ 버튼이 표시됩니다. 주소창에 ‘앱에서 열기’가 보이면 이미 설치된 앱으로 인식 중일 수 있으니 chrome://apps를 확인하세요."}
               </small>
             </div>
-            <div className={styles.backupStatusCard}>
-              <span>
-                <WorkTalkIcon name="document" />
-                결재 완료 PDF 자동 백업
-              </span>
-              {isNexusDesktopApp ? (
-                <>
-                  <em className={styles.installReadyBadge}>Windows 앱 전용</em>
-                  <small>
-                    승인 완료 PDF를 <strong>{approvalBackupStatus?.rootPath || NEXUS_APPROVAL_BACKUP_ROOT}</strong>
-                    에 문서종류/월별 폴더로 자동 저장합니다.
+            {canUseApprovalAutoBackup && (
+              <div className={styles.backupStatusCard}>
+                <span>
+                  <WorkTalkIcon name="document" />
+                  결재 완료 PDF 자동 백업
+                </span>
+                <em className={styles.installReadyBadge}>Windows 앱 전용</em>
+                <small>
+                  승인 완료 PDF를 <strong>{approvalBackupStatus?.rootPath || NEXUS_APPROVAL_BACKUP_ROOT}</strong>
+                  에 문서종류/월별 폴더로 자동 저장합니다.
+                </small>
+                <dl>
+                  <div>
+                    <dt>완료</dt>
+                    <dd>{approvalBackupCompletedCount}건</dd>
+                  </div>
+                  <div>
+                    <dt>실패</dt>
+                    <dd>{approvalBackupFailedRecords.length}건</dd>
+                  </div>
+                  <div>
+                    <dt>마지막</dt>
+                    <dd>
+                      {approvalBackupLastResult
+                        ? approvalBackupLastResult.status === "completed"
+                          ? "성공"
+                          : "실패"
+                        : "대기"}
+                    </dd>
+                  </div>
+                </dl>
+                {approvalBackupLastResult?.localPath && (
+                  <small className={styles.backupPathText}>
+                    최근: {approvalBackupLastResult.localPath}
                   </small>
-                  <dl>
-                    <div>
-                      <dt>완료</dt>
-                      <dd>{approvalBackupCompletedCount}건</dd>
-                    </div>
-                    <div>
-                      <dt>실패</dt>
-                      <dd>{approvalBackupFailedRecords.length}건</dd>
-                    </div>
-                    <div>
-                      <dt>마지막</dt>
-                      <dd>
-                        {approvalBackupLastResult
-                          ? approvalBackupLastResult.status === "completed"
-                            ? "성공"
-                            : "실패"
-                          : "대기"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {approvalBackupLastResult?.localPath && (
-                    <small className={styles.backupPathText}>
-                      최근: {approvalBackupLastResult.localPath}
-                    </small>
-                  )}
-                  {approvalBackupMessage && (
-                    <small className={styles.backupPathText}>{approvalBackupMessage}</small>
-                  )}
-                  {approvalBackupFailedRecords.length > 0 && (
-                    <ul className={styles.backupFailureList}>
-                      {approvalBackupFailedRecords.map((record) => (
-                        <li key={`${record.documentId}-${record.storagePath}`}>
-                          <strong>{record.documentNo || `문서 ${record.documentId}`}</strong>
-                          <span>{record.lastError || "백업 실패"}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void runApprovalBackupCatchup()}
-                  >
-                    미백업 문서 다시 확인
-                  </button>
-                </>
-              ) : (
-                <>
-                  <em className={styles.installUnavailableBadge}>지원 안 함</em>
-                  <small>
-                    자동 로컬 백업은 Windows 설치형 NEXUS 앱에서만 지원됩니다.
-                    현재 환경에서는 완료 PDF를 직접 다운로드할 수 있습니다.
-                  </small>
-                </>
-              )}
-            </div>
+                )}
+                {approvalBackupMessage && (
+                  <small className={styles.backupPathText}>{approvalBackupMessage}</small>
+                )}
+                {approvalBackupFailedRecords.length > 0 && (
+                  <ul className={styles.backupFailureList}>
+                    {approvalBackupFailedRecords.map((record) => (
+                      <li key={`${record.documentId}-${record.storagePath}`}>
+                        <strong>{record.documentNo || `문서 ${record.documentId}`}</strong>
+                        <span>{record.lastError || "백업 실패"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void runApprovalBackupCatchup()}
+                >
+                  미백업 문서 다시 확인
+                </button>
+              </div>
+            )}
             {canManageTestCleanup && (
               <div className={styles.testCleanupCard}>
                 <span>
