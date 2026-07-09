@@ -1231,6 +1231,11 @@ export function WorkTalkApp() {
   const bottomScrollProgrammaticUntilRef = useRef(0);
   const bottomScrollUserScrollVersionRef = useRef(0);
   const lastBottomScrollRoomIdRef = useRef<number | null>(null);
+  const initialBottomLockRef = useRef<{
+    activeUntil: number;
+    roomId: number | null;
+    scrollVersion: number;
+  }>({ activeUntil: 0, roomId: null, scrollVersion: 0 });
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
   const approvalBackupCatchupRequestedRef = useRef(false);
@@ -2938,6 +2943,30 @@ export function WorkTalkApp() {
       reason === "notification-open",
     [popupMode]
   );
+  const isInitialBottomLockActive = useCallback(() => {
+    const lock = initialBottomLockRef.current;
+    return (
+      lock.roomId !== null &&
+      lock.roomId === selectedRoomIdUiRef.current &&
+      lock.scrollVersion === bottomScrollUserScrollVersionRef.current &&
+      Date.now() <= lock.activeUntil
+    );
+  }, []);
+  const activateInitialBottomLock = useCallback((roomId: number | null) => {
+    if (!roomId) return;
+    initialBottomLockRef.current = {
+      activeUntil: Date.now() + 1800,
+      roomId,
+      scrollVersion: bottomScrollUserScrollVersionRef.current,
+    };
+  }, []);
+  const clearInitialBottomLock = useCallback(() => {
+    initialBottomLockRef.current = {
+      activeUntil: 0,
+      roomId: null,
+      scrollVersion: bottomScrollUserScrollVersionRef.current,
+    };
+  }, []);
   const scrollConversationToBottom = useCallback(
     (
       options: {
@@ -3125,8 +3154,13 @@ export function WorkTalkApp() {
   );
   const handleMessageListScroll = useCallback(() => {
     if (Date.now() <= bottomScrollProgrammaticUntilRef.current) return;
+    if (isInitialBottomLockActive()) return;
     bottomScrollUserScrollVersionRef.current += 1;
-  }, []);
+  }, [isInitialBottomLockActive]);
+  const handleMessageListUserIntent = useCallback(() => {
+    clearInitialBottomLock();
+    bottomScrollUserScrollVersionRef.current += 1;
+  }, [clearInitialBottomLock]);
   const openNotification = useCallback(
     async (notification: WorkTalkNotification) => {
       await markNotificationRead(notification.id);
@@ -3183,6 +3217,7 @@ export function WorkTalkApp() {
 
       setActiveSection("chat");
       userOpenedRoomRef.current = true;
+      activateInitialBottomLock(notification.room_id);
       selectRoom(notification.room_id, notification.message_id);
       setMobileConversationOpen(true);
       scheduleBottomScroll("auto", {
@@ -3194,6 +3229,7 @@ export function WorkTalkApp() {
       });
     },
     [
+      activateInitialBottomLock,
       currentProfile,
       markNotificationRead,
       popupMode,
@@ -3696,6 +3732,7 @@ export function WorkTalkApp() {
         roomId: deepLink.roomId,
         messageId: deepLink.messageId ?? null,
       });
+      activateInitialBottomLock(deepLink.roomId);
       selectRoom(deepLink.roomId, deepLink.messageId);
       registerMobileConversationHistory(deepLink.roomId);
       setServiceWorkerDeepLink(null);
@@ -3721,6 +3758,7 @@ export function WorkTalkApp() {
     serviceWorkerDeepLink,
     setRoomSelectionRestoreBlocked,
     setupState,
+    activateInitialBottomLock,
     registerMobileConversationHistory,
     updateDeepLinkDebugStatus,
   ]);
@@ -3806,6 +3844,34 @@ export function WorkTalkApp() {
     currentProfile?.id,
     filteredMessages,
     focusedMessageId,
+    messageTailKey,
+    scheduleBottomScroll,
+    selectedRoomId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !selectedRoomId ||
+      focusedMessageId ||
+      !messageTailKey ||
+      !isInitialBottomLockActive()
+    ) {
+      return;
+    }
+
+    scheduleBottomScroll("auto", {
+      extraSettle: true,
+      force: true,
+      preferSentinel: true,
+      reason: "initial-bottom-lock",
+      resizeSettle: true,
+    });
+  }, [
+    focusedMessageId,
+    imageUrls,
+    isInitialBottomLockActive,
+    loadingMessages,
+    messages,
     messageTailKey,
     scheduleBottomScroll,
     selectedRoomId,
@@ -4209,6 +4275,7 @@ export function WorkTalkApp() {
     setActiveSection("chat");
 
     if (normalizedRoomId === selectedRoomId) {
+      activateInitialBottomLock(normalizedRoomId);
       if (focusMessageId) {
         selectRoom(normalizedRoomId, focusMessageId);
       } else {
@@ -4224,6 +4291,7 @@ export function WorkTalkApp() {
       registerMobileConversationHistory(normalizedRoomId);
       return;
     }
+    activateInitialBottomLock(normalizedRoomId);
     selectRoom(normalizedRoomId, focusMessageId || undefined);
     setDraft("");
     setReplyTarget(null);
@@ -6038,7 +6106,10 @@ export function WorkTalkApp() {
               ref={messageListRef}
               className={styles.messageList}
               onClick={() => setMessageMenu(null)}
+              onPointerDown={handleMessageListUserIntent}
               onScroll={handleMessageListScroll}
+              onTouchStart={handleMessageListUserIntent}
+              onWheel={handleMessageListUserIntent}
             >
               <div ref={messageListContentRef} className={styles.messageListContent}>
               {loadingMessages && messages.length === 0 ? (
