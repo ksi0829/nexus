@@ -1098,11 +1098,14 @@ export function useWorkTalk() {
   }, []);
 
   const loadNotifications = useCallback(async () => {
+    if (!currentProfile?.id) return;
+
     const { data, error } = await supabase
       .from("worktalk_notifications")
       .select(
         "id,user_id,room_id,message_id,sender_id,sender_name,title,body,notification_type,read_at,created_at"
       )
+      .eq("user_id", currentProfile.id)
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -1124,14 +1127,17 @@ export function useWorkTalk() {
       lastDeliveredNotificationIdRef.current = nextNotifications[0]?.id || 0;
     }
     setNotificationsReady(true);
-  }, []);
+  }, [currentProfile?.id]);
 
   const pollDesktopNotifications = useCallback(async () => {
+    if (!currentProfile?.id) return;
+
     const { data, error } = await supabase
       .from("worktalk_notifications")
       .select(
         "id,user_id,room_id,message_id,sender_id,sender_name,title,body,notification_type,read_at,created_at"
       )
+      .eq("user_id", currentProfile.id)
       .order("id", { ascending: false })
       .limit(20);
 
@@ -1161,7 +1167,7 @@ export function useWorkTalk() {
     });
     setNotificationsReady(true);
     setLatestNotification(newRows[0] || null);
-  }, []);
+  }, [currentProfile?.id]);
 
   const loadRooms = useCallback(async (
     preferredRoomId?: number | null,
