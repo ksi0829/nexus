@@ -64,6 +64,9 @@ type LoadRoomsOptions = {
   background?: boolean;
   reason?: string;
 };
+type CreateDirectRoomOptions = {
+  selectRoom?: boolean;
+};
 type LoadMessagesOptions = {
   background?: boolean;
 };
@@ -2636,7 +2639,7 @@ export function useWorkTalk() {
   }, []);
 
   const createDirectRoom = useCallback(
-    async (targetUserId: string) => {
+    async (targetUserId: string, options: CreateDirectRoomOptions = {}) => {
       const { data, error } = await supabase.rpc("worktalk_create_direct_room", {
         target_user_id: targetUserId,
       });
@@ -2647,8 +2650,12 @@ export function useWorkTalk() {
       }
 
       const roomId = Number(data);
-      await loadRooms(roomId);
-      selectRoom(roomId);
+      if (options.selectRoom === false) {
+        await loadRooms(null);
+      } else {
+        await loadRooms(roomId);
+        selectRoom(roomId);
+      }
       return roomId;
     },
     [loadRooms, selectRoom]
@@ -3889,7 +3896,7 @@ export function useWorkTalk() {
     };
     const intervalId = window.setInterval(
       () => refresh("periodic_visible_refresh"),
-      30000
+      60000
     );
     const handleFocus = () => refresh("window_focus");
     window.addEventListener("focus", handleFocus);

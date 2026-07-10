@@ -15,9 +15,9 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyDescription("ZETA NEXUS 업무 메신저와 전자결재")]
 [assembly: AssemblyCompany("ZETA Corporation")]
 [assembly: AssemblyProduct("NEXUS")]
-[assembly: AssemblyInformationalVersion("1.0.2")]
-[assembly: AssemblyVersion("1.0.2")]
-[assembly: AssemblyFileVersion("1.0.2")]
+[assembly: AssemblyInformationalVersion("1.0.3")]
+[assembly: AssemblyVersion("1.0.3")]
+[assembly: AssemblyFileVersion("1.0.3")]
 
 internal static class NexusClient
 {

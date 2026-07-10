@@ -3943,10 +3943,10 @@ export function WorkTalkApp() {
 
     void syncPresence();
     void loadPresence();
-    const heartbeatId = window.setInterval(() => void syncPresence(), 30_000);
+    const heartbeatId = window.setInterval(() => void syncPresence(), 60_000);
     const refreshId = window.setInterval(() => {
       if (document.visibilityState === "visible") void loadPresence();
-    }, 60_000);
+    }, 120_000);
     const handleVisibility = () => {
       console.info(
         `[WorkTalk lifecycle] ${
@@ -3958,7 +3958,6 @@ export function WorkTalkApp() {
         }
       );
       void syncPresence();
-      void loadPresence();
       if (
         document.visibilityState === "visible" &&
         activeSection === "chat" &&
@@ -4597,13 +4596,15 @@ export function WorkTalkApp() {
   async function startDirectChat(profile: WorkTalkProfile) {
     if (profile.id === currentProfile?.id || startingDirectChat) return;
     setStartingDirectChat(true);
-    const roomId = await createDirectRoom(profile.id);
+    const shouldUseSameWindowConversation =
+      typeof window !== "undefined" &&
+      window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches;
+    const roomId = await createDirectRoom(profile.id, {
+      selectRoom: shouldUseSameWindowConversation,
+    });
     setStartingDirectChat(false);
     if (!roomId) return;
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches
-    ) {
+    if (shouldUseSameWindowConversation) {
       setFilter("direct");
       setSelectedProfileId(null);
     }
@@ -5035,14 +5036,6 @@ export function WorkTalkApp() {
             <span>ZETA</span>
             <h1>NEXUS</h1>
           </div>
-          <button
-            type="button"
-            className={styles.newRoomButton}
-            onClick={() => openCreator("group")}
-            aria-label="그룹채팅 만들기"
-          >
-            <WorkTalkIcon name="plus" />
-          </button>
         </header>
 
         <label className={styles.searchBox}>
@@ -5307,14 +5300,6 @@ export function WorkTalkApp() {
                 <span>ZETA</span>
                 <h1>직원·조직</h1>
               </div>
-              <button
-                type="button"
-                className={styles.newRoomButton}
-                onClick={() => setActiveSection("chat")}
-                aria-label="채팅으로 돌아가기"
-              >
-                <WorkTalkIcon name="chat" />
-              </button>
             </header>
             <label className={styles.searchBox}>
               <WorkTalkIcon name="search" />

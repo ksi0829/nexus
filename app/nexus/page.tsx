@@ -4,10 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { isActualMobileDevice } from "@/app/_lib/device";
 import { NEXUS_DOCUMENTS } from "@/app/_lib/nexusDocuments";
-import {
-  maximizeDocumentWindow,
-  restoreDocumentWindowPlacement,
-} from "@/app/_lib/windowPlacement";
+import { maximizeDocumentWindow } from "@/app/_lib/windowPlacement";
 import {
   NexusNavigation,
   nexusNavigationStyles,
@@ -35,15 +32,6 @@ export default function NexusPage() {
               <h1>문서</h1>
               <p>업무일지와 결재 문서를 작성하고 필요한 채팅방에 공유합니다.</p>
             </div>
-            <button
-              className={styles.backButton}
-              onClick={() => {
-                restoreDocumentWindowPlacement();
-                router.push("/worktalk?section=chat");
-              }}
-            >
-              채팅
-            </button>
           </header>
           <section className={styles.list}>
             <article className={styles.documentItem}>
