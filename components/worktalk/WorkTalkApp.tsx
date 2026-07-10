@@ -4598,7 +4598,8 @@ export function WorkTalkApp() {
     setStartingDirectChat(true);
     const shouldUseSameWindowConversation =
       typeof window !== "undefined" &&
-      window.matchMedia(WORKTALK_MOBILE_LAYOUT_QUERY).matches;
+      window.matchMedia("(pointer: coarse)").matches &&
+      window.matchMedia("(hover: none)").matches;
     const roomId = await createDirectRoom(profile.id, {
       selectRoom: shouldUseSameWindowConversation,
     });
