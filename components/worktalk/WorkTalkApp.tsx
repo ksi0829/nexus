@@ -45,6 +45,13 @@ import {
 import { createManufacturingPdf } from "@/app/_lib/nexusManufacturingPdf";
 import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
+import {
+  formatKstDate,
+  formatKstDateKorean,
+  formatKstMonthDay,
+  formatKstTime,
+  isSameKstDate,
+} from "@/app/_lib/kstDate";
 import { restoreDocumentWindowPlacement } from "@/app/_lib/windowPlacement";
 import type {
   WorkTalkMessage,
@@ -669,23 +676,17 @@ function getRoomMemberRole(
 
 function formatRoomTime(value?: string) {
   if (!value) return "";
-  const date = new Date(value);
-  const today = new Date();
-  const sameDay = date.toDateString() === today.toDateString();
-  return sameDay
-    ? date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
+  return isSameKstDate(value, new Date())
+    ? formatKstTime(value)
+    : formatKstMonthDay(value);
 }
 
 function formatMessageTime(value: string) {
-  return new Date(value).toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatKstTime(value);
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("ko-KR", {
+  return formatKstDateKorean(value, {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -4556,8 +4557,10 @@ export function WorkTalkApp() {
           })),
         ],
       });
-      const now = new Date();
-      storagePath = `purchase-resolution/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${document.document_no}/approved.pdf`;
+      const [year, month, day] = formatKstDate(
+        document.completed_at || new Date()
+      ).split("-");
+      storagePath = `purchase-resolution/${year}/${month}/${day}/${document.document_no}/approved.pdf`;
       originalName = `${document.document_no}_구매결의서_${document.title}_승인완료.pdf`;
       attachFunction = "nexus_attach_approved_purchase_resolution_pdf";
     } else {
@@ -6125,8 +6128,7 @@ export function WorkTalkApp() {
                   const previous = filteredMessages[index - 1];
                   const showDate =
                     !previous ||
-                    new Date(previous.created_at).toDateString() !==
-                      new Date(message.created_at).toDateString();
+                    !isSameKstDate(previous.created_at, message.created_at);
                   const showSender =
                     !mine &&
                     (!previous ||

@@ -1,4 +1,5 @@
 import { nexusApprovalStepRole } from "@/lib/nexus/approvalLabels";
+import { formatKstDateKorean, formatKstTime } from "@/app/_lib/kstDate";
 
 type ManufacturingPdfInput = {
   documentNo: string;
@@ -48,6 +49,10 @@ function renderApprovalStatus(approval: {
   return `<strong class="${approval.status === "승인" ? "approved" : ""}">${escapeHtml(approval.status)}</strong>`;
 }
 
+function isReferenceRow(approval: { role: string; status: string }) {
+  return approval.role.includes("참조") || approval.status === "참조";
+}
+
 export async function createManufacturingPdf(input: ManufacturingPdfInput) {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
     import("html2canvas"),
@@ -61,9 +66,22 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
     { role: "참조", name: "신훈식 부장", status: "참조" },
     { role: "참조", name: "신상민 회장", status: "참조" },
   ];
+  const approvalCells = approvalRows.filter((approval) => !isReferenceRow(approval));
+  const referenceRows = approvalRows.filter(isReferenceRow);
+  const visibleApprovalCells = approvalCells.length > 0 ? approvalCells : approvalRows;
+  const approvalColumnCount = Math.max(visibleApprovalCells.length, 1);
+  const approvalPanelWidth = Math.min(
+    430,
+    Math.max(315, 32 + approvalColumnCount * 88)
+  );
+  const approvalNameFontSize = approvalColumnCount >= 4 ? 10 : 12;
+  const approvalStatusFontSize = approvalColumnCount >= 4 ? 13 : 15;
+  const approvalCellPadding = approvalColumnCount >= 4 ? "6px 2px" : "7px 3px";
+  const signatureImageWidth = approvalColumnCount >= 4 ? 58 : 74;
   console.info("[Approval PDF]", "manufacturing:create", {
     documentNo: input.documentNo,
     version: input.version || "submitted",
+    approvalColumnCount,
     approvals: approvalRows.map((approval) => ({
       role: approval.role,
       name: approval.name,
@@ -81,22 +99,21 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
       <span>국가/구분 : ${escapeHtml(text(data, "country"))}</span>
       <span>수주일 : ${escapeHtml(text(data, "orderDate"))}</span>
     </div>
-    <div class="title-row">
+    <div class="title-row" style="grid-template-columns:minmax(0,1fr) ${approvalPanelWidth}px">
       <div class="doc-title">
         <span class="check">${requestType === "제조" ? "■" : "□"}</span> 제조
         <span class="check">${requestType === "협조" ? "■" : "□"}</span> 협조
         <b>요 구 서</b>
       </div>
-      <div class="approval-grid">
+      <div class="approval-grid" style="grid-template-columns:32px repeat(${approvalColumnCount}, minmax(0,1fr))">
         <div class="approval-label">결<br>재</div>
-        ${approvalRows
-          .slice(0, 2)
+        ${visibleApprovalCells
           .map(
             (approval) => `<div class="approval-cell">
               <small>${escapeHtml(approval.role)}</small>
               <b>${escapeHtml(approval.name)}</b>
               ${renderApprovalStatus(approval)}
-              ${approval.actedAt ? `<time>${escapeHtml(new Date(approval.actedAt).toLocaleDateString("ko-KR"))}<br>${escapeHtml(new Date(approval.actedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }))}</time>` : ""}
+              ${approval.actedAt ? `<time>${escapeHtml(formatKstDateKorean(approval.actedAt))}<br>${escapeHtml(formatKstTime(approval.actedAt))}</time>` : ""}
             </div>`
           )
           .join("")}
@@ -124,8 +141,7 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
       <div class="spec attachment"><b>첨부 메모</b><span>${escapeHtml(text(data, "attachment"))}</span></div>
     </div>
     <div class="reference-grid">
-      ${approvalRows
-        .slice(2)
+      ${referenceRows
         .map(
           (approval) =>
             `<div><b>${escapeHtml(approval.role)}</b><span>${escapeHtml(approval.name)}</span><em>${escapeHtml(approval.status)}</em></div>`
@@ -140,9 +156,9 @@ export async function createManufacturingPdf(input: ManufacturingPdfInput) {
       .doc-title{display:flex;align-items:center;justify-content:center;gap:5px;min-height:92px;font-size:20px;font-weight:800}
       .doc-title b{margin-left:8px;font-size:29px;letter-spacing:9px}.check{font-size:14px}.approval-grid{display:grid;grid-template-columns:32px repeat(2,1fr);border-left:1px solid #111}
       .approval-label{display:flex;align-items:center;justify-content:center;border-right:1px solid #111;font-size:13px;font-weight:800;line-height:1.5}
-      .approval-cell{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;padding:7px 3px;border-right:1px solid #111;text-align:center}
-      .approval-cell:last-child{border-right:0}.approval-cell small{font-size:10px}.approval-cell b{font-size:12px}.approval-cell strong{font-size:15px;color:#777}.approval-cell .approved{color:#111;border:2px solid #111;padding:2px 8px;border-radius:50%}
-      .signature-image{display:block;width:74px;max-width:88%;height:24px;object-fit:contain;margin-top:1px}
+      .approval-cell{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;padding:${approvalCellPadding};border-right:1px solid #111;text-align:center;min-width:0}
+      .approval-cell:last-child{border-right:0}.approval-cell small{font-size:10px}.approval-cell b{max-width:100%;font-size:${approvalNameFontSize}px;line-height:1.2;overflow-wrap:anywhere}.approval-cell strong{font-size:${approvalStatusFontSize}px;color:#777}.approval-cell .approved{color:#111;border:2px solid #111;padding:2px 8px;border-radius:50%}
+      .signature-image{display:block;width:${signatureImageWidth}px;max-width:88%;height:24px;object-fit:contain;margin-top:1px}
       .approval-cell time{font-size:8px;line-height:1.35}.copy-row{display:flex;justify-content:space-between;padding:7px 2px 6px;font-size:11px}
       .info-grid{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #111;border-left:1px solid #111}
       .field{display:grid;grid-template-columns:74px minmax(0,1fr);height:47px;border-right:1px solid #111;border-bottom:1px solid #111;overflow:hidden}.field.span2{grid-column:span 2}

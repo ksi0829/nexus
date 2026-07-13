@@ -20,6 +20,14 @@ import { createPurchasePdf } from "@/app/_lib/nexusPurchasePdf";
 import { createPurchaseResolutionPdf } from "@/app/_lib/nexusPurchaseResolutionPdf";
 import { createWorkOrderPdf } from "@/app/_lib/nexusWorkOrderPdf";
 import {
+  formatKstDate,
+  formatKstDateTime,
+  formatKstMonthKey,
+  formatKstShortDate,
+  getKstDateKey,
+  getTodayKstDate,
+} from "@/app/_lib/kstDate";
+import {
   NEXUS_DOCUMENT_MAP,
   isNexusDocumentKey,
   type NexusDocumentKey,
@@ -175,7 +183,6 @@ type CustomerOption = {
 };
 
 const supabase = createSupabaseBrowser();
-const today = new Date().toISOString().slice(0, 10);
 const DEFAULT_APPROVER_COUNT = 3;
 const APPROVAL_ATTACHMENT_BUCKET = "approval-attachments";
 const APPROVAL_ATTACHMENT_ACCEPT = ".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.dwg,.dxf,.zip";
@@ -588,7 +595,9 @@ function createEmptyFormData(template: TemplateDef) {
 
   template.fields.forEach((field) => {
     if (field.type === "date") {
-      next[field.key] = shouldUseTodayAsDefault(field) ? today : "";
+      next[field.key] = shouldUseTodayAsDefault(field)
+        ? getTodayKstDate()
+        : "";
       return;
     }
 
@@ -695,13 +704,11 @@ function validateAttachmentFiles(files: File[], existingCount = 0) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "-";
-  return value.slice(0, 10);
+  return formatKstDate(value);
 }
 
 function formatMonthKey(value?: string | null) {
-  if (!value) return "unknown";
-  return value.slice(0, 7);
+  return formatKstMonthKey(value);
 }
 
 function formatMonthLabel(monthKey: string) {
@@ -711,10 +718,7 @@ function formatMonthLabel(monthKey: string) {
 }
 
 function formatShortDate(value?: string | null) {
-  if (!value) return "";
-  const [, month, day] = value.slice(0, 10).split("-");
-  if (!month || !day) return value;
-  return `${Number(month)}/${Number(day)}`;
+  return formatKstShortDate(value);
 }
 
 function statusText(status: ApprovalStatus) {
@@ -1157,8 +1161,9 @@ export default function ApprovalPage() {
         if (documentTemplateFilter !== "all" && document.template_key !== documentTemplateFilter) return false;
         if (documentStatusFilter !== "all" && document.status !== documentStatusFilter) return false;
         if (documentRequesterFilter !== "all" && document.requester_name !== documentRequesterFilter) return false;
-        if (documentDateFrom && document.submitted_at.slice(0, 10) < documentDateFrom) return false;
-        if (documentDateTo && document.submitted_at.slice(0, 10) > documentDateTo) return false;
+        const submittedDateKey = getKstDateKey(document.submitted_at);
+        if (documentDateFrom && submittedDateKey < documentDateFrom) return false;
+        if (documentDateTo && submittedDateKey > documentDateTo) return false;
         if (documentsWithAttachmentsOnly && !attachments.some((attachment) => attachment.document_id === document.id)) {
           return false;
         }
@@ -1402,9 +1407,9 @@ export default function ApprovalPage() {
                   requestType: "구매",
                 }
               : nexusKey === "work_order"
-                ? { issueDate: today, marketType: "국내" }
+                ? { issueDate: getTodayKstDate(), marketType: "국내" }
               : nexusKey === "purchase_resolution"
-                ? { resolutionDate: today, vatType: "VAT별도" }
+                ? { resolutionDate: getTodayKstDate(), vatType: "VAT별도" }
                 : {}),
           },
           localStorage.getItem("name") || "",
@@ -2045,18 +2050,20 @@ export default function ApprovalPage() {
           const issueDateValue = String(
             (finalFormData as Record<string, unknown>)["issueDate"] || ""
           );
-          const date = /^\d{4}-\d{2}-\d{2}$/.test(issueDateValue)
-            ? new Date(`${issueDateValue}T00:00:00`)
-            : new Date();
+          const [year, month, day] = (
+            /^\d{4}-\d{2}-\d{2}$/.test(issueDateValue)
+              ? issueDateValue
+              : getTodayKstDate()
+          ).split("-");
           const workOrderNoMatch = nexusDocumentNo.match(/(\d{2})-(\d+)/);
           const safeWorkOrderKey = workOrderNoMatch
             ? `WO-${workOrderNoMatch[1]}-${workOrderNoMatch[2]}`
             : `WO-${String(documentId)}`;
           const storagePath = [
             "work-order",
-            String(date.getFullYear()),
-            String(date.getMonth() + 1).padStart(2, "0"),
-            String(date.getDate()).padStart(2, "0"),
+            year,
+            month,
+            day,
             safeWorkOrderKey,
             "approved.pdf",
           ].join("/");
@@ -2357,12 +2364,12 @@ export default function ApprovalPage() {
           });
           const fileName = `${nexusDocumentNo}_구매결의서_${title}_제출본.pdf`;
           downloadPdf(pdfBlob, fileName);
-          const date = new Date();
+          const [year, month, day] = getTodayKstDate().split("-");
           const storagePath = [
             "purchase-resolution",
-            String(date.getFullYear()),
-            String(date.getMonth() + 1).padStart(2, "0"),
-            String(date.getDate()).padStart(2, "0"),
+            year,
+            month,
+            day,
             nexusDocumentNo,
             "submitted.pdf",
           ].join("/");
@@ -2463,7 +2470,7 @@ export default function ApprovalPage() {
           .from("equipment_orders")
           .update({
             [equipmentDateColumnByStage[linkedEquipment.stageKey]]:
-              completedDate.slice(0, 10),
+              formatKstDate(completedDate),
           })
           .eq("id", linkedEquipment.orderId);
       }
@@ -2695,12 +2702,12 @@ export default function ApprovalPage() {
               })),
             ],
           });
-          const date = new Date();
+          const [year, month, day] = formatKstDate(completedDate).split("-");
           const approvedPath = [
             "purchase-resolution",
-            String(date.getFullYear()),
-            String(date.getMonth() + 1).padStart(2, "0"),
-            String(date.getDate()).padStart(2, "0"),
+            year,
+            month,
+            day,
             selectedDocument.document_no,
             "approved.pdf",
           ].join("/");
@@ -2953,10 +2960,7 @@ export default function ApprovalPage() {
     const template = templateMap[document.template_key];
     const documentAttachments = getDocumentAttachments(document.id);
     const references = getReferenceInfos(document.form_data);
-    const printDate = new Intl.DateTimeFormat("ko-KR", {
-      dateStyle: "long",
-      timeStyle: "short",
-    }).format(new Date());
+    const printDate = formatKstDateTime(new Date());
     const fieldsMarkup = (template?.fields || [])
       .map(
         (field) => `

@@ -1,5 +1,7 @@
 "use client";
 
+import { getTodayKstDate } from "@/app/_lib/kstDate";
+
 export type ExcelCellValue = string | number | boolean | null | undefined;
 
 export type ExcelRow = ExcelCellValue[];
@@ -123,10 +125,5 @@ export function exportExcelWorkbook(filename: string, sheets: ExcelSheet[]) {
 }
 
 export function exportDateStamp() {
-  const now = new Date();
-
-  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}${String(now.getDate()).padStart(2, "0")}`;
+  return getTodayKstDate().replaceAll("-", "");
 }
