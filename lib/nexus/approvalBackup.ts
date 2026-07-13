@@ -32,10 +32,17 @@ export type ApprovalBackupRecord = {
 export type ApprovalBackupStatus = {
   type: "NEXUS_BACKUP_STATUS";
   supported: boolean;
+  enabled?: boolean;
+  deviceId?: string | null;
+  scheduleTimes?: string[];
   rootPath: string;
   fixedPath: boolean;
   documents: ApprovalBackupRecord[];
   lastResult: ApprovalBackupRecord | null;
+  lastManifestAt?: string | null;
+  lastManifestError?: string | null;
+  lastManifestScanned?: number;
+  lastManifestDownloaded?: number;
   error?: string | null;
 };
 

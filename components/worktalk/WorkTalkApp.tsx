@@ -26,12 +26,9 @@ import { useWorkTalkPush } from "@/hooks/useWorkTalkPush";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NEXUS_APPROVAL_BACKUP_ROOT,
-  type ApprovalBackupDocument,
   type ApprovalBackupRecord,
   type ApprovalBackupStatus,
-  isApprovalBackupCompleted,
   postNexusDesktopMessage,
-  requestApprovalPdfBackup,
 } from "@/lib/nexus/approvalBackup";
 import {
   NEXUS_APPROVAL_SIGNATURE_BUCKET,
@@ -117,7 +114,6 @@ const ROOM_FILTER_OPTIONS: [RoomFilter, string][] = [
   ["approval", "결재"],
 ];
 const NEXUS_APP_VERSION = packageInfo.version || "1.0.0";
-const NEXUS_APPROVAL_BACKUP_USER_ID = "9d48f715-552b-4a0f-b162-5fa0af2a94f0";
 const LOCAL_ROOM_PIN_STORAGE_PREFIX = "nexus.worktalk.pinnedRooms.v1";
 
 function getLocalRoomPinStorageKey(userId?: string | null) {
@@ -1240,7 +1236,6 @@ export function WorkTalkApp() {
   }>({ activeUntil: 0, roomId: null, scrollVersion: 0 });
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
-  const approvalBackupCatchupRequestedRef = useRef(false);
   const {
     status: pushStatus,
     errorMessage: pushErrorMessage,
@@ -1344,7 +1339,7 @@ export function WorkTalkApp() {
   const showReadReceiptDebugPanel = currentProfile?.role === "admin";
   const canManageTestCleanup = currentProfile?.role === "admin";
   const canUseApprovalAutoBackup =
-    isNexusDesktopApp && currentProfile?.id === NEXUS_APPROVAL_BACKUP_USER_ID;
+    isNexusDesktopApp && approvalBackupStatus?.enabled === true;
   const pushUxDebugEvents = uxDebugEvents
     .filter(
       (event) => event.scope === "notification" || event.scope === "vibration"
@@ -2414,60 +2409,23 @@ export function WorkTalkApp() {
     }
   }
 
-  const requestApprovedDocumentBackup = useCallback(async (
-    document: ApprovalBackupDocument
-  ) => {
-    if (!canUseApprovalAutoBackup) return false;
-    try {
-      const sent = await requestApprovalPdfBackup(workTalkSupabase, document);
-      if (sent) {
-        setApprovalBackupMessage(
-          `${document.document_no || "승인 문서"} 백업을 요청했습니다.`
-        );
-      }
-      return sent;
-    } catch (error) {
-      setApprovalBackupMessage(
-        `백업 요청 실패: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return false;
-    }
-  }, [canUseApprovalAutoBackup]);
-
   const runApprovalBackupCatchup = useCallback(async () => {
-    if (!canUseApprovalAutoBackup) return;
-    setApprovalBackupMessage("완료 문서 백업 상태를 확인하는 중입니다.");
-
-    const { data, error } = await workTalkSupabase
-      .from("approval_documents")
-      .select(
-        "id,document_no,template_key,title,status,completed_at,approved_pdf_path,approved_pdf_created_at,form_data"
-      )
-      .eq("status", "approved")
-      .not("approved_pdf_path", "is", null)
-      .not("approved_pdf_created_at", "is", null)
-      .order("approved_pdf_created_at", { ascending: false })
-      .limit(100);
-
-    if (error) {
-      setApprovalBackupMessage(`백업 대상 조회 실패: ${error.message}`);
+    if (!isNexusDesktopApp) return;
+    if (!canUseApprovalAutoBackup) {
+      setApprovalBackupMessage("이 PC에는 승인 PDF 자동백업이 활성화되어 있지 않습니다.");
       return;
     }
 
-    const documents = (data || []) as ApprovalBackupDocument[];
-    let requestedCount = 0;
-    for (const document of documents) {
-      if (isApprovalBackupCompleted(approvalBackupStatus, document)) continue;
-      const sent = await requestApprovedDocumentBackup(document);
-      if (sent) requestedCount += 1;
-    }
-
+    const sent = postNexusDesktopMessage({
+      type: "NEXUS_BACKUP_RUN_CATCHUP",
+      reason: "manual",
+    });
     setApprovalBackupMessage(
-      requestedCount > 0
-        ? `미백업 완료 문서 ${requestedCount}건의 백업을 요청했습니다.`
-        : "최근 완료 문서 백업 상태가 최신입니다."
+      sent
+        ? "지정 PC 백업 확인을 요청했습니다."
+        : "Windows 백업 브리지에 연결할 수 없습니다."
     );
-  }, [approvalBackupStatus, canUseApprovalAutoBackup, requestApprovedDocumentBackup]);
+  }, [canUseApprovalAutoBackup, isNexusDesktopApp]);
 
   const requestTestCleanup = useCallback(
     async (mode: "preview" | "delete", roomIds: number[] = []) => {
@@ -3998,7 +3956,7 @@ export function WorkTalkApp() {
   }, []);
 
   useEffect(() => {
-    if (!canUseApprovalAutoBackup) return;
+    if (!isNexusDesktopApp) return;
     const webview = (window as NexusDesktopWindow).chrome?.webview;
     const handleBackupMessage = (event: MessageEvent) => {
       let payload: unknown = event.data;
@@ -4014,10 +3972,17 @@ export function WorkTalkApp() {
       const message = payload as {
         type?: string;
         rootPath?: string;
+        enabled?: boolean;
+        deviceId?: string | null;
+        scheduleTimes?: string[];
         documents?: ApprovalBackupRecord[];
         lastResult?: ApprovalBackupRecord | null;
         supported?: boolean;
         fixedPath?: boolean;
+        lastManifestAt?: string | null;
+        lastManifestError?: string | null;
+        lastManifestScanned?: number;
+        lastManifestDownloaded?: number;
         error?: string | null;
       };
 
@@ -4025,10 +3990,21 @@ export function WorkTalkApp() {
       setApprovalBackupStatus({
         type: "NEXUS_BACKUP_STATUS",
         supported: Boolean(message.supported),
+        enabled: Boolean(message.enabled),
+        deviceId: message.deviceId || null,
+        scheduleTimes: Array.isArray(message.scheduleTimes) ? message.scheduleTimes : [],
         rootPath: String(message.rootPath || NEXUS_APPROVAL_BACKUP_ROOT),
         fixedPath: Boolean(message.fixedPath),
         documents: Array.isArray(message.documents) ? message.documents : [],
         lastResult: message.lastResult || null,
+        lastManifestAt: message.lastManifestAt || null,
+        lastManifestError: message.lastManifestError || null,
+        lastManifestScanned:
+          typeof message.lastManifestScanned === "number" ? message.lastManifestScanned : 0,
+        lastManifestDownloaded:
+          typeof message.lastManifestDownloaded === "number"
+            ? message.lastManifestDownloaded
+            : 0,
         error: message.error || null,
       });
     };
@@ -4039,22 +4015,7 @@ export function WorkTalkApp() {
     return () => {
       webview?.removeEventListener?.("message", handleBackupMessage);
     };
-  }, [canUseApprovalAutoBackup]);
-
-  useEffect(() => {
-    if (!canUseApprovalAutoBackup) return;
-    if (!currentProfile || setupState !== "ready") return;
-    if (!approvalBackupStatus) return;
-    if (approvalBackupCatchupRequestedRef.current) return;
-    approvalBackupCatchupRequestedRef.current = true;
-    void runApprovalBackupCatchup();
-  }, [
-    approvalBackupStatus,
-    currentProfile,
-    canUseApprovalAutoBackup,
-    runApprovalBackupCatchup,
-    setupState,
-  ]);
+  }, [isNexusDesktopApp]);
 
   useEffect(() => {
     if (!isNexusDesktopApp) return;
@@ -4583,17 +4544,6 @@ export function WorkTalkApp() {
     });
     if (attachError) throw attachError;
 
-    await requestApprovedDocumentBackup({
-      id: document.id,
-      document_no: document.document_no,
-      template_key: document.template_key,
-      title: document.title,
-      status: "approved",
-      completed_at: document.completed_at || new Date().toISOString(),
-      approved_pdf_path: storagePath,
-      approved_pdf_created_at: new Date().toISOString(),
-      form_data: document.form_data,
-    });
   }
 
   async function startDirectChat(profile: WorkTalkProfile) {
@@ -4898,6 +4848,13 @@ export function WorkTalkApp() {
     ? new Date(profileAuthInfo.createdAt).toLocaleString("ko-KR")
     : "확인 불가";
   const approvalBackupLastResult = approvalBackupStatus?.lastResult || null;
+  const approvalBackupScheduleText =
+    approvalBackupStatus?.scheduleTimes?.length
+      ? approvalBackupStatus.scheduleTimes.join(" / ")
+      : "09:30 / 13:00 / 17:30";
+  const approvalBackupDeviceLabel = approvalBackupStatus?.deviceId
+    ? approvalBackupStatus.deviceId.slice(0, 8)
+    : "미확인";
 
   if (setupState === "loading") {
     return (
@@ -5518,7 +5475,8 @@ export function WorkTalkApp() {
                 </span>
                 <em className={styles.installReadyBadge}>Windows 앱 전용</em>
                 <small>
-                  승인 완료 PDF를 <strong>{approvalBackupStatus?.rootPath || NEXUS_APPROVAL_BACKUP_ROOT}</strong>
+                  이 지정 PC가 모든 승인 완료 PDF를{" "}
+                  <strong>{approvalBackupStatus?.rootPath || NEXUS_APPROVAL_BACKUP_ROOT}</strong>
                   에 문서종류/월별 폴더로 자동 저장합니다.
                 </small>
                 <dl>
@@ -5540,7 +5498,33 @@ export function WorkTalkApp() {
                         : "대기"}
                     </dd>
                   </div>
+                  <div>
+                    <dt>기기</dt>
+                    <dd>{approvalBackupDeviceLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>예약</dt>
+                    <dd>{approvalBackupScheduleText}</dd>
+                  </div>
+                  <div>
+                    <dt>확인</dt>
+                    <dd>{approvalBackupStatus?.lastManifestScanned || 0}건</dd>
+                  </div>
                 </dl>
+                {approvalBackupStatus?.lastManifestAt && (
+                  <small className={styles.backupPathText}>
+                    마지막 확인: {formatKstDate(approvalBackupStatus.lastManifestAt)}{" "}
+                    {formatKstTime(approvalBackupStatus.lastManifestAt)}
+                    {approvalBackupStatus.lastManifestDownloaded
+                      ? ` · 저장 ${approvalBackupStatus.lastManifestDownloaded}건`
+                      : ""}
+                  </small>
+                )}
+                {approvalBackupStatus?.lastManifestError && (
+                  <small className={styles.backupPathText}>
+                    확인 오류: {approvalBackupStatus.lastManifestError}
+                  </small>
+                )}
                 {approvalBackupLastResult?.localPath && (
                   <small className={styles.backupPathText}>
                     최근: {approvalBackupLastResult.localPath}
