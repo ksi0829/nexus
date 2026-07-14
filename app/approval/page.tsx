@@ -1026,6 +1026,7 @@ export default function ApprovalPage() {
   const [expandedHistoryMonths, setExpandedHistoryMonths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [isMobile] = useState(() => isActualMobileDevice());
   const [setupError, setSetupError] = useState("");
   const [message, setMessage] = useState("");
@@ -1854,6 +1855,15 @@ export default function ApprovalPage() {
   async function submitDocument() {
     setMessage("");
 
+    if (savingRef.current) {
+      setMessage("문서를 저장 중입니다. 잠시만 기다려 주세요.");
+      return;
+    }
+
+    savingRef.current = true;
+    setSaving(true);
+
+    try {
     if (isMobile) {
       setMessage("결재문서 작성은 PC에서만 가능합니다. 모바일에서는 문서 확인과 승인/반려만 사용할 수 있습니다.");
       return;
@@ -1897,8 +1907,6 @@ export default function ApprovalPage() {
       setMessage("작업지시서의 국내/해외 구분을 선택해 주세요.");
       return;
     }
-
-    setSaving(true);
 
     const title = deriveDocumentTitle(selectedTemplate, formData);
     const linkedEquipmentOrderId =
@@ -2406,6 +2414,10 @@ export default function ApprovalPage() {
     setSaving(false);
     await loadData();
     setSelectedDocumentId(documentId);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   async function approveSelectedDocument() {
