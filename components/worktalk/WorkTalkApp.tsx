@@ -1337,6 +1337,17 @@ export function WorkTalkApp() {
       : "conversation-pane-hidden"
   } / ${conversationRenderBranch}`;
   const showReadReceiptDebugPanel = currentProfile?.role === "admin";
+  const hasBlockingOverlay =
+    Boolean(createMode) ||
+    Boolean(previewImage) ||
+    Boolean(previewPdf) ||
+    Boolean(roomAction) ||
+    Boolean(messageMenu) ||
+    Boolean(roomContextMenu) ||
+    profileModalOpen ||
+    memberListOpen ||
+    memberManagerOpen ||
+    transferOwnerOpen;
   const canManageTestCleanup = currentProfile?.role === "admin";
   const canUseApprovalAutoBackup =
     isNexusDesktopApp && approvalBackupStatus?.enabled === true;
@@ -7076,7 +7087,7 @@ export function WorkTalkApp() {
         </div>
       )}
 
-      {showReadReceiptDebugPanel && (
+      {showReadReceiptDebugPanel && !hasBlockingOverlay && (
         <section
           aria-label="READ RECEIPT DEBUG"
           style={{
