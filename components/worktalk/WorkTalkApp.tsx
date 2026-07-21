@@ -4135,7 +4135,8 @@ export function WorkTalkApp() {
     const activeRoomIsVisible =
       notificationTargetsCurrentRoom &&
       conversationPanelVisible &&
-      document.visibilityState === "visible";
+      document.visibilityState === "visible" &&
+      document.hasFocus();
 
     if (
       notificationTargetsCurrentRoom &&
