@@ -4062,6 +4062,9 @@ export function WorkTalkApp() {
       if (!payload || typeof payload !== "object") return;
       const message = payload as {
         type?: string;
+        roomId?: string | number | null;
+        messageId?: string | number | null;
+        notificationId?: string | number | null;
         rootPath?: string;
         enabled?: boolean;
         deviceId?: string | null;
@@ -4076,6 +4079,53 @@ export function WorkTalkApp() {
         lastManifestDownloaded?: number;
         error?: string | null;
       };
+
+      if (message.type === "desktop-notification-click") {
+        const rawRoom =
+          message.roomId !== undefined && message.roomId !== null
+            ? String(message.roomId)
+            : null;
+        const rawMessage =
+          message.messageId !== undefined && message.messageId !== null
+            ? String(message.messageId)
+            : null;
+        const roomId = parsePositiveInt(rawRoom);
+        const messageId = parsePositiveInt(rawMessage);
+
+        if (!roomId) return;
+
+        appendUxDebugEvent({
+          scope: "notification",
+          event: "desktop notification clicked",
+          reason: "windows balloon click",
+          roomId,
+          activeRoomId: selectedRoomIdUiRef.current,
+          visible: document.visibilityState === "visible",
+          focused: document.hasFocus(),
+        });
+        updateDeepLinkDebugStatus({
+          targetRoomId: roomId,
+          targetMessageId: messageId,
+          targetRoomFound: null,
+          selectRoomCalled: false,
+          deepLinkOpenBlockedReason: "desktop_notification_click",
+        });
+        deepLinkHandledRef.current = false;
+        setRoomSelectionRestoreBlocked(false, "desktop_notification_click");
+        setServiceWorkerDeepLink({
+          roomId,
+          messageId: messageId ?? undefined,
+          sourceUrl: `/worktalk?room=${roomId}${
+            messageId ? `&message=${messageId}` : ""
+          }`,
+          rawRoom,
+          rawMessage,
+        });
+        setPendingDeepLinkRoomId(roomId);
+        setActiveSection("chat");
+        setMobileConversationOpen(true);
+        return;
+      }
 
       if (message.type !== "NEXUS_BACKUP_STATUS") return;
       setApprovalBackupStatus({
@@ -4106,7 +4156,12 @@ export function WorkTalkApp() {
     return () => {
       webview?.removeEventListener?.("message", handleBackupMessage);
     };
-  }, [isNexusDesktopApp]);
+  }, [
+    appendUxDebugEvent,
+    isNexusDesktopApp,
+    setRoomSelectionRestoreBlocked,
+    updateDeepLinkDebugStatus,
+  ]);
 
   useEffect(() => {
     if (!isNexusDesktopApp) return;
@@ -4182,9 +4237,11 @@ export function WorkTalkApp() {
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({
           type: "notification",
+          notificationId: latestNotification.id,
           title: latestNotification.title,
           body: latestNotification.body,
           roomId: latestNotification.room_id,
+          messageId: latestNotification.message_id,
         })
       );
       clearLatestNotification();

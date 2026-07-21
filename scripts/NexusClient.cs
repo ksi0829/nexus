@@ -67,6 +67,9 @@ internal sealed class NexusApplicationContext : ApplicationContext
     private readonly List<NexusWindow> chatWindows = new List<NexusWindow>();
     private bool exiting;
     private bool trayNoticeShown;
+    private int? lastNotificationRoomId;
+    private int? lastNotificationMessageId;
+    private int? lastNotificationId;
 
     internal NexusApplicationContext()
     {
@@ -82,6 +85,7 @@ internal sealed class NexusApplicationContext : ApplicationContext
         trayIcon.Visible = true;
         trayIcon.ContextMenuStrip = menu;
         trayIcon.DoubleClick += delegate { ShowMainWindow(); };
+        trayIcon.BalloonTipClicked += delegate { OpenLastNotificationRoom(); };
 
         mainWindow = new NexusWindow(this, NexusClient.AppUrl, true);
         mainWindow.Show();
@@ -106,6 +110,9 @@ internal sealed class NexusApplicationContext : ApplicationContext
 
         if (!trayNoticeShown)
         {
+            lastNotificationRoomId = null;
+            lastNotificationMessageId = null;
+            lastNotificationId = null;
             trayIcon.ShowBalloonTip(
                 2500,
                 "NEXUS가 백그라운드에서 실행 중입니다",
@@ -196,12 +203,22 @@ internal sealed class NexusApplicationContext : ApplicationContext
         return false;
     }
 
-    internal void ShowNotification(string title, string body, int? roomId)
+    internal void ShowNotification(
+        string title,
+        string body,
+        int? roomId,
+        int? messageId,
+        int? notificationId
+    )
     {
         if (roomId.HasValue && HasActiveChatWindow(roomId.Value))
         {
             return;
         }
+
+        lastNotificationRoomId = roomId;
+        lastNotificationMessageId = messageId;
+        lastNotificationId = notificationId;
 
         trayIcon.ShowBalloonTip(
             5000,
@@ -225,6 +242,28 @@ internal sealed class NexusApplicationContext : ApplicationContext
             mainWindow.WindowState = FormWindowState.Normal;
         }
         mainWindow.Activate();
+    }
+
+    private void OpenLastNotificationRoom()
+    {
+        int? roomId = lastNotificationRoomId;
+        int? messageId = lastNotificationMessageId;
+        int? notificationId = lastNotificationId;
+
+        if (roomId.HasValue && ActivateExistingChatRoom(roomId.Value))
+        {
+            return;
+        }
+
+        ShowMainWindow();
+        if (roomId.HasValue)
+        {
+            mainWindow.OpenWorkTalkRoomFromNotification(
+                roomId.Value,
+                messageId,
+                notificationId
+            );
+        }
     }
 
     private void ExitApplication()
@@ -1178,13 +1217,19 @@ internal class NexusWindow : Form
             object titleValue;
             object bodyValue;
             object roomValue;
+            object messageValue;
+            object notificationValue;
             payload.TryGetValue("title", out titleValue);
             payload.TryGetValue("body", out bodyValue);
             payload.TryGetValue("roomId", out roomValue);
+            payload.TryGetValue("messageId", out messageValue);
+            payload.TryGetValue("notificationId", out notificationValue);
             applicationContext.ShowNotification(
                 Convert.ToString(titleValue),
                 Convert.ToString(bodyValue),
-                TryParseInteger(roomValue)
+                TryParseInteger(roomValue),
+                TryParseInteger(messageValue),
+                TryParseInteger(notificationValue)
             );
         }
         catch
@@ -1332,6 +1377,22 @@ internal class NexusWindow : Form
             WindowState = FormWindowState.Normal;
         }
         Activate();
+    }
+
+    internal void OpenWorkTalkRoomFromNotification(
+        int roomId,
+        int? messageId,
+        int? notificationId
+    )
+    {
+        BringToFrontForRoom();
+        PostWebMessage(new Dictionary<string, object>
+        {
+            { "type", "desktop-notification-click" },
+            { "roomId", roomId },
+            { "messageId", messageId.HasValue ? (object)messageId.Value : null },
+            { "notificationId", notificationId.HasValue ? (object)notificationId.Value : null }
+        });
     }
 
     private void UpdateClientState(System.Collections.Generic.Dictionary<string, object> payload)
