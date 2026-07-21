@@ -1661,6 +1661,22 @@ export function WorkTalkApp() {
     [isNarrowLayoutNow, popupMode]
   );
 
+  const prepareMobileDeepLinkHistory = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    if (popupMode || !isNarrowLayoutNow) return false;
+
+    if (window.location.pathname !== "/worktalk" || window.location.search) {
+      window.history.replaceState(
+        { nexusView: "worktalk-list" },
+        "",
+        "/worktalk"
+      );
+      mobileRoomHistoryActiveRef.current = false;
+    }
+
+    return true;
+  }, [isNarrowLayoutNow, popupMode]);
+
   const closeMobileConversation = useCallback(
     (reason: string) => {
       if (popupMode) {
@@ -3749,6 +3765,7 @@ export function WorkTalkApp() {
     deepLinkMissingRoomRetryRef.current = { key: "", count: 0 };
 
     const timeoutId = window.setTimeout(() => {
+      const mobileHistoryPrepared = prepareMobileDeepLinkHistory();
       setPendingDeepLinkRoomId(null);
       setActiveSection("chat");
       setMobileConversationOpen(true);
@@ -3768,7 +3785,9 @@ export function WorkTalkApp() {
       selectRoom(deepLink.roomId, deepLink.messageId);
       registerMobileConversationHistory(deepLink.roomId);
       setServiceWorkerDeepLink(null);
-      window.history.replaceState({}, "", "/worktalk");
+      if (!mobileHistoryPrepared) {
+        window.history.replaceState({}, "", "/worktalk");
+      }
       if (!deepLink.messageId) {
         scheduleBottomScroll("auto", {
           extraSettle: true,
@@ -3792,6 +3811,7 @@ export function WorkTalkApp() {
     setRoomSelectionRestoreBlocked,
     setupState,
     activateInitialBottomLock,
+    prepareMobileDeepLinkHistory,
     registerMobileConversationHistory,
     updateDeepLinkDebugStatus,
   ]);
