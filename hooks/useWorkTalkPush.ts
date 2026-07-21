@@ -74,6 +74,62 @@ async function saveSubscription(subscription: PushSubscription) {
   if (error) throw error;
 }
 
+export async function removeCurrentWorkTalkPushSubscription(options?: {
+  timeoutMs?: number;
+}) {
+  if (
+    typeof navigator === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    typeof window === "undefined" ||
+    !("PushManager" in window)
+  ) {
+    return { removed: false, reason: "unsupported" as const };
+  }
+
+  if ("chrome" in window) {
+    const chromeCandidate = window.chrome;
+    if (
+      chromeCandidate &&
+      typeof chromeCandidate === "object" &&
+      "webview" in chromeCandidate
+    ) {
+      return { removed: false, reason: "desktop-app" as const };
+    }
+  }
+
+  const timeoutMs = options?.timeoutMs ?? 3000;
+  const readyPromise = navigator.serviceWorker.ready;
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<ServiceWorkerRegistration>((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error("Push subscription cleanup timed out")),
+      timeoutMs
+    );
+  });
+  const registration = await (async () => {
+    try {
+      return await Promise.race([readyPromise, timeoutPromise]);
+    } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+  })();
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    return { removed: false, reason: "not-subscribed" as const };
+  }
+
+  const supabase = createSupabaseBrowser();
+  const { error } = await supabase.rpc("worktalk_remove_push_subscription", {
+    subscription_endpoint: subscription.endpoint,
+  });
+  if (error) throw error;
+
+  await subscription.unsubscribe();
+  return { removed: true, reason: "removed" as const };
+}
+
 export function useWorkTalkPush(enabled: boolean) {
   const [status, setStatus] = useState<PushStatus>("loading");
   const [errorMessage, setErrorMessage] = useState("");
@@ -209,19 +265,7 @@ export function useWorkTalkPush(enabled: boolean) {
   const unsubscribe = useCallback(async () => {
     setErrorMessage("");
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        const supabase = createSupabaseBrowser();
-        const { error } = await supabase.rpc(
-          "worktalk_remove_push_subscription",
-          {
-            subscription_endpoint: subscription.endpoint,
-          }
-        );
-        if (error) throw error;
-        await subscription.unsubscribe();
-      }
+      await removeCurrentWorkTalkPushSubscription();
       setStatus("available");
       return true;
     } catch (error) {

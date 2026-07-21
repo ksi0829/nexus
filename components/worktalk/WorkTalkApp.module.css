@@ -3286,6 +3286,14 @@
   color: #0f7a62;
 }
 
+.roomContextMenu .dangerContextMenuItem {
+  color: #b42318;
+}
+
+.roomContextMenu .dangerContextMenuItem svg {
+  color: #b42318;
+}
+
 .createModal {
   display: flex;
   width: min(470px, 100%);

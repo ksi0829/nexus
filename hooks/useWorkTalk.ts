@@ -426,6 +426,10 @@ export function useWorkTalk() {
   const queuedRoomRefreshPreferredRoomIdRef = useRef<number | null | undefined>(
     undefined
   );
+  const foregroundRefreshInFlightRef = useRef(false);
+  const foregroundRefreshTimerRef = useRef<number | null>(null);
+  const queuedForegroundRefreshReasonRef = useRef<string | null>(null);
+  const lastForegroundRefreshAtRef = useRef(0);
   const pendingFocusMessageIdRef = useRef<number | null>(null);
   const allowAutomaticRoomSelectionRef = useRef(false);
   const blockRoomSelectionRestoreRef = useRef(false);
@@ -2828,10 +2832,12 @@ export function useWorkTalk() {
         return false;
       }
 
-      selectedRoomIdRef.current = null;
-      allowAutomaticRoomSelectionRef.current = false;
-      setSelectedRoomId(null);
-      setMessages([]);
+      if (selectedRoomIdRef.current === roomId) {
+        selectedRoomIdRef.current = null;
+        allowAutomaticRoomSelectionRef.current = false;
+        setSelectedRoomId(null);
+        setMessages([]);
+      }
       await loadRooms();
       return true;
     },
@@ -2849,10 +2855,12 @@ export function useWorkTalk() {
         return false;
       }
 
-      selectedRoomIdRef.current = null;
-      allowAutomaticRoomSelectionRef.current = false;
-      setSelectedRoomId(null);
-      setMessages([]);
+      if (selectedRoomIdRef.current === roomId) {
+        selectedRoomIdRef.current = null;
+        allowAutomaticRoomSelectionRef.current = false;
+        setSelectedRoomId(null);
+        setMessages([]);
+      }
       await loadRooms();
       return true;
     },
@@ -3868,20 +3876,72 @@ export function useWorkTalk() {
 
   useEffect(() => {
     if (!currentProfile || setupState !== "ready") return;
+    let disposed = false;
 
-    const refresh = (reason = "foreground_refresh") => {
-      if (document.visibilityState === "visible") {
-        if (debugEnabledRef.current) {
-          console.info("[WorkTalk lifecycle] App Visible", {
-            reason,
-            selectedRoomId: selectedRoomIdRef.current,
-          });
-        }
-        void loadRooms(selectedRoomIdRef.current, {
+    const clearForegroundRefreshTimer = () => {
+      if (foregroundRefreshTimerRef.current) {
+        window.clearTimeout(foregroundRefreshTimerRef.current);
+        foregroundRefreshTimerRef.current = null;
+      }
+    };
+
+    const runRefresh = async (reason = "foreground_refresh") => {
+      if (disposed) return;
+      if (document.visibilityState !== "visible") return;
+
+      if (foregroundRefreshInFlightRef.current) {
+        queuedForegroundRefreshReasonRef.current = reason;
+        return;
+      }
+
+      foregroundRefreshInFlightRef.current = true;
+      lastForegroundRefreshAtRef.current = Date.now();
+      if (debugEnabledRef.current) {
+        console.info("[WorkTalk lifecycle] App Visible", {
+          reason,
+          selectedRoomId: selectedRoomIdRef.current,
+        });
+      }
+      try {
+        await loadRooms(selectedRoomIdRef.current, {
           background: true,
           reason,
         });
+      } finally {
+        foregroundRefreshInFlightRef.current = false;
+        if (disposed) return;
+        const queuedReason = queuedForegroundRefreshReasonRef.current;
+        queuedForegroundRefreshReasonRef.current = null;
+        if (queuedReason && document.visibilityState === "visible") {
+          clearForegroundRefreshTimer();
+          foregroundRefreshTimerRef.current = window.setTimeout(() => {
+            foregroundRefreshTimerRef.current = null;
+            void runRefresh(queuedReason);
+          }, 250);
+        }
       }
+    };
+
+    const refresh = (reason = "foreground_refresh") => {
+      if (disposed) return;
+      if (document.visibilityState !== "visible") return;
+
+      const elapsedMs = Date.now() - lastForegroundRefreshAtRef.current;
+      if (elapsedMs >= 0 && elapsedMs < 1000) {
+        queuedForegroundRefreshReasonRef.current = reason;
+        if (!foregroundRefreshTimerRef.current) {
+          foregroundRefreshTimerRef.current = window.setTimeout(() => {
+            foregroundRefreshTimerRef.current = null;
+            const queuedReason =
+              queuedForegroundRefreshReasonRef.current || reason;
+            queuedForegroundRefreshReasonRef.current = null;
+            void runRefresh(queuedReason);
+          }, 1000 - elapsedMs);
+        }
+        return;
+      }
+
+      void runRefresh(reason);
     };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -3903,7 +3963,10 @@ export function useWorkTalk() {
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
+      disposed = true;
       window.clearInterval(intervalId);
+      clearForegroundRefreshTimer();
+      queuedForegroundRefreshReasonRef.current = null;
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };

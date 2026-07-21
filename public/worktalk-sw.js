@@ -47,8 +47,8 @@ function buildWorkTalkTarget(data = {}) {
     data.messageId ?? data.message ?? data.message_id
   );
   const fallbackPath = roomId
-    ? `/worktalk?roomId=${encodeURIComponent(roomId)}${
-        messageId ? `&messageId=${encodeURIComponent(messageId)}` : ""
+    ? `/worktalk?room=${encodeURIComponent(roomId)}${
+        messageId ? `&message=${encodeURIComponent(messageId)}` : ""
       }`
     : WORKTALK_URL;
   const targetUrl = new URL(

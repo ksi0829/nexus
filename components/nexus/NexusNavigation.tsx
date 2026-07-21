@@ -1,10 +1,12 @@
 "use client";
 
+import { useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { WorkTalkIcon } from "@/components/worktalk/WorkTalkIcon";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import { restoreDocumentWindowPlacement } from "@/app/_lib/windowPlacement";
+import { removeCurrentWorkTalkPushSubscription } from "@/hooks/useWorkTalkPush";
 import styles from "./NexusNavigation.module.css";
 
 type NexusNavigationProps = {
@@ -13,6 +15,7 @@ type NexusNavigationProps = {
 
 export function NexusNavigation({ active }: NexusNavigationProps) {
   const router = useRouter();
+  const logoutInFlightRef = useRef(false);
 
   const navigate = (path: string) => {
     if (path.startsWith("/worktalk")) {
@@ -22,11 +25,22 @@ export function NexusNavigation({ active }: NexusNavigationProps) {
   };
 
   const logout = async () => {
-    await createSupabaseBrowser().auth.signOut();
-    localStorage.removeItem("role");
-    localStorage.removeItem("team");
-    localStorage.removeItem("name");
-    router.replace("/login");
+    if (logoutInFlightRef.current) return;
+    logoutInFlightRef.current = true;
+    try {
+      await removeCurrentWorkTalkPushSubscription({ timeoutMs: 2500 });
+    } catch (error) {
+      console.warn("[WorkTalk Push] Push subscription cleanup failed during logout", error);
+    }
+    try {
+      await createSupabaseBrowser().auth.signOut();
+      localStorage.removeItem("role");
+      localStorage.removeItem("team");
+      localStorage.removeItem("name");
+      router.replace("/login");
+    } finally {
+      logoutInFlightRef.current = false;
+    }
   };
 
   return (

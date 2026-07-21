@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   DragEvent,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -22,7 +23,10 @@ import {
   getCurrentOrgTeam,
 } from "@/app/_lib/currentOrg";
 import { useWorkTalk } from "@/hooks/useWorkTalk";
-import { useWorkTalkPush } from "@/hooks/useWorkTalkPush";
+import {
+  removeCurrentWorkTalkPushSubscription,
+  useWorkTalkPush,
+} from "@/hooks/useWorkTalkPush";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import {
   NEXUS_APPROVAL_BACKUP_ROOT,
@@ -1097,6 +1101,8 @@ export function WorkTalkApp() {
   const [roomAction, setRoomAction] = useState<
     "delete" | "leave" | "direct-leave" | null
   >(null);
+  const [roomActionTargetRoomId, setRoomActionTargetRoomId] =
+    useState<number | null>(null);
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [memberManagerOpen, setMemberManagerOpen] = useState(false);
   const [memberListOpen, setMemberListOpen] = useState(false);
@@ -1210,6 +1216,7 @@ export function WorkTalkApp() {
   const roomPaneRef = useRef<HTMLElement>(null);
   const conversationPaneRef = useRef<HTMLElement>(null);
   const deepLinkHandledRef = useRef(false);
+  const deepLinkMissingRoomRetryRef = useRef({ key: "", count: 0 });
   const userOpenedRoomRef = useRef(false);
   const confirmedDeepLinkOpenedRef = useRef(false);
   const lastVisibleReadKeyRef = useRef("");
@@ -1236,6 +1243,7 @@ export function WorkTalkApp() {
   }>({ activeUntil: 0, roomId: null, scrollVersion: 0 });
   const roomTapStartRef = useRef<RoomTapStart | null>(null);
   const mobileRoomHistoryActiveRef = useRef(false);
+  const logoutInFlightRef = useRef(false);
   const {
     status: pushStatus,
     errorMessage: pushErrorMessage,
@@ -2156,16 +2164,27 @@ export function WorkTalkApp() {
   }
 
   async function handleLogout() {
+    if (logoutInFlightRef.current) return;
+    logoutInFlightRef.current = true;
     if (isNexusDesktopApp) {
       (window as NexusDesktopWindow).chrome?.webview?.postMessage(
         JSON.stringify({ type: "auth-state", authenticated: false })
       );
     }
-    await createSupabaseBrowser().auth.signOut();
-    localStorage.removeItem("role");
-    localStorage.removeItem("team");
-    localStorage.removeItem("name");
-    router.replace("/login");
+    try {
+      await removeCurrentWorkTalkPushSubscription({ timeoutMs: 2500 });
+    } catch (error) {
+      console.warn("[WorkTalk Push] Push subscription cleanup failed during logout", error);
+    }
+    try {
+      await createSupabaseBrowser().auth.signOut();
+      localStorage.removeItem("role");
+      localStorage.removeItem("team");
+      localStorage.removeItem("name");
+      router.replace("/login");
+    } finally {
+      logoutInFlightRef.current = false;
+    }
   }
 
   function closeProfileModal() {
@@ -2682,10 +2701,29 @@ export function WorkTalkApp() {
     !isSelectedRoomOwner;
   const canLeaveDirectRoom =
     selectedRoom?.room_type === "direct" && !selectedRoom.is_fixed;
-  const activeDirectMemberCount =
-    selectedRoom?.room_type === "direct"
-      ? selectedRoom.members.filter((member) => !member.left_at).length
+  const roomActionTargetRoom =
+    roomActionTargetRoomId !== null
+      ? rooms.find((room) => room.id === roomActionTargetRoomId) || null
+      : selectedRoom;
+  const roomActionTargetDirectMemberCount =
+    roomActionTargetRoom?.room_type === "direct"
+      ? roomActionTargetRoom.members.filter((member) => !member.left_at).length
       : 0;
+  const contextMenuRoom = roomContextMenu?.room ?? null;
+  const contextMenuOwnMembership = contextMenuRoom?.members.find(
+    (member) => member.user_id === currentProfile?.id
+  );
+  const contextMenuNotificationsEnabled =
+    contextMenuOwnMembership?.notifications_enabled ?? true;
+  const contextMenuIsOwner =
+    contextMenuRoom?.room_type === "group" &&
+    contextMenuRoom.created_by === currentProfile?.id;
+  const contextMenuCanLeaveGroup =
+    contextMenuRoom?.room_type === "group" &&
+    !contextMenuRoom.is_fixed &&
+    !contextMenuIsOwner;
+  const contextMenuCanHideDirect =
+    contextMenuRoom?.room_type === "direct" && !contextMenuRoom.is_fixed;
   const selectedRoomMembers = useMemo(
     () =>
       selectedRoom
@@ -3677,6 +3715,26 @@ export function WorkTalkApp() {
         roomId: deepLink.roomId,
         roomsCount: rooms.length,
       });
+      const retryKey = `${deepLink.roomId}:${deepLink.messageId ?? ""}`;
+      const previousRetry = deepLinkMissingRoomRetryRef.current;
+      const retryCount =
+        previousRetry.key === retryKey ? previousRetry.count : 0;
+      if (rooms.length > 0 && retryCount < 2) {
+        const retryTimeoutId = window.setTimeout(() => {
+          deepLinkMissingRoomRetryRef.current = {
+            key: retryKey,
+            count: retryCount + 1,
+          };
+          void reload();
+        }, 350);
+        updateDeepLinkDebugStatus({
+          targetRoomId: deepLink.roomId,
+          targetMessageId: deepLink.messageId ?? null,
+          targetRoomFound: false,
+          deepLinkOpenBlockedReason: `retry_missing_room_${retryCount + 1}`,
+        });
+        return () => window.clearTimeout(retryTimeoutId);
+      }
       if (rooms.length > 0) {
         const fallbackTimeoutId = window.setTimeout(() => {
           forceMobileListModeReset("push_open_list_fallback");
@@ -3688,6 +3746,7 @@ export function WorkTalkApp() {
     }
 
     deepLinkHandledRef.current = true;
+    deepLinkMissingRoomRetryRef.current = { key: "", count: 0 };
 
     const timeoutId = window.setTimeout(() => {
       setPendingDeepLinkRoomId(null);
@@ -3725,6 +3784,7 @@ export function WorkTalkApp() {
     currentProfile,
     forceMobileListModeReset,
     pendingDeepLinkRoomId,
+    reload,
     rooms,
     scheduleBottomScroll,
     selectRoom,
@@ -4305,6 +4365,22 @@ export function WorkTalkApp() {
     setRoomContextMenu(null);
   }
 
+  function toggleRoomNotificationsFromContext(room: WorkTalkRoom) {
+    const ownMember = room.members.find(
+      (member) => member.user_id === currentProfile?.id
+    );
+    const enabled = ownMember?.notifications_enabled ?? true;
+    setRoomContextMenu(null);
+    void setRoomNotifications(room.id, !enabled);
+  }
+
+  function requestRoomLeaveFromContext(
+    room: WorkTalkRoom,
+    action: "leave" | "direct-leave"
+  ) {
+    startRoomAction(action, room.id);
+  }
+
   function handleRoomPointerDown(
     roomId: number,
     event: ReactPointerEvent<HTMLButtonElement>
@@ -4740,6 +4816,37 @@ export function WorkTalkApp() {
     ]);
   }
 
+  function handleComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const clipboardItems = Array.from(event.clipboardData.items || []);
+    const imageFiles = clipboardItems
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (imageFiles.length === 0) return;
+
+    const pendingFileKeys = new Set(
+      pendingFiles.map(
+        ({ file }) =>
+          `${file.name}:${file.type}:${file.size}:${file.lastModified}`
+      )
+    );
+    const uniqueImageFiles = imageFiles.filter(
+      (file) =>
+        !pendingFileKeys.has(
+          `${file.name}:${file.type}:${file.size}:${file.lastModified}`
+        )
+    );
+
+    if (uniqueImageFiles.length > 0) {
+      addFiles(uniqueImageFiles);
+    }
+
+    if (!event.clipboardData.getData("text/plain")) {
+      event.preventDefault();
+    }
+  }
+
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     setDragActive(false);
@@ -4782,25 +4889,42 @@ export function WorkTalkApp() {
     await setRoomOrder(nextIds);
   }
 
+  function startRoomAction(
+    action: "delete" | "leave" | "direct-leave",
+    targetRoomId?: number | null
+  ) {
+    setRoomContextMenu(null);
+    setRoomMenuOpen(false);
+    setRoomActionTargetRoomId(targetRoomId ?? selectedRoom?.id ?? null);
+    setRoomAction(action);
+  }
+
+  function closeRoomAction() {
+    setRoomAction(null);
+    setRoomActionTargetRoomId(null);
+  }
+
   async function confirmRoomAction() {
-    if (!selectedRoom || !roomAction || roomActionBusy) return;
+    if (!roomActionTargetRoom || !roomAction || roomActionBusy) return;
     setRoomActionBusy(true);
     const completed =
       roomAction === "delete"
-        ? await deleteGroupRoom(selectedRoom.id)
+        ? await deleteGroupRoom(roomActionTargetRoom.id)
         : roomAction === "direct-leave"
           ? await leaveDirectRoom(
-              selectedRoom.id,
-              activeDirectMemberCount <= 1,
+              roomActionTargetRoom.id,
+              roomActionTargetDirectMemberCount <= 1,
               "room-action-confirm:direct-hide"
             )
-          : await leaveGroupRoom(selectedRoom.id);
+          : await leaveGroupRoom(roomActionTargetRoom.id);
     setRoomActionBusy(false);
 
     if (completed) {
-      setRoomAction(null);
+      closeRoomAction();
       setRoomMenuOpen(false);
-      setMobileConversationOpen(false);
+      if (selectedRoomId === roomActionTargetRoom.id) {
+        setMobileConversationOpen(false);
+      }
     }
   }
 
@@ -6017,7 +6141,7 @@ export function WorkTalkApp() {
                       className={styles.dangerMenuItem}
                       onClick={() => {
                         setRoomMenuOpen(false);
-                        setRoomAction("delete");
+                        startRoomAction("delete", selectedRoom.id);
                       }}
                     >
                       <WorkTalkIcon name="close" />
@@ -6030,7 +6154,7 @@ export function WorkTalkApp() {
                       className={styles.dangerMenuItem}
                       onClick={() => {
                         setRoomMenuOpen(false);
-                        setRoomAction("leave");
+                        startRoomAction("leave", selectedRoom.id);
                       }}
                     >
                       <WorkTalkIcon name="back" />
@@ -6043,7 +6167,7 @@ export function WorkTalkApp() {
                       className={styles.dangerMenuItem}
                       onClick={() => {
                         setRoomMenuOpen(false);
-                        setRoomAction("direct-leave");
+                        startRoomAction("direct-leave", selectedRoom.id);
                       }}
                     >
                       <WorkTalkIcon name="back" />
@@ -6424,6 +6548,7 @@ export function WorkTalkApp() {
                   ref={messageInputRef}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onPaste={handleComposerPaste}
                   onFocus={() =>
                     appendUxDebugEvent({
                       scope: "input",
@@ -6490,8 +6615,14 @@ export function WorkTalkApp() {
         <div
           className={styles.roomContextMenu}
           style={{
-            left: Math.min(roomContextMenu.x, window.innerWidth - 190),
-            top: Math.min(roomContextMenu.y, window.innerHeight - 90),
+            left: Math.max(
+              8,
+              Math.min(roomContextMenu.x, window.innerWidth - 220)
+            ),
+            top: Math.max(
+              8,
+              Math.min(roomContextMenu.y, window.innerHeight - 190)
+            ),
           }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -6504,6 +6635,39 @@ export function WorkTalkApp() {
               ? "고정 해제"
               : "상단 고정"}
           </button>
+          <button
+            type="button"
+            onClick={() => toggleRoomNotificationsFromContext(roomContextMenu.room)}
+          >
+            <WorkTalkIcon
+              name={contextMenuNotificationsEnabled ? "mute" : "bell"}
+            />
+            {contextMenuNotificationsEnabled ? "알림 끄기" : "알림 켜기"}
+          </button>
+          {contextMenuCanLeaveGroup && (
+            <button
+              type="button"
+              className={styles.dangerContextMenuItem}
+              onClick={() =>
+                requestRoomLeaveFromContext(roomContextMenu.room, "leave")
+              }
+            >
+              <WorkTalkIcon name="back" />
+              방 나가기
+            </button>
+          )}
+          {contextMenuCanHideDirect && (
+            <button
+              type="button"
+              className={styles.dangerContextMenuItem}
+              onClick={() =>
+                requestRoomLeaveFromContext(roomContextMenu.room, "direct-leave")
+              }
+            >
+              <WorkTalkIcon name="back" />
+              1:1 대화 숨기기
+            </button>
+          )}
         </div>
       )}
 
@@ -6802,10 +6966,10 @@ export function WorkTalkApp() {
         </div>
       )}
 
-      {roomAction && selectedRoom && (
+      {roomAction && roomActionTargetRoom && (
         <div
           className={styles.modalBackdrop}
-          onClick={() => setRoomAction(null)}
+          onClick={closeRoomAction}
         >
           <section
             className={styles.confirmModal}
@@ -6822,7 +6986,9 @@ export function WorkTalkApp() {
                   : "이 대화방에서 나갈까요?"}
             </h2>
             <p>
-              <strong>{getRoomTitle(selectedRoom, currentProfile?.id)}</strong>
+              <strong>
+                {getRoomTitle(roomActionTargetRoom, currentProfile?.id)}
+              </strong>
               {roomAction === "delete"
                 ? "의 모든 메시지와 첨부파일이 함께 삭제되며 복구할 수 없습니다."
                   : roomAction === "direct-leave"
@@ -6832,7 +6998,7 @@ export function WorkTalkApp() {
             <div>
               <button
                 type="button"
-                onClick={() => setRoomAction(null)}
+                onClick={closeRoomAction}
                 disabled={roomActionBusy}
               >
                 취소
